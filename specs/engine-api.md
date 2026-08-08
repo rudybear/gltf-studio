@@ -3,12 +3,19 @@
 Owns: `packages/engine-api/src/{json-patch,value-types,play-controller,audio-host,audio-graph-host,index}.ts`,
 `packages/contract-tests/src/{play-controller,audio-host,index,self-check.test}.ts` (see
 `specs/ownership.json` — `render-host.ts`/`storage-provider.ts` and their contract-test files are
-now owned by `specs/render-host.md`/`specs/storage-provider.md` respectively).
+now owned by `specs/render-host.md`/`specs/storage-provider.md` respectively; `agent-service.ts` in
+both packages is likewise owned by `specs/agent-service.md`, not this file).
 
 `packages/engine-api` is the types-only editor↔engine interface layer (Phase A of the program
 plan): `RenderHost`, `PlayController`, `AudioHost`, `AudioGraphHost`, `StorageProvider`, plus the
 shared value types they use. `packages/contract-tests` exports a vitest describe-factory per
-interface that any implementation must pass before the app registers it.
+interface that any implementation must pass before the app registers it. Both packages' `index.ts`
+and (for `contract-tests`) `self-check.test.ts` barrel/aggregate every interface, including
+`AgentService` (`specs/agent-service.md`) as of the agentic-authoring work — a barrel-file change
+that only adds a re-export of an already-independently-specified module is not itself a change to
+this file's requirements, but is noted here so the ownership-drift check's file-level (not
+package-wide) globs on these two files stay accountable to a real cross-reference rather than a
+silent touch.
 
 This file was originally a **seed**, not a full spec: it transcribed ~10 requirements directly
 from the program plan's Phase A prose to give the drift-checking tooling something real to check

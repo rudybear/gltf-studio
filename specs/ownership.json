@@ -8,10 +8,12 @@
   "packages/engine-api/src/audio-host.ts": "specs/engine-api.md",
   "packages/engine-api/src/audio-graph-host.ts": "specs/engine-api.md",
   "packages/engine-api/src/index.ts": "specs/engine-api.md",
+  "packages/engine-api/src/agent-service.ts": "specs/agent-service.md",
   "packages/contract-tests/src/render-host.ts": "specs/render-host.md",
   "packages/contract-tests/src/storage-provider.ts": "specs/storage-provider.md",
   "packages/contract-tests/src/play-controller.ts": "specs/engine-api.md",
   "packages/contract-tests/src/audio-host.ts": "specs/engine-api.md",
+  "packages/contract-tests/src/agent-service.ts": "specs/agent-service.md",
   "packages/contract-tests/src/index.ts": "specs/engine-api.md",
   "packages/contract-tests/src/self-check.test.ts": "specs/engine-api.md",
   "packages/editor-core/**": "specs/document-model.md"
