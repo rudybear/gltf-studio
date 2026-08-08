@@ -1,0 +1,32 @@
+{
+  "name": "@gltf-studio/contract-tests",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Exported vitest describe-factories asserting the engine-api contracts (RenderHost, StorageProvider, PlayController, AudioHost) against any implementation.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*"
+  },
+  "peerDependencies": {
+    "vitest": "^2.1.8"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

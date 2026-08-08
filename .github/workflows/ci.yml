@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # No `version:` input — the repo's package.json "packageManager" field
+      # (pnpm@11.18.0) governs which pnpm gets installed. Passing a
+      # conflicting `version:` here has broken CI on a sibling repo before.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm lint
+      - run: node scripts/check-drift.mjs
+      - run: node scripts/gen-status.mjs --check
+      - run: node --test scripts/drift.test.mjs

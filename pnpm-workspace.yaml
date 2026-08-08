@@ -1,0 +1,23 @@
+packages:
+  - "packages/*"
+
+allowBuilds:
+  esbuild: true
+
+# Vendored @gltfi/* packages and the three.js render-host adapter are not published to
+# npm (see docs/adr/0003-vendored-gltfi-tarballs.md). These overrides force ANY resolution
+# of these package names — direct or transitive — onto the committed vendor/ tarball
+# regardless of the semver range a consumer declares. Nothing in this workspace depends on
+# them yet (engine-api and contract-tests are types-only / dependency-free per M0 scope), so
+# today these overrides are inert; scripts/refresh-vendor.mjs having produced valid,
+# installable tarballs from the sibling monorepos is what "proves the pipeline" at M0.
+overrides:
+  "@gltfi/kernel": "file:vendor/gltfi-kernel-0.0.1.tgz"
+  "@gltfi/ir": "file:vendor/gltfi-ir-0.0.1.tgz"
+  "@gltfi/gltf": "file:vendor/gltfi-gltf-0.0.1.tgz"
+  "@gltfi/emit-ts": "file:vendor/gltfi-emit-ts-0.0.1.tgz"
+  "@gltfi/parse-ts": "file:vendor/gltfi-parse-ts-0.0.1.tgz"
+  "@gltfi/verify": "file:vendor/gltfi-verify-0.0.1.tgz"
+  "@gltfi/runtime": "file:vendor/gltfi-runtime-0.0.1.tgz"
+  "@gltfi/runtime-lib": "file:vendor/gltfi-runtime-lib-0.0.1.tgz"
+  "@gltfi/three-adapter": "file:vendor/gltfi-three-adapter-0.0.1.tgz"

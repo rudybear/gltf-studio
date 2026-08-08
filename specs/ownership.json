@@ -1,0 +1,5 @@
+{
+  "$comment": "Maps source path globs to the spec file that owns them. scripts/check-drift.mjs uses this (in CI PR context only) to require a spec diff whenever owned code changes. Globs are checked in listed order; a path may match more than one entry.",
+  "packages/engine-api/**": "specs/engine-api.md",
+  "packages/contract-tests/**": "specs/engine-api.md"
+}

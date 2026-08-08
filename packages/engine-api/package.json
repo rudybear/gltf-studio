@@ -1,0 +1,21 @@
+{
+  "name": "@gltf-studio/engine-api",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Types-only editor<->engine interfaces (RenderHost, PlayController, AudioHost, AudioGraphHost, StorageProvider). No runtime code, no dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  }
+}
