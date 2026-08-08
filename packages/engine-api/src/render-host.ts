@@ -16,67 +16,77 @@ export type PatchOutcome = "applied" | "needs-reload";
  */
 export type GizmoChangePhase = "drag" | "commit";
 
+/** RH-018: the three gizmo modes attachGizmo can attach. */
+export type GizmoMode = "translate" | "rotate" | "scale";
+
 export interface GizmoChangeEvent {
   phase: GizmoChangePhase;
   nodeIndex: number;
   trs: TRS;
 }
 
-// OPEN(RH-highlight-shape-tbd): the plan lists "selection/hover highlight"
-// as one capability phrase without specifying whether it is one call or two
-// (setSelection/setHover). Modeled as a single method taking both pieces of
-// state so there is one source of truth for "what's highlighted"; revisit
-// once RH's full spec (a later task, per the plan's "Immediate next steps")
-// pins this down.
-export interface HighlightState {
-  selected: number[];
-  hovered: number | null;
-}
-
+/**
+ * RH-022/RH-023 (see specs/render-host.md): the highlighted-node set is
+ * modeled as a plain array of node indices rather than a
+ * selection/hover-split object — the editor computes whatever union of
+ * selection+hover it wants highlighted and passes the resulting set each
+ * time. `setHighlight([])` clears all highlighting (RH-023).
+ */
 export interface RenderHost {
   // OPEN(RH-mount-shape-tbd): plan names "mount" without specifying its
   // parameter beyond "viewport" — a DOM container is the minimal reasonable
-  // reading for a browser render host.
+  // reading for a browser render host. See specs/render-host.md's "Open
+  // questions" (still unresolved). Lifecycle behavior (idempotency,
+  // re-entry) is pinned down by RH-004, RH-009, RH-010.
   mount(container: HTMLElement): void;
 
   // OPEN(RH-loadscene-shape-tbd): plan does not specify whether loadScene
   // takes raw glTF JSON, a parsed container, or an EditorDocument-derived
-  // view. `unknown` pending editor-core's document shape.
+  // view. `unknown` pending editor-core's document shape (see
+  // specs/document-model.md). Lifecycle behavior (readiness, re-entry) is
+  // pinned down by RH-007, RH-008.
   loadScene(json: unknown): Promise<void>;
 
+  /** RH-005/RH-006: idempotent, and safe to call without a prior loadScene. */
   dispose(): void;
 
   /**
    * RH-001: fast path for edit-time updates. Structural patches honestly
    * return "needs-reload" in v1 rather than attempting a live structural
-   * splice.
+   * splice. RH-011/RH-012/RH-013 define the structural/non-structural
+   * classification rule.
    */
   patchScene(patches: JsonPatchOp[]): PatchOutcome;
 
-  // OPEN(RH-pick-coords-tbd): plan does not specify pick's coordinate space
-  // (viewport-relative pixels vs normalized device coordinates).
+  /**
+   * RH-015: `x`/`y` are normalized device coordinates in [-1, 1] on both
+   * axes, with +y up (not viewport-relative pixels).
+   */
   pick(x: number, y: number): PickResult | null;
 
+  /** RH-016/RH-017: see CameraPose (position + quaternion + optional target). */
   getCameraPose(): CameraPose;
   setCameraPose(pose: CameraPose): void;
 
-  // OPEN(RH-gizmo-kind-tbd): plan says "attachGizmo" without a gizmo
-  // kind/mode parameter (translate/rotate/scale); left out rather than
-  // guessed an enum the plan never names.
-  attachGizmo(nodeIndex: number): void;
+  /** RH-018/RH-019: attaches/replaces a gizmo of the given mode on the node. */
+  attachGizmo(nodeIndex: number, mode: GizmoMode): void;
   onGizmoChange(handler: (event: GizmoChangeEvent) => void): () => void;
 
   // OPEN(RH-pointer-value-tbd): applyPointer's value type is left `unknown`
   // — the plan's pointer-router reuse note (~35 families) implies a wide
   // variety of pointer value shapes that this types-only package should not
-  // narrow prematurely.
+  // narrow prematurely. Delegation/return contract pinned down by RH-020,
+  // RH-021.
   applyPointer(pointer: string, value: unknown): void;
 
-  setHighlight(state: HighlightState): void;
+  /** RH-022/RH-023. */
+  setHighlight(nodeIndices: number[]): void;
 
-  // OPEN(RH-snapshot-shape-tbd): snapshot()'s return type is left `unknown`.
-  // PlayController.stop() (PC-003) uses it to restore the pre-play scene;
-  // the concrete shape is an engine-three implementation detail until RH's
-  // full spec pins down a contract every RenderHost impl must honor.
-  snapshot(): unknown;
+  /**
+   * RH-024: resolves to a Promise of a PNG-encoded Blob at the render
+   * canvas's current resolution. See specs/render-host.md's "Open
+   * questions" for the unresolved tension with PC-003's use of "snapshot"
+   * to describe restoring pre-play scene *state* (not just an image).
+   */
+  snapshot(): Promise<Blob>;
 }
