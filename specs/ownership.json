@@ -1,5 +1,18 @@
 {
-  "$comment": "Maps source path globs to the spec file that owns them. scripts/check-drift.mjs uses this (in CI PR context only) to require a spec diff whenever owned code changes. Globs are checked in listed order; a path may match more than one entry.",
-  "packages/engine-api/**": "specs/engine-api.md",
-  "packages/contract-tests/**": "specs/engine-api.md"
+  "$comment": "Maps source path globs to the spec file that owns them. scripts/check-drift.mjs uses this (in CI PR context only) to require a spec diff whenever owned code changes. Globs are checked in listed order; a path may match more than one entry. Entries are deliberately file-level (not a package-wide `**`) for packages/engine-api and packages/contract-tests, so that e.g. editing render-host.ts requires only specs/render-host.md to change, not specs/engine-api.md too.",
+  "packages/engine-api/src/render-host.ts": "specs/render-host.md",
+  "packages/engine-api/src/storage-provider.ts": "specs/storage-provider.md",
+  "packages/engine-api/src/json-patch.ts": "specs/engine-api.md",
+  "packages/engine-api/src/value-types.ts": "specs/engine-api.md",
+  "packages/engine-api/src/play-controller.ts": "specs/engine-api.md",
+  "packages/engine-api/src/audio-host.ts": "specs/engine-api.md",
+  "packages/engine-api/src/audio-graph-host.ts": "specs/engine-api.md",
+  "packages/engine-api/src/index.ts": "specs/engine-api.md",
+  "packages/contract-tests/src/render-host.ts": "specs/render-host.md",
+  "packages/contract-tests/src/storage-provider.ts": "specs/storage-provider.md",
+  "packages/contract-tests/src/play-controller.ts": "specs/engine-api.md",
+  "packages/contract-tests/src/audio-host.ts": "specs/engine-api.md",
+  "packages/contract-tests/src/index.ts": "specs/engine-api.md",
+  "packages/contract-tests/src/self-check.test.ts": "specs/engine-api.md",
+  "packages/editor-core/**": "specs/document-model.md"
 }

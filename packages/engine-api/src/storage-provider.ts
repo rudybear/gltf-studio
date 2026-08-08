@@ -1,10 +1,22 @@
 import type { JsonPatchOp } from "./json-patch.js";
 import type { ProjectData, ProjectMeta } from "./value-types.js";
 
-// OPEN(SP-capabilities-shape-tbd): plan says "capabilities flags" without
-// enumerating which flags (e.g. supports a journal, supports multi-file
-// .gltf, supports concurrent writers). Left as an open boolean map.
-export type StorageCapabilities = Record<string, boolean>;
+/** SP-013: exactly these two flags, no open-ended map. */
+export interface StorageCapabilities {
+  fileHandles: boolean;
+  remote: boolean;
+}
+
+/**
+ * SP-017..SP-020: a typed error every StorageProvider method may reject
+ * with, so callers branch on `kind` rather than string-matching messages.
+ */
+export type StorageErrorKind = "quota-exceeded" | "not-found" | "permission-revoked";
+
+/** SP-020. */
+export interface StorageError extends Error {
+  kind: StorageErrorKind;
+}
 
 /**
  * StorageProvider: SP-001. All persistence goes through this interface so
@@ -14,30 +26,30 @@ export type StorageCapabilities = Record<string, boolean>;
 export interface StorageProvider {
   listProjects(): Promise<ProjectMeta[]>;
 
-  // OPEN(SP-create-signature-tbd): plan does not specify create()'s input;
-  // an id-less ProjectMeta is the minimal reasonable reading (the provider
-  // assigns the id).
+  /** SP-005/SP-006: the provider assigns and stabilizes the returned id. */
   create(meta: Omit<ProjectMeta, "id">): Promise<ProjectMeta>;
 
+  /** SP-018: rejects with a StorageError of kind "not-found" for an unknown id. */
   load(id: string): Promise<ProjectData>;
 
-  // OPEN(SP-save-signature-tbd): Phase A's "dirty-root save" describes
-  // saving only changed roots via locateJsonSpan/applyEdits, an
-  // editor-core/RenderHost-adjacent concern; whether that maps onto this
-  // interface as a whole-ProjectData save (as modeled here) or a
-  // patch-shaped save is not specified at the engine-api layer.
+  /**
+   * SP-008/SP-009/SP-010: writes `data.container` (exactly the
+   * `writeContainer` byte output) and `data.sidecar` together in one call;
+   * a subsequent `load(id)` round-trips both. SP-017: rejects with a
+   * StorageError of kind "quota-exceeded" when the backend refuses the
+   * write on quota grounds; SP-019: kind "permission-revoked" for a
+   * File-System-Access handle whose permission was revoked.
+   */
   save(id: string, data: ProjectData): Promise<void>;
 
   /**
-   * SP-004: autosaveJournal is patch-shaped (RFC 6902), doubling as the
-   * future backend sync wire format per Phase A.
+   * SP-004/SP-014: append-only within a rev-window, doubling as the future
+   * backend sync wire format per Phase A. SP-016: a successful save(id)
+   * clears the journal for that project.
    */
   autosaveJournal(sinceRev: number, patches: JsonPatchOp[]): Promise<void>;
 
-  // OPEN(SP-loadjournal-shape-tbd): plan says loadJournal exists for crash
-  // recovery ("crash recovery ≡ sync protocol") but does not specify its
-  // return shape beyond "the same patch-journal concept" as
-  // autosaveJournal's input.
+  /** SP-015: replay = load(id) (the base) + apply `patches` in order. */
   loadJournal(id: string): Promise<{ sinceRev: number; patches: JsonPatchOp[] }>;
 
   readonly capabilities: StorageCapabilities;
