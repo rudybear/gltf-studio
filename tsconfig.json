@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/engine-api" },
-    { "path": "packages/contract-tests" }
+    { "path": "packages/contract-tests" },
+    { "path": "packages/editor-core" }
   ]
 }

@@ -1,0 +1,31 @@
+{
+  "name": "@gltf-studio/editor-core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Document core (Phase A): EditorDocument, applyCommand, HistoryStack, GraphEdit/SceneEdit command factories, and byte-preserving save — the raw glTF JSON is the authored state (specs/document-model.md).",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*",
+    "@gltfi/gltf": "0.0.1",
+    "@gltfi/ir": "0.0.1"
+  },
+  "devDependencies": {
+    "fast-check": "^3.23.1",
+    "vitest": "^2.1.8"
+  }
+}

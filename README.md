@@ -18,9 +18,11 @@ requirement line is malformed, or (in PR context) code under a spec's ownership 
 accompanying spec diff. Agents implement cited requirements failing-test-first; nothing merges
 without its gate passing.
 
-**Status: pre-UX-freeze scaffold.** This is the M0 milestone — workspace skeleton, the
-types-only `engine-api` interface package, contract-test skeletons (todo inventory, not yet
-implemented against anything), the spec/drift/status tooling, and a vendored snapshot of the
-`@gltfi/*` transpiler packages and the three.js render-host adapter. No editor UI exists yet; UX
-mockups are being iterated separately and will freeze into `/docs/ux/` before implementation
-begins in earnest.
+**Status: pre-UX-freeze, document core landed.** M0 shipped the workspace skeleton, the types-only
+`engine-api` interface package, contract-test skeletons (todo inventory), the spec/drift/status
+tooling, and a vendored snapshot of the `@gltfi/*` transpiler packages and the three.js
+render-host adapter. M1 added `packages/editor-core`: `EditorDocument`, pure/structural-sharing
+`applyCommand`, `HistoryStack` (undo/redo/coalesce/transact), the `GraphEdit`/`SceneEdit` command
+factories, index-shift reference fixups, and byte-preserving `save` (specs/document-model.md,
+`DOC-001..038`). No editor UI exists yet; UX mockups are being iterated separately and will freeze
+into `/docs/ux/` before implementation begins in earnest.
