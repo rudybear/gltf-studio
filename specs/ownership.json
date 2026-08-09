@@ -1,5 +1,5 @@
 {
-  "$comment": "Maps source path globs to the spec file that owns them. scripts/check-drift.mjs uses this (in CI PR context only) to require a spec diff whenever owned code changes. Globs are checked in listed order; a path may match more than one entry. Entries are deliberately file-level (not a package-wide `**`) for packages/engine-api and packages/contract-tests, so that e.g. editing render-host.ts requires only specs/render-host.md to change, not specs/engine-api.md too.",
+  "$comment": "Maps source path globs to the spec file that owns them. scripts/check-drift.mjs uses this (in CI PR context only) to require a spec diff whenever owned code changes. Globs are checked in listed order; a path may match more than one entry. Entries are deliberately file-level (not a package-wide `**`) for packages/engine-api and packages/contract-tests, so that e.g. editing render-host.ts requires only specs/render-host.md to change, not specs/engine-api.md too. The UX-freeze (U4) entries below are package-wide `**` on purpose: packages/app is a catch-all for editor UI not owned by a canvas-specific package (scene tree, viewport, inspector, data tab, pointer picker, and Copilot panel all live there until/unless they earn their own package), and packages/graph-canvas / packages/audio-canvas / packages/script-panel are not yet scaffolded, added now so ownership governs them from the moment they exist (same rationale as packages/editor-core below).",
   "packages/engine-api/src/render-host.ts": "specs/render-host.md",
   "packages/engine-api/src/storage-provider.ts": "specs/storage-provider.md",
   "packages/engine-api/src/json-patch.ts": "specs/engine-api.md",
@@ -16,5 +16,10 @@
   "packages/contract-tests/src/agent-service.ts": "specs/agent-service.md",
   "packages/contract-tests/src/index.ts": "specs/engine-api.md",
   "packages/contract-tests/src/self-check.test.ts": "specs/engine-api.md",
-  "packages/editor-core/**": "specs/document-model.md"
+  "packages/editor-core/**": "specs/document-model.md",
+  "docs/ux/**": "specs/ux-shell.md",
+  "packages/app/**": "specs/ux-shell.md",
+  "packages/graph-canvas/**": "specs/ux-graph-canvas.md",
+  "packages/audio-canvas/**": "specs/ux-audio-graph.md",
+  "packages/script-panel/**": "specs/ux-script.md"
 }
