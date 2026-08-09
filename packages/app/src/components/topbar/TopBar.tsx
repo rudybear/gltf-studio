@@ -14,7 +14,7 @@ import { HistoryDropdown } from "./HistoryDropdown";
 export function TopBar(): JSX.Element {
   const projectName = useAppStore((s) => s.projectName);
   const projectDirty = useAppStore((s) => s.projectDirty);
-  const importGlb = useAppStore((s) => s.importGlb);
+  const importFiles = useAppStore((s) => s.importFiles);
   const exportProject = useAppStore((s) => s.exportProject);
   const hasDocument = useAppStore((s) => s.document !== null);
   const canUndo = useAppStore((s) => s.canUndo);
@@ -41,11 +41,24 @@ export function TopBar(): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function onFilePicked(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = e.target.files?.[0];
+    const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
-    if (!file) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    await importGlb({ name: file.name, bytes });
+    if (files.length === 0) return;
+    await importFiles(files);
+  }
+
+  // Drag-and-drop onto the Import control: a multi-file .gltf + siblings
+  // (or a single .glb) dropped here goes through the exact same
+  // `importFiles` path as a multi-select via the file input, per
+  // specs/ux-shell.md's import requirements.
+  function onImportDragOver(e: React.DragEvent<HTMLButtonElement>): void {
+    if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+  }
+
+  async function onImportDrop(e: React.DragEvent<HTMLButtonElement>): Promise<void> {
+    if (e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    await importFiles(Array.from(e.dataTransfer.files));
   }
 
   const topbarTintClass = playState === "playing" ? "topbar-playing" : playState === "paused" ? "topbar-paused" : "";
@@ -60,13 +73,23 @@ export function TopBar(): JSX.Element {
         {projectDirty ? "*" : ""}
       </span>
       <div className="topbar-group">
-        <button className="btn" data-testid="topbar.import" onClick={() => fileInputRef.current?.click()}>
+        <button
+          className="btn"
+          data-testid="topbar.import"
+          title="Import a .glb, or a .gltf together with its .bin/texture/audio siblings (select or drag-and-drop all of them at once)."
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={onImportDragOver}
+          onDrop={(e) => {
+            void onImportDrop(e);
+          }}
+        >
           Import
         </button>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".glb,.gltf"
+          accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp,.mp3,.wav,.ogg"
+          multiple
           data-testid="topbar.import-input"
           style={{ display: "none" }}
           onChange={(e) => {

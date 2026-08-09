@@ -283,7 +283,7 @@ export function describePlayControllerContract(makeHarness: () => PlayController
       const before = renderHost.loadSceneCalls.length;
       await controller.stop();
       expect(renderHost.loadSceneCalls.length).toBe(before + 1);
-      expect(renderHost.loadSceneCalls[renderHost.loadSceneCalls.length - 1]).toEqual(documentJson);
+      expect(renderHost.loadSceneCalls[renderHost.loadSceneCalls.length - 1]).toEqual({ json: documentJson, binary: undefined });
     });
 
     it("stop() after stop() (already stopped) does not throw", async () => {

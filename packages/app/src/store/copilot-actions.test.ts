@@ -310,8 +310,11 @@ describe("Try in play (Part B, apply-scratch-play-discard, UX-1007)", () => {
     expect(useAppStore.getState().tryInPlayController).toBeNull();
     expect(useAppStore.getState().tryInPlayEntryId).toBeNull();
     expect(useAppStore.getState().history!.document.rev).toBe(revBefore);
-    // The "discard" half: an explicit final loadScene back to the real committed json.
-    expect(renderHost.loadScene).toHaveBeenLastCalledWith(useAppStore.getState().history!.document.json);
+    // The "discard" half: an explicit final loadScene back to the real committed json (+ binary, see sceneSourceOf).
+    expect(renderHost.loadScene).toHaveBeenLastCalledWith({
+      json: useAppStore.getState().history!.document.json,
+      binary: null
+    });
   });
 
   it("does not block acceptCopilotProposal for a DIFFERENT proposal while previewing one", async () => {
