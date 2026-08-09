@@ -8,9 +8,12 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { runCheck } from "./check-drift.mjs";
+
+const CHECK_DRIFT_PATH = fileURLToPath(new URL("./check-drift.mjs", import.meta.url));
 
 const tmpDirs = [];
 
@@ -125,6 +128,58 @@ test("class (c): ownership drift — owned path changed without a spec diff fail
     assert.ok(
       report.errors.some((e) => e.includes("Ownership drift") && e.includes("packages/foo/src/foo.ts")),
       `expected an "Ownership drift" error, got:\n${report.errors.join("\n")}`
+    );
+  } finally {
+    if (previousBaseRef === undefined) delete process.env.GITHUB_BASE_REF;
+    else process.env.GITHUB_BASE_REF = previousBaseRef;
+  }
+});
+
+test("class (c): ownership drift — caught via --simulate-pr / baseRef option WITHOUT setting GITHUB_BASE_REF", () => {
+  // GITHUB_BASE_REF is NOT a reliable "unset" precondition here: a real
+  // GitHub Actions PR build (the exact context this whole flag exists to
+  // let you simulate locally) legitimately sets it for every job in the
+  // run, including this test suite. So — like the other GITHUB_BASE_REF
+  // tests in this file — save/clear it for the duration of the test and
+  // restore it in a finally, rather than asserting it starts undefined.
+  const previousBaseRef = process.env.GITHUB_BASE_REF;
+  delete process.env.GITHUB_BASE_REF;
+  try {
+    const root = makeFixture();
+    writeFile(root, "specs/ownership.json", JSON.stringify({ "packages/foo/**": "specs/engine-api.md" }, null, 2));
+    writeFile(root, "specs/engine-api.md", "- [RH-008] (active) Owns packages/foo.\n");
+    writeFile(root, "packages/foo/src/foo.ts", "export const x = 1;\n");
+
+    git(root, ["init", "-q", "-b", "main"]);
+    git(root, ["config", "user.email", "test@example.com"]);
+    git(root, ["config", "user.name", "Drift Selftest"]);
+    git(root, ["add", "-A"]);
+    git(root, ["commit", "-q", "-m", "base"]);
+    const baseSha = git(root, ["rev-parse", "HEAD"]).trim();
+    // Simulate a fetched base branch (what actions/checkout leaves behind)
+    // without needing a real remote.
+    git(root, ["update-ref", "refs/remotes/origin/main", baseSha]);
+
+    // Change the owned file WITHOUT touching specs/engine-api.md.
+    writeFile(root, "packages/foo/src/foo.ts", "export const x = 2;\n");
+    git(root, ["add", "-A"]);
+    git(root, ["commit", "-q", "-m", "change foo without a spec diff"]);
+
+    // 1. Direct runCheck() API call with an explicit baseRef — no env var touched.
+    const report = runCheck(root, { ci: true, baseRef: "main" });
+    assert.equal(process.env.GITHUB_BASE_REF, undefined, "runCheck({ baseRef }) must not touch GITHUB_BASE_REF");
+    assert.ok(
+      report.errors.some((e) => e.includes("Ownership drift") && e.includes("packages/foo/src/foo.ts")),
+      `expected an "Ownership drift" error, got:\n${report.errors.join("\n")}`
+    );
+
+    // 2. End-to-end CLI-level assertion: the actual --simulate-pr flag parsing.
+    const cli = spawnSync("node", [CHECK_DRIFT_PATH, "--simulate-pr", root], { encoding: "utf8" });
+    assert.equal(process.env.GITHUB_BASE_REF, undefined, "--simulate-pr CLI run must not touch GITHUB_BASE_REF");
+    assert.notEqual(cli.status, 0, `expected non-zero exit, got ${cli.status}\nstdout:\n${cli.stdout}\nstderr:\n${cli.stderr}`);
+    assert.ok(
+      `${cli.stdout}${cli.stderr}`.includes("Ownership drift"),
+      `expected "Ownership drift" in CLI output, got:\nstdout:\n${cli.stdout}\nstderr:\n${cli.stderr}`
     );
   } finally {
     if (previousBaseRef === undefined) delete process.env.GITHUB_BASE_REF;

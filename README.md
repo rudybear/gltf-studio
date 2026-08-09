@@ -32,6 +32,21 @@ scene** on the empty-project screen.
   `docs/adr/0003-vendored-gltfi-tarballs.md`) provide the real `KHR_interactivity`
   parse/verify/interpret/compile/emit pipeline underneath all of it.
 
+## Contributing
+
+Before pushing, run `pnpm check:ci` — the full local parity gate CI runs on a PR: the drift check
+in simulated-PR mode (`check-drift.mjs --simulate-pr`, catching ownership-drift failures that are
+otherwise invisible until the PR's first CI run), generated-status freshness (`gen-status.mjs
+--check`), `pnpm lint`, the drift self-test (`pnpm drift:selftest`), `pnpm build`, and the unit
+test suite (`pnpm test`). It deliberately does **not** run `pnpm test:browser` or `pnpm e2e` —
+those need a real browser/Playwright setup and only run in CI or on demand.
+
+`pnpm install` auto-wires a `pre-push` git hook (via `scripts/setup-hooks.mjs`, which sets `git
+config core.hooksPath .githooks` — plain shell script, no Husky dependency) that runs the fast
+subset automatically on every `git push`: `pnpm check:fast` (just the drift `--simulate-pr` and
+`gen-status --check` steps, well under 10s). Run `pnpm check:ci` by hand before opening a PR for
+the fuller gate.
+
 ## About
 
 `gltf-studio` is a hosted web editor for glTF experiences: import a glTF/GLB asset, arrange its

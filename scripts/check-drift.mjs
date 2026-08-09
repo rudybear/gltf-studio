@@ -6,10 +6,11 @@
 //       file, or that exists but is `retired`.
 //   (b) a spec file with a malformed requirement-line-shaped line (starts
 //       like `- [ID] (...)` but doesn't match the full format).
-//   (c) (CI PR context only, i.e. GITHUB_BASE_REF is set) a file under an
-//       specs/ownership.json glob changed vs the PR's base branch without a
-//       spec file changing in the same diff. Skipped on plain `push` builds
-//       and always skipped locally (no base ref to diff against).
+//   (c) (CI PR context only, i.e. GITHUB_BASE_REF is set — or locally via
+//       --simulate-pr, see below) a file under an specs/ownership.json glob
+//       changed vs the PR's base branch without a spec file changing in the
+//       same diff. Skipped on plain `push` builds and skipped locally unless
+//       --simulate-pr is passed (no base ref to diff against otherwise).
 //
 // Orphan active requirements (zero citing tests) are WARN-only for now.
 // ORPHAN_CHECK: flip this to a hard failure on a per-module basis once that
@@ -17,9 +18,14 @@
 // requirements against yet at M0, so failing on orphans today would fail
 // every requirement in the repo).
 //
-// Usage: node scripts/check-drift.mjs [rootDir]
+// --simulate-pr[=<base>] (default base "main"): arms the ownership-drift
+// check locally, exactly as CI does, by diffing `origin/<base>...HEAD` —
+// without needing GITHUB_BASE_REF set. Requires `origin/<base>` to exist
+// locally (run `git fetch origin <base>` first if it's stale).
+//
+// Usage: node scripts/check-drift.mjs [rootDir] [--simulate-pr[=<base>]]
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const REQ_LINE_RE =
@@ -209,7 +215,7 @@ function checkOwnershipDrift(rootDir, ownership, baseRef) {
  * Runs the full drift check against rootDir. `ci: true` additionally runs
  * the ownership-drift check (itself a no-op unless GITHUB_BASE_REF is set).
  */
-export function runCheck(rootDir, { ci = false } = {}) {
+export function runCheck(rootDir, { ci = false, baseRef } = {}) {
   const { registry, malformed } = parseSpecs(join(rootDir, "specs"));
   const citations = scanTestCitations(rootDir);
 
@@ -241,7 +247,8 @@ export function runCheck(rootDir, { ci = false } = {}) {
     const ownershipPath = join(rootDir, "specs", "ownership.json");
     if (existsSync(ownershipPath)) {
       const ownership = JSON.parse(readFileSync(ownershipPath, "utf8"));
-      const result = checkOwnershipDrift(rootDir, ownership, process.env.GITHUB_BASE_REF);
+      const effectiveBaseRef = baseRef !== undefined ? baseRef : process.env.GITHUB_BASE_REF;
+      const result = checkOwnershipDrift(rootDir, ownership, effectiveBaseRef);
       errors.push(...result.errors);
       ownershipSkippedReason = result.skippedReason;
     }
@@ -276,9 +283,20 @@ function isMain() {
 }
 
 if (isMain()) {
-  const rootDir = process.argv[2] ? join(process.cwd(), process.argv[2]) : process.cwd();
-  const ci = Boolean(process.env.GITHUB_BASE_REF);
-  const report = runCheck(rootDir, { ci });
+  const rawArgs = process.argv.slice(2);
+  const simulatePrToken = rawArgs.find((a) => a === "--simulate-pr" || a.startsWith("--simulate-pr="));
+  let simulateBaseRef;
+  if (simulatePrToken !== undefined) {
+    const eqIdx = simulatePrToken.indexOf("=");
+    const rawBase = eqIdx === -1 ? "main" : simulatePrToken.slice(eqIdx + 1);
+    simulateBaseRef = rawBase.startsWith("origin/") ? rawBase.slice("origin/".length) : rawBase;
+  }
+  const positionalArgs = rawArgs.filter((a) => a !== simulatePrToken);
+  // resolve() (not join()) so an absolute rootDir arg is honored as-is
+  // instead of being appended onto cwd.
+  const rootDir = positionalArgs[0] ? resolve(process.cwd(), positionalArgs[0]) : process.cwd();
+  const ci = Boolean(process.env.GITHUB_BASE_REF) || simulateBaseRef !== undefined;
+  const report = runCheck(rootDir, { ci, baseRef: simulateBaseRef ?? process.env.GITHUB_BASE_REF });
   printReport(report);
   process.exit(report.errors.length > 0 ? 1 : 0);
 }

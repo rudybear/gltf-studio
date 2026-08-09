@@ -14,11 +14,14 @@
     "lint": "eslint .",
     "status": "node scripts/gen-status.mjs",
     "check:drift": "node scripts/check-drift.mjs",
+    "check:fast": "node scripts/check-drift.mjs --simulate-pr && node scripts/gen-status.mjs --check",
+    "check:ci": "node scripts/check-drift.mjs --simulate-pr && node scripts/gen-status.mjs --check && pnpm lint && pnpm drift:selftest && pnpm build && pnpm test",
     "drift:selftest": "node --test scripts/drift.test.mjs",
     "refresh:vendor": "node scripts/refresh-vendor.mjs",
     "dev": "pnpm --filter @gltf-studio/app run dev",
     "e2e": "playwright test",
-    "sample": "node scripts/make-sample.mjs"
+    "sample": "node scripts/make-sample.mjs",
+    "postinstall": "node scripts/setup-hooks.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

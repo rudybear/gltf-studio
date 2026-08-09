@@ -1,0 +1,13 @@
+#!/bin/sh
+# Fast local gate mirroring CI's ownership-drift + generated-status checks,
+# run automatically before every push (see `git config core.hooksPath`,
+# wired by scripts/setup-hooks.mjs / `pnpm install`'s postinstall).
+# Intentionally NOT the full `pnpm check:ci` gate (build+lint+tests) — this
+# must stay well under 10s so it never feels worth `--no-verify`-ing past.
+set -e
+# Git hooks don't reliably inherit the interactive shell's PATH (e.g. GUI
+# git clients, or minimal shells) — pnpm here is a shim under ~/.local/bin,
+# so make sure it's resolvable regardless of the invoking environment.
+export PATH="$HOME/.local/bin:$PATH"
+echo "pre-push: running fast CI-parity checks (drift --simulate-pr + gen-status --check)..."
+pnpm check:fast
