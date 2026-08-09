@@ -174,16 +174,25 @@ export function Viewport(): JSX.Element {
   // requirement's intended v1 shape, gated on a store play-state flag the
   // `packages/play` PC-001 fan-out owns setting — as of this PR that flag
   // does not exist yet in this checkout. Stopgap, per this task's own
-  // fallback allowance: poll the live camera pose every animation frame
-  // (cheap — RenderHost.getCameraPose() is a plain field read, no camera
-  // recompute) and forward it to `audioHost.setListenerPose` whenever it
-  // actually changed, for as long as a document is loaded — i.e. "while
-  // editing" rather than "only while playing" until that flag lands, at
-  // which point this effect's dependency array should gain it. Skips
-  // entirely (rAF loop never scheduled) when no `audioHost` is registered.
+  // fallback allowance: poll the live camera pose and forward it to
+  // `audioHost.setListenerPose` whenever it actually changed, for as long
+  // as a document is loaded — i.e. "while editing" rather than "only while
+  // playing" until that flag lands, at which point this effect's dependency
+  // array should gain it. Skips entirely (interval never scheduled) when no
+  // `audioHost` is registered.
+  //
+  // A `setInterval` at 10Hz, NOT a `requestAnimationFrame` loop: this ran
+  // continuously (60 wakeups/sec) for every mounted Viewport in EVERY test
+  // that loads any document — nearly the whole e2e suite, not just audio
+  // tests — and, unlike a timer macrotask, an rAF callback competes for the
+  // exact same per-frame budget as React's own commit/paint work. That
+  // measurably starved an already-timing-marginal, pre-existing test
+  // (e2e/graph-canvas.spec.ts:67's own comments already document its
+  // sensitivity to "heavy... parallelism") enough to fail CI outright — see
+  // this PR's own description. Spatial audio has no need for 60Hz listener
+  // updates anyway; 10Hz is standard practice for this exact purpose.
   useEffect(() => {
     if (!document || !audioHost) return;
-    let rafHandle = 0;
     let lastPoseKey = "";
     function tick(): void {
       const host = hostRef.current;
@@ -195,10 +204,9 @@ export function Viewport(): JSX.Element {
           audioHost!.setListenerPose(pose);
         }
       }
-      rafHandle = requestAnimationFrame(tick);
     }
-    rafHandle = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafHandle);
+    const intervalId = window.setInterval(tick, 100);
+    return () => window.clearInterval(intervalId);
   }, [document, audioHost, sceneReady]);
 
   // W/E/R keyboard shortcuts, mirroring the toolbar buttons' own tooltips.
