@@ -346,6 +346,13 @@ input.field {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.tree-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 1px 4px;
+}
 .add-row {
   padding: 6px 8px;
   border-top: 1px solid var(--border);
@@ -905,11 +912,287 @@ input.field {
   margin-top: 2px;
 }
 
-.copilot-placeholder {
-  padding: 24px;
+/* ---------- copilot (specs/ux-copilot.md UX-10xx) ---------- */
+.copilot-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.copilot-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  position: relative;
+}
+.copilot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 4px 2px 8px;
+  font-size: 10.5px;
+  color: var(--text-1);
+}
+.copilot-chip button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 0 3px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.copilot-chip button:hover {
+  color: var(--danger);
+}
+.copilot-context-add-wrap {
+  position: relative;
+}
+.copilot-context-add-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  min-width: 180px;
+  z-index: 50;
+  padding: 4px 0;
+}
+.copilot-context-add-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-0);
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+.copilot-context-add-menu button:hover {
+  background: var(--bg-3);
+}
+.copilot-context-add-menu .empty-note {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.copilot-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.copilot-msg {
+  max-width: 92%;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+.copilot-msg-user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+  color: var(--text-0);
+  border: 1px solid var(--accent);
+}
+.copilot-msg-assistant {
+  align-self: flex-start;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+}
+.copilot-msg-pending {
+  align-self: flex-start;
   color: var(--text-dim);
   font-style: italic;
-  text-align: center;
+}
+.copilot-proposal-card {
+  align-self: stretch;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.copilot-proposal-summary {
+  font-size: 11.5px;
+  color: var(--text-0);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+.copilot-proposal-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 10.5px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.copilot-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.copilot-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  background: var(--bg-3);
+}
+.copilot-badge-ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.copilot-badge-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.copilot-command-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 0 12px;
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--text-1);
+  font-family: "SF Mono", Menlo, monospace;
+}
+.copilot-asset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.copilot-asset-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-3);
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.copilot-asset-swatch .swatch-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+.copilot-action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.copilot-status-tag {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.copilot-status-tag.applied {
+  color: var(--ok);
+}
+.copilot-status-tag.rejected {
+  color: var(--danger);
+}
+.copilot-composer {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.copilot-composer textarea {
+  resize: vertical;
+  min-height: 52px;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 6px 8px;
+}
+.copilot-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- generic cursor-positioned context menu (specs/ux-scene-tree.md UX-207/UX-208) ---------- */
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.context-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 190px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-0);
+  padding: 6px 10px;
+  font-size: 11.5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.context-menu button:hover {
+  background: var(--bg-3);
+}
+
+/* ---------- viewport: Copilot "try in play" preview strip ---------- */
+.preview-strip {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--text-0);
+  border-radius: 14px;
+  padding: 4px 6px 4px 12px;
+  font-size: 11px;
+  z-index: 30;
+}
+.preview-strip button {
+  background: var(--accent);
+  color: var(--bg-0);
+  border: none;
+  border-radius: 10px;
+  padding: 3px 9px;
+  font-size: 10.5px;
 }
 
 /* ---------- history dropdown ---------- */

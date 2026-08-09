@@ -78,6 +78,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@gltf-studio/agent-mock':
+        specifier: workspace:*
+        version: link:../agent-mock
       '@gltf-studio/audio-canvas':
         specifier: workspace:*
         version: link:../audio-canvas

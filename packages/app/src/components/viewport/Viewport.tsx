@@ -5,6 +5,7 @@ import { SceneEdit, type TransformFields } from "@gltf-studio/editor-core";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
 import { PlayOverlay } from "./PlayOverlay";
+import { ContextMenu } from "../ContextMenu";
 
 /** specs/ux-viewport.md UX-304: exactly W/E/R, mutually exclusive, one-to-one with RH-018's GizmoMode. */
 const GIZMO_MODES: ReadonlyArray<{ mode: GizmoMode; label: string; title: string }> = [
@@ -55,6 +56,16 @@ export function Viewport(): JSX.Element {
   const setGizmoMode = useAppStore((s) => s.setGizmoMode);
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const registerRenderHost = useAppStore((s) => s.registerRenderHost);
+  const frameRequest = useAppStore((s) => s.frameRequest);
+  const tryInPlayEntryId = useAppStore((s) => s.tryInPlayEntryId);
+  const stopTryInPlay = useAppStore((s) => s.stopTryInPlay);
+  const copilotThread = useAppStore((s) => s.copilotThread);
+  const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
+  const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
+  const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
+  const requestFrame = useAppStore((s) => s.requestFrame);
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
 
   const mountRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<ThreeRenderHost | null>(null);
@@ -135,6 +146,18 @@ export function Viewport(): JSX.Element {
     hostRef.current?.setHover(hoveredNodeIndex !== null ? [hoveredNodeIndex] : []);
   }, [hoveredNodeIndex, history, sceneReady]);
 
+  // specs/ux-scene-tree.md UX-207: the scene-tree/viewport context menu's
+  // "Frame" action lives outside this component's own `hostRef` (a
+  // scene-tree row has no reach into the live RenderHost), so it goes
+  // through the store's `frameRequest` cross-component signal instead —
+  // same pattern as `flashTarget`/`triggerFlash` elsewhere in this store.
+  // Keyed on the request OBJECT (bumped `seq`), not just `nodeIndex`, so
+  // framing the same node twice in a row still re-triggers this effect.
+  useEffect(() => {
+    if (!frameRequest) return;
+    hostRef.current?.frameNode(frameRequest.nodeIndex);
+  }, [frameRequest]);
+
   // Gizmo attach/replace/detach (UX-304..UX-306, RH-018/RH-019/RH-025):
   // attached whenever there's a selection, replaced in place on a mode or
   // selection change, detached on deselect. Gated on `sceneReady` — unlike
@@ -146,16 +169,22 @@ export function Viewport(): JSX.Element {
   // itself clears `selectedNodeIndex`, but a scene-tree row click (allowed
   // during play/pause; it's a selection, not a document edit) can set it
   // again mid-session, which would otherwise reattach a live, draggable
-  // gizmo onto a node the running engine may itself be animating.
+  // gizmo onto a node the running engine may itself be animating. Also
+  // gated on `tryInPlayEntryId === null` (specs/ux-copilot.md UX-1007's
+  // "Try in play" preview, Part B's own design note in app-store.ts): the
+  // document isn't frozen during a preview (`playState` stays "stopped" on
+  // purpose), but the preview's own PlayController is writing transforms
+  // into the SAME live RenderHost every frame -- an attached, draggable
+  // TransformControls gizmo would otherwise fight that.
   useEffect(() => {
     const host = hostRef.current!;
     if (!sceneReady) return;
-    if (selectedNodeIndex !== null && playState === "stopped") {
+    if (selectedNodeIndex !== null && playState === "stopped" && tryInPlayEntryId === null) {
       host.attachGizmo(selectedNodeIndex, gizmoMode);
     } else {
       host.detachGizmo();
     }
-  }, [selectedNodeIndex, gizmoMode, history, sceneReady, playState]);
+  }, [selectedNodeIndex, gizmoMode, history, sceneReady, playState, tryInPlayEntryId]);
 
   // Gizmo drag/commit (UX-305, RH-003): the "drag" phase is already live —
   // TransformControls writes straight to the object's transform, which the
@@ -277,6 +306,27 @@ export function Viewport(): JSX.Element {
     hostRef.current?.frameNode(selectedNodeIndex); // UX-308: selection, or whole scene when null
   }
 
+  // specs/ux-scene-tree.md UX-207: "Right-clicking a scene-tree row OR a
+  // viewport object" -- reuses the exact same `pick()` raycast `onClick`
+  // already does at these NDC coordinates, so a right-click resolves to
+  // whichever object is actually under the cursor rather than falling back
+  // to the current selection.
+  function onContextMenu(e: React.MouseEvent<HTMLDivElement>): void {
+    if (!document || playState !== "stopped") return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    const result = hostRef.current?.pick(x, y) ?? null;
+    if (!result) return; // no object under the cursor -- nothing to menu about (UX-207 is scoped to "a scene-tree row or a viewport OBJECT").
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, nodeIndex: result.nodeIndex });
+  }
+
+  const previewEntry = tryInPlayEntryId ? copilotThread.find((entry) => entry.id === tryInPlayEntryId) : undefined;
+  const previewSummary = previewEntry && previewEntry.kind === "proposal" ? previewEntry.proposal.summary : "Copilot proposal";
+
+  const nodeName = (nodeIndex: number): string => (document?.json as GltfJsonShape | undefined)?.nodes?.[nodeIndex]?.name ?? `Node ${nodeIndex}`;
+
   const selectedName =
     selectedNodeIndex !== null
       ? ((document?.json as GltfJsonShape | undefined)?.nodes?.[selectedNodeIndex]?.name ?? `Node ${selectedNodeIndex}`)
@@ -292,6 +342,7 @@ export function Viewport(): JSX.Element {
         onClick={onClick}
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
+        onContextMenu={onContextMenu}
       >
         {!document && (
           <p className="viewport-placeholder-note" data-testid="viewport.placeholder-note">
@@ -327,6 +378,50 @@ export function Viewport(): JSX.Element {
         </>
       )}
       <PlayOverlay />
+      {tryInPlayEntryId && (
+        // Part B ("apply-scratch-play-discard", app-store.ts's own doc
+        // comment on `startTryInPlay`): the one honest visual cue that a
+        // preview -- not real play mode -- is running. Deliberately NOT
+        // `specs/ux-shell.md` UX-106's locked-banner/topbar tint: the
+        // document isn't locked, so that chrome would misrepresent this.
+        <div className="preview-strip" data-testid="viewport.preview-strip">
+          <span>Previewing Copilot proposal: {previewSummary}</span>
+          <button data-testid="viewport.preview-strip.stop" onClick={() => void stopTryInPlay()}>
+            Stop preview
+          </button>
+        </div>
+      )}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          testId="viewport.context-menu"
+          onDismiss={() => setContextMenu(null)}
+          actions={[
+            { key: "frame", label: "Frame", onSelect: () => requestFrame(contextMenu.nodeIndex) },
+            {
+              key: "rename",
+              label: "Rename",
+              onSelect: () => {
+                const name = window.prompt("Rename node", nodeName(contextMenu.nodeIndex));
+                if (name && name.trim() && history) {
+                  dispatchCommand(SceneEdit.setName(history.document, contextMenu.nodeIndex, name.trim()));
+                }
+              }
+            },
+            {
+              key: "ask-copilot",
+              label: "✦ Ask Copilot about this…",
+              onSelect: () => {
+                const label = nodeName(contextMenu.nodeIndex);
+                setActiveRightTab("copilot");
+                addCopilotContextChip({ kind: "explicit", label, pointer: `/nodes/${contextMenu.nodeIndex}` }, label);
+                requestCopilotComposerFocus();
+              }
+            }
+          ]}
+        />
+      )}
     </div>
   );
 }

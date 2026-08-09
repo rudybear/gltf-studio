@@ -49,6 +49,26 @@ Prefix: `UX`. This file owns the `UX-2xx` block.
 - [UX-211] (active) Clicking a Meshes/Materials/Animations row is a deliberate "inspect this" action: it force-switches the bottom dock to the Data tab at that entry's pointer (`/meshes/{i}`, `/materials/{i}`, `/animations/{i}`) — unlike scene-tree/viewport selection (`UX-202`), which updates the Data tab passively.
 - [UX-212] (active) Each Animations row has its own preview (`▶`) control that plays a brief preview of that clip without changing the current selection or switching the bottom dock tab.
 
+## Implementation notes (M8/Phase 2)
+
+`UX-207`/`UX-208`'s right-click context menu is now real, built from scratch (no prior PR had landed
+any context-menu code despite these requirements predating this work): a new, generic, reusable
+`packages/app/src/components/ContextMenu.tsx` (cursor-positioned, dismisses on outside-click or
+Escape, mirroring `packages/graph-canvas/src/drop-menu.tsx`'s own backdrop convention) backs it on
+both `SceneTree.tsx`'s row `onContextMenu` and `Viewport.tsx`'s viewport-object right-click (reusing
+`Viewport.tsx`'s existing `pick()` raycast at the click's NDC coordinates — the same one `onClick`
+already uses for left-click selection — so a right-click resolves to whatever object is actually
+under the cursor). "Frame" on the scene-tree half routes through a new store-level `frameRequest`
+cross-component signal (the scene tree has no reach into the viewport's live `RenderHost`) that
+`Viewport.tsx` watches and forwards to its own `frameNode`, the same capability its toolbar's
+existing frame button already used; the viewport half calls `frameNode` directly, having the
+`RenderHost` reference in hand already. "Rename" is a REAL edit via the already-existing
+`SceneEdit.setName` factory in both places — the scene-tree row edits inline; the viewport, having no
+natural inline text-field surface over a 3D object, uses a plain `window.prompt` instead (both apply
+via the ordinary `dispatchCommand`/undo path, so this is not a stub). "✦ Ask Copilot about this…"
+switches the right panel to Copilot and attaches an explicit `{kind:"explicit", pointer:"/nodes/{i}"}`
+chip naming the right-clicked node, per `UX-208`/`AG-015`.
+
 ## Open questions
 
 - OPEN(UX-add-menu-creation-tbd): `UX-206` intentionally leaves open exactly which add-menu

@@ -43,6 +43,8 @@ export function BehaviorGraphPanel(): JSX.Element {
   const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
   const jumpToDataFromGraph = useAppStore((s) => s.jumpToDataFromGraph);
   const openPointerPicker = useAppStore((s) => s.openPointerPicker);
+  const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
+  const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
 
   useEffect(() => {
     window.__gltfStudioGraphTest = { getDocumentJson: () => document?.json };
@@ -89,7 +91,21 @@ export function BehaviorGraphPanel(): JSX.Element {
           onSelectNode={selectGraphNode}
           onLog={log}
           onToast={pushToast}
-          onAskCopilot={() => setActiveRightTab("copilot")}
+          onAskCopilot={() => {
+            // specs/ux-graph-canvas.md UX-511: the tab-switch half already
+            // worked (PalettePanel's own `onAskCopilot` callback) -- this
+            // adds the context-chip half naming the CURRENT graph (per
+            // `selectedGraphIndex`, which is what the canvas actually shows
+            // when `graphCount > 1`; `0` otherwise, matching the `graphIndex`
+            // prop passed to `<GraphCanvas>` below).
+            const graphIndex = graphCount > 1 ? selectedGraphIndex : 0;
+            setActiveRightTab("copilot");
+            addCopilotContextChip(
+              { kind: "explicit", label: `Graph ${graphIndex}`, pointer: `/extensions/KHR_interactivity/graphs/${graphIndex}` },
+              `Graph ${graphIndex}`
+            );
+            requestCopilotComposerFocus();
+          }}
           onJumpToData={jumpToDataFromGraph}
           onOpenPointerPicker={openPointerPicker}
         />

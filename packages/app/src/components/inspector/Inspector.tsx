@@ -26,6 +26,9 @@ export function Inspector(): JSX.Element {
   const copyPointerPath = useAppStore((s) => s.copyPointerPath);
   const triggerFlash = useAppStore((s) => s.triggerFlash);
   const flashTarget = useAppStore((s) => s.flashTarget);
+  const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
+  const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
+  const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
 
   const meshSectionRef = useRef<HTMLDivElement>(null);
   const audioSectionRef = useRef<HTMLDivElement>(null);
@@ -74,6 +77,26 @@ export function Inspector(): JSX.Element {
             onClick={() => copyPointerPath(pointerPath)}
           >
             ⧉
+          </button>
+          {/*
+            specs/ux-copilot.md UX-1009/UX-1000: switches to the Copilot tab
+            and attaches an EXPLICIT chip naming this selection -- redundant
+            with the auto-selection chip `sendCopilotPrompt` adds (AG-012),
+            but UX-1009 asks for exactly that: an inline "✦" affordance's own
+            visible, removable chip, not a substitute for auto-population.
+          */}
+          <button
+            className="btn icon-only small"
+            data-testid="inspector.identity.ask-copilot"
+            title="Ask Copilot about this node"
+            onClick={() => {
+              const label = `Node #${selectedNodeIndex}`;
+              setActiveRightTab("copilot");
+              addCopilotContextChip({ kind: "explicit", label, pointer: pointerPath }, label);
+              requestCopilotComposerFocus();
+            }}
+          >
+            ✦
           </button>
         </div>
         {(meshIndex !== undefined || children.length > 0 || extensionKeys.length > 0) && (
