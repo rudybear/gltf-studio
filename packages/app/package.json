@@ -1,0 +1,29 @@
+{
+  "name": "@gltf-studio/app",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Editor app shell (specs/ux-shell.md UX-1xx, specs/ux-scene-tree.md UX-2xx, specs/ux-data-tab.md UX-8xx): top bar, scene tree, viewport placeholder, inspector, bottom dock (Console + Data tab real; Behavior/Audio/Script graph tabs are M2 placeholders).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@gltf-studio/editor-core": "workspace:*",
+    "@gltf-studio/engine-api": "workspace:*",
+    "@gltf-studio/storage": "workspace:*",
+    "@gltfi/gltf": "0.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1"
+  }
+}

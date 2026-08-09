@@ -45,9 +45,13 @@ export interface StorageProvider {
   /**
    * SP-004/SP-014: append-only within a rev-window, doubling as the future
    * backend sync wire format per Phase A. SP-016: a successful save(id)
-   * clears the journal for that project.
+   * clears the journal for that project. Takes `id` (added post-M0: the
+   * original seeded signature omitted it, but a per-project append-only
+   * journal cannot be addressed without one — see specs/storage-provider.md's
+   * SP-004/SP-014 note) so the journal is scoped to the same project
+   * `loadJournal(id)` reads back.
    */
-  autosaveJournal(sinceRev: number, patches: JsonPatchOp[]): Promise<void>;
+  autosaveJournal(id: string, sinceRev: number, patches: JsonPatchOp[]): Promise<void>;
 
   /** SP-015: replay = load(id) (the base) + apply `patches` in order. */
   loadJournal(id: string): Promise<{ sinceRev: number; patches: JsonPatchOp[] }>;

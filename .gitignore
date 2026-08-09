@@ -1,5 +1,6 @@
 node_modules/
 dist/
+tsc-out/
 *.tsbuildinfo
 *.vsix
 __pycache__/
@@ -7,3 +8,9 @@ __pycache__/
 
 # vitest browser mode's automatic failure screenshots (packages/engine-three)
 __screenshots__/
+
+# Playwright (e2e/global-setup.ts regenerates the fixture .glb every run —
+# never committed) and its own report/result output.
+e2e/fixtures/
+playwright-report/
+test-results/

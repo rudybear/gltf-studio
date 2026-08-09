@@ -4,6 +4,7 @@
     { "path": "packages/engine-api" },
     { "path": "packages/contract-tests" },
     { "path": "packages/editor-core" },
-    { "path": "packages/engine-three" }
+    { "path": "packages/engine-three" },
+    { "path": "packages/storage" }
   ]
 }

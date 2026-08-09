@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "references": [
+    { "path": "../engine-api" },
+    { "path": "../editor-core" },
+    { "path": "../storage" }
+  ],
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}
