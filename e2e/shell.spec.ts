@@ -116,4 +116,28 @@ test.describe("shell", () => {
     expect(afterShrink.width).toBeGreaterThanOrEqual(189);
     expect(afterShrink.width).toBeLessThan(before.width);
   });
+
+  // specs/ux-shell.md UX-119: the empty-project starter gallery (supersedes the old
+  // single-button predecessor requirement, now retired). Only checks the gallery's own
+  // presentation here — actually loading the R4 Racer card and driving it at its real
+  // 366-node graph scale is
+  // e2e/racer.spec.ts's job (a separate, heavier Playwright project); the Playground
+  // card's load path is covered end-to-end by e2e/golden-path.spec.ts's first step.
+  test("empty-project state shows a two-card starter gallery (UX-119)", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("viewport.gallery")).toBeVisible();
+
+    const playground = page.getByTestId("viewport.gallery.card.playground");
+    await expect(playground).toBeVisible();
+    await expect(playground).toContainText("Playground");
+    await expect(playground.getByTestId("viewport.gallery.card.playground.load")).toBeVisible();
+
+    const racer = page.getByTestId("viewport.gallery.card.racer");
+    await expect(racer).toBeVisible();
+    await expect(racer).toContainText("R4 Racer");
+    await expect(racer).toContainText("click the pads to steer");
+    await expect(racer.getByTestId("viewport.gallery.card.racer.load")).toBeVisible();
+
+    await assertRegionRendersContent(page.getByTestId("viewport.gallery"));
+  });
 });

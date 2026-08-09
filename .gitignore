@@ -23,7 +23,10 @@ e2e/artifacts/
 # @gltfi/runtime-lib bundle on every predev/prebuild — never committed.
 packages/app/public/gltfi-runtime-lib.mjs*
 
-# packages/app/scripts/copy-sample.mjs copies samples/playground.glb here on
-# every predev/prebuild — the committed copy lives at samples/playground.glb
-# (source of truth: scripts/make-sample.mjs), never this one.
+# packages/app/scripts/copy-sample.mjs copies samples/{playground,r4-racer}.glb
+# here on every predev/prebuild — the committed copies live at
+# samples/playground.glb (source of truth: scripts/make-sample.mjs) and
+# samples/r4-racer.glb (source of truth: the sibling gltf-interactivity-game
+# repo's own build pipeline — see samples/README.md), never these.
 packages/app/public/playground.glb
+packages/app/public/r4-racer.glb

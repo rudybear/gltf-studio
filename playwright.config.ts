@@ -47,7 +47,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: "**/golden-path.spec.ts",
+      testIgnore: ["**/golden-path.spec.ts", "**/racer.spec.ts"],
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
@@ -66,6 +66,23 @@ export default defineConfig({
       name: "golden-path",
       testMatch: "**/golden-path.spec.ts",
       dependencies: ["chromium"],
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: {
+          args: process.env.CI ? ["--no-sandbox"] : []
+        }
+      }
+    },
+    // e2e/racer.spec.ts (samples/r4-racer.glb at its real 366-graph-node
+    // scale): `dependencies: ["golden-path"]` chains it after BOTH the
+    // "chromium" project and the golden path (a dependency project always
+    // runs to completion first), so this heavy, single-scenario spec never
+    // shares a worker's CPU/GPU budget with anything else — same rationale
+    // as golden-path's own project, one level further out.
+    {
+      name: "racer",
+      testMatch: "**/racer.spec.ts",
+      dependencies: ["golden-path"],
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
