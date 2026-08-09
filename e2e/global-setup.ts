@@ -77,8 +77,28 @@ function buildFixtureJson(): Record<string, unknown> {
         samplers: [{ input: 2, output: 3, interpolation: "LINEAR" }]
       }
     ],
-    extensions: { KHR_lights_punctual: { lights: [{ type: "point" }] } },
-    extensionsUsed: ["KHR_lights_punctual"],
+    extensions: {
+      KHR_lights_punctual: { lights: [{ type: "point" }] },
+      // A small, real KHR_interactivity graph (specs/ux-graph-canvas.md) for
+      // e2e/graph-canvas.spec.ts: node 0 is an event/onStart handler (flow
+      // unconnected — nothing to run, this fixture only exercises the
+      // EDITOR, not the runtime); node 1 is a math/add with two float
+      // literals, also unconnected, giving the canvas real nodes/ports/
+      // literals to render and edit without needing a corpus asset.
+      KHR_interactivity: {
+        graphs: [
+          {
+            types: [{ signature: "float" }],
+            declarations: [{ op: "event/onStart" }, { op: "math/add" }],
+            nodes: [
+              { declaration: 0 },
+              { declaration: 1, values: { a: { type: 0, value: [1] }, b: { type: 0, value: [2] } } }
+            ]
+          }
+        ]
+      }
+    },
+    extensionsUsed: ["KHR_lights_punctual", "KHR_interactivity"],
     accessors: [
       { bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] },
       { bufferView: 1, componentType: 5126, count: 3, type: "VEC3" },

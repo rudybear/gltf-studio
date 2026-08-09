@@ -70,6 +70,18 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
 
 - [UX-112] (active) The top bar's Export control is disabled (with a tooltip) whenever no document is open; with a document open, clicking it writes the current document's bytes — via `editor-core`'s `save()` (`specs/document-model.md` DOC-024..026) — to a browser download (or, once a File-System-Access-backed `StorageProvider` is wired in, a native save-to-handle dialog when `capabilities.fileHandles` is true, `specs/storage-provider.md` SP-013) and confirms via a toast (`UX-109`) summarizing the save report (spliced roots, or a full reserialize).
 
+## Implementation notes
+
+- M4 (`packages/graph-canvas`'s dock-tab wiring, `packages/app/src/components/dock/BottomDock.tsx`):
+  the Behavior graph tab surfaced a real instance of `UX-103`'s own worked example ("switching tabs
+  does not reset the state of the tab being left (e.g. graph canvas scroll position...)") — the
+  canvas has real local view state (React Flow pan/zoom, palette search/collapse) that the dock's
+  pre-M4 conditional-mount-per-tab pattern (fine for stateless placeholders, and for Console/Data,
+  whose state already lives in the store) would have discarded on every tab switch. `BottomDock`
+  now keeps the Behavior graph tab's content mounted (hidden via `display: none`/`contents` rather
+  than conditionally rendered) so this state survives; the other four tabs keep the simpler
+  conditional-mount pattern since they don't need this.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

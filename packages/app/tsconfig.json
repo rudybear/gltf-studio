@@ -14,7 +14,8 @@
   "references": [
     { "path": "../engine-api" },
     { "path": "../editor-core" },
-    { "path": "../storage" }
+    { "path": "../storage" },
+    { "path": "../graph-canvas" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

@@ -82,6 +82,10 @@ export interface AppState {
 
   // -- selection (DOC-030: ephemeral only) --
   selectedNodeIndex: number | null;
+  // -- behavior-graph canvas selection (specs/ux-graph-canvas.md UX-507; DOC-030: ephemeral, additive) --
+  selectedGraphNodeIndex: number | null;
+  /** Which `extensions.KHR_interactivity.graphs[N]` the canvas shows, when an asset has more than one. */
+  selectedGraphIndex: number;
   // -- viewport hover + gizmo mode (DOC-030: ephemeral only; specs/ux-viewport.md UX-301/UX-304) --
   hoveredNodeIndex: number | null;
   gizmoMode: GizmoMode;
@@ -117,6 +121,8 @@ export interface AppState {
   redo(): void;
   historyEntries(): HistoryEntryView[];
   selectNode(index: number | null): void;
+  selectGraphNode(index: number | null): void;
+  setSelectedGraphIndex(index: number): void;
   setHover(index: number | null): void;
   setGizmoMode(mode: GizmoMode): void;
   toggleCollapsed(nodeIndex: number): void;
@@ -171,6 +177,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   canRedo: false,
 
   selectedNodeIndex: null,
+  selectedGraphNodeIndex: null,
+  selectedGraphIndex: 0,
   hoveredNodeIndex: null,
   gizmoMode: "translate",
 
@@ -218,6 +226,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         canUndo: false,
         canRedo: false,
         selectedNodeIndex: null,
+        selectedGraphNodeIndex: null,
+        selectedGraphIndex: 0,
         hoveredNodeIndex: null,
         selectedAsset: null,
         dataPointer: "",
@@ -275,6 +285,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       // UX-202/UX-805: passive update — does not force-switch the dock tab.
       get().navigateData(`/nodes/${index}`);
     }
+  },
+
+  selectGraphNode(index) {
+    set({ selectedGraphNodeIndex: index });
+  },
+
+  setSelectedGraphIndex(index) {
+    set({ selectedGraphIndex: index, selectedGraphNodeIndex: null });
   },
 
   setHover(index) {
