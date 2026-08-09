@@ -316,28 +316,43 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
 
   return (
     <div className="script-panel" data-testid="script.panel">
-      <div className="script-toolbar" data-testid="script.toolbar">
-        <button className="script-btn" data-testid="script.edit-toggle" disabled={!rawGraph} onClick={toggleMode}>
-          {mode === "edit" ? "Done" : "Edit"}
-        </button>
-        <button className="script-btn script-btn-primary" data-testid="script.apply" disabled={!canApply} onClick={handleApply}>
-          Apply → Graph
-        </button>
-        <span
-          className={`script-badge ${badgeDiverged ? "diverged" : "equiv"}`}
-          data-testid="script.equiv-badge"
-          title={badgeDiverged ? equivalenceTooltip(equiv) : "Script matches the graph."}
-        >
-          {badgeDiverged ? "DIVERGED ⚠" : "EQUIV ✓"}
-        </span>
-        {parseStatus === "error" && (
-          <span className="script-parse-status" data-testid="script.parse-status">
-            {errorDiagnostics.length} error{errorDiagnostics.length === 1 ? "" : "s"}
+      {hasGraph ? (
+        <div className="script-toolbar" data-testid="script.toolbar">
+          <button className="script-btn" data-testid="script.edit-toggle" disabled={!rawGraph} onClick={toggleMode}>
+            {mode === "edit" ? "Done" : "Edit"}
+          </button>
+          <button className="script-btn script-btn-primary" data-testid="script.apply" disabled={!canApply} onClick={handleApply}>
+            Apply → Graph
+          </button>
+          <span
+            className={`script-badge ${badgeDiverged ? "diverged" : "equiv"}`}
+            data-testid="script.equiv-badge"
+            title={badgeDiverged ? equivalenceTooltip(equiv) : "Script matches the graph."}
+          >
+            {badgeDiverged ? "DIVERGED ⚠" : "EQUIV ✓"}
           </span>
-        )}
-      </div>
-      <div className="script-editor-wrap" data-testid="script.code" ref={containerRef} />
-      {errorDiagnostics.length > 0 && (
+          {parseStatus === "error" && (
+            <span className="script-parse-status" data-testid="script.parse-status">
+              {errorDiagnostics.length} error{errorDiagnostics.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      ) : (
+        // UX-714: an honest empty state — no toolbar, no (even placeholder-only) Monaco buffer
+        // shown — rather than a technically-live editor whose one line of "content" was itself
+        // just a stand-in comment. The `.script-editor-wrap` node below is NOT removed from the
+        // DOM (only hidden via CSS): `containerRef` is attached to it once, on this component's
+        // first mount (see the Monaco-mount effect below), and Monaco is never re-created for a
+        // later graph that appears on the same mounted ScriptPanel instance (e.g. the user adds
+        // the asset's first graph node via the Behavior graph tab while this tab sits mounted-but-
+        // hidden) — conditionally unmounting this node here would orphan `containerRef` and leave
+        // that future graph with no editor at all to show its generated code in.
+        <p className="script-empty-state" data-testid="script.empty-state">
+          No behavior graph in this asset — add nodes from the graph palette or ask Copilot.
+        </p>
+      )}
+      <div className="script-editor-wrap" data-testid="script.code" ref={containerRef} style={hasGraph ? undefined : { display: "none" }} />
+      {hasGraph && errorDiagnostics.length > 0 && (
         <ul className="script-diagnostics" data-testid="script.diagnostics">
           {errorDiagnostics.map((d, i) => (
             <li key={i}>{d.message}</li>

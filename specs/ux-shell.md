@@ -106,6 +106,33 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   Worker) `@gltfi/parse-ts`'s ts-morph dependency, both too heavy to load at app boot on the chance a
   session never opens the tab; `packages/app/src/bundle-chunks.test.ts` asserts ts-morph never lands
   in the built app's main entry chunk.
+  Follow-up (user-reported bug, "Script tab has no scripts or text is clamped"): `ScriptTabPanel.tsx`
+  renders its own root as `<div className="script-tab-wrap">`, but `app.css` never actually had a
+  `.script-tab-wrap` rule — a plain unstyled block element defaults to `height: auto` (shrink-to-fit
+  its content). `script-panel.css`'s `.script-panel` (the real `<ScriptPanel>`'s own root, direct
+  child of `.script-tab-wrap`) specifies `height: 100%`, which CSS resolves as `auto` — i.e. ignored
+  — against an auto-height containing block (CSS2.1 §10.5), so `.script-panel` itself collapsed to
+  its own content height (one toolbar row plus a sliver) regardless of the dock's actual height.
+  That starved `.script-editor-wrap`'s flex-basis down to a few px, and Monaco's own
+  `automaticLayout: true` faithfully rendered THAT correctly-measured few-px container — hence the
+  reported symptom (only the very top of line 1 ever visible, a large blank area below, unaffected
+  by dock-resize or tab-switch-away-and-back). `.graph-panel-wrap` (the Behavior graph tab's
+  equivalent root, directly styled with `display: flex; flex-direction: column; height: 100%;
+  min-height: 0;`) never had this gap, which is why only the newer Script tab hit it. Fixed by
+  giving `.script-tab-wrap` the identical flex-column treatment in `app.css`, plus an explicit
+  `flex: 1 1 auto; min-height: 0;` override on `.script-tab-wrap > .script-panel` (needed only once
+  the optional multi-graph selector row, `.script-tab-toolbar`, is a sibling — see `app.css`'s
+  comment for why `.script-panel`'s own `height: 100%` isn't sufficient as a flex-item basis in that
+  case). Verified by screenshotting the built app (not dev server) at default and resized dock
+  heights, both themes, and after a tab-switch-away-and-back — see `e2e/script.spec.ts`'s new visual
+  assertions. The same audit (auditing every dock tab for this "hidden-mount measures 0" bug class)
+  also found and fixed a related but distinct bug in the Behavior graph tab's `fitView` — see
+  `specs/ux-graph-canvas.md`'s own bug-fix note, since that fix lives entirely in
+  `packages/graph-canvas` (this file only owns the dock-tab wiring in `packages/app`, not the canvas
+  package itself). The Audio graph, Console, and Data tabs were audited too and are NOT susceptible
+  — `BottomDock.tsx` only gives the mounted-but-hidden treatment to the Behavior graph and Script
+  tabs (per `UX-103`'s stateful-tab rationale above); the other three fully unmount/remount on every
+  tab switch, so they never have a stale hidden-at-first-layout measurement to inherit.
 
 - M7 (audio, `packages/app/src/App.tsx`, `Viewport.tsx`, `store/app-store.ts`, `components/inspector/AudioSection.tsx`, `components/dock/{BottomDock,AudioGraphTabPanel}.tsx`): the app store gains an `audioHost?: AudioHost` field and a `registerAudioHost()` action (registration side only — routing play-mode's `SceneAdapter.applyPointer -> renderHost ‖ audioHost` fan-out per PC-001 is `packages/play`'s concern, not this file's); `App.tsx` constructs a fresh `@gltf-studio/audio-webaudio` `WebAudioHost` per document and registers it — unconditionally ("emitters host always"), never gesture-gated itself, since `loadEmitters` never creates an `AudioContext` (only `init()` does, specs/engine-api.md AH-001). The Inspector's Audition control (`specs/ux-inspector.md` UX-406) becomes real: its own `onClick` is the first user gesture that calls `audioHost.init()`. The bottom dock's Audio graph tab (previously a placeholder) is now `AudioGraphTabPanel`, owning one `@gltf-studio/audio-graph` `AudioGraphJsHost` per document and rendering `@gltf-studio/audio-canvas`'s `<AudioGraphCanvas>` (`specs/ux-audio-graph.md`) — it keeps its own LOCAL node-selection state rather than reusing the store's `selectedGraphNodeIndex`, which is the behavior-graph canvas's own field (a second, independent canvas must not fight over one shared selection slot). `Viewport.tsx` gained a polled `audioHost.setListenerPose(...)` stopgap for `AudioHost.setListenerPose`'s intended "fed from the viewport camera per-frame ONLY while playing" behavior — the play-state flag that requirement is meant to gate on (`packages/play`) did not exist in this checkout yet, so the poll currently runs any time a document is loaded, not only during play; revisit once that flag lands. Follow-up (same day): the poll started life as a `requestAnimationFrame` loop (60 wakeups/sec, for the lifetime of every mounted `Viewport`) and measurably starved an unrelated, pre-existing, already timing-marginal e2e test (`e2e/graph-canvas.spec.ts:67`) under CI's tighter resource envelope by competing with React's own paint scheduling — switched to a 10Hz `setInterval` (a timer macrotask doesn't compete for the same per-frame budget, and spatial audio has no need for 60Hz listener updates regardless). Follow-up (audio-host-keying fix): the per-document `WebAudioHost`-construction effect described above was actually keyed on `EditorDocument` object identity, which `HistoryStack.freeze()`/`unfreeze()` (DOC-031/DOC-045, play-mode start/stop) swap for a new object even though `json`/`container`/`rev` are unchanged — so entering play mode silently disposed and recreated the host (and any `AudioContext` a pre-play Audition gesture, `specs/ux-inspector.md` UX-406, had already created on it, losing it to AH-001's gesture-gating). Fixed by keying the effect on the store's `HistoryStack` instance instead (stable for the life of one project, same pattern `Viewport.tsx` already used for `RenderHost`), reloading emitters via `HistoryStack.onApply` (DOC-040, real edits only) rather than on every `EditorDocument` reference change — `packages/app/src/lib/audio-host-lifecycle.ts`.
 

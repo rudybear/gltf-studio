@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { assertRegionRendersContent } from "./visual-assert.js";
 
 test.describe("shell", () => {
   test("renders all four workspace regions plus the top bar (UX-100)", async ({ page }) => {
@@ -20,6 +22,31 @@ test.describe("shell", () => {
     await expect(page.getByTestId("dock.tab.console")).toHaveClass(/active/);
     await expect(page.getByTestId("dock.tab.graph")).not.toHaveClass(/active/);
     await expect(page.getByTestId("console.panel")).toBeVisible();
+  });
+
+  // Real-pixel sanity checks for the Console and Data tabs (audit prompted by the Script tab's
+  // `.script-tab-wrap` CSS-collapse bug, specs/ux-shell.md's bug-fix note): both are plain
+  // conditionally-mounted (BottomDock.tsx never keeps them mounted-but-hidden the way it does the
+  // Behavior graph/Script tabs), so they are not expected to share that hidden-mount sizing bug
+  // class — confirmed here, not merely asserted from reading the source. An import first gives each
+  // tab real content (an empty Console/Data tab would legitimately render near-zero pixels, which is
+  // not itself a bug).
+  test("Console and Data (glTF) tabs render non-trivial visible content once they have real content, not just DOM nodes", async ({ page }) => {
+    await page.goto("/");
+    await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
+    await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene"); // also the import's own "Imported ..." log line, for Console below.
+
+    await page.getByTestId("dock.tab.console").click();
+    await expect(page.getByTestId("console.line.0")).toBeVisible();
+    await assertRegionRendersContent(page.getByTestId("console.panel"));
+
+    // Data tab shows only an empty-note (UX-801/UX-803) until something is selected
+    // (UX-805's passive-selection tracking) — select a scene-tree row first so it has
+    // real content to render, matching e2e/import.spec.ts's own Data tab tests.
+    await page.getByTestId("scene-tree.row.1").click();
+    await page.getByTestId("dock.tab.data").click();
+    await expect(page.getByTestId("data.view")).toBeVisible();
+    await assertRegionRendersContent(page.getByTestId("data.panel"));
   });
 
   test("undo/redo are disabled with empty history (no command-producing UI exists yet)", async ({ page }) => {

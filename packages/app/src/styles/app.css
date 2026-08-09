@@ -596,6 +596,46 @@ input.field {
   min-height: 0;
 }
 
+/* ---------- script dock tab ----------
+   Bug fix (see specs/ux-shell.md's M5 follow-up note): this wrapper
+   (rendered by ScriptTabPanel.tsx as the Script tab's own root, the same
+   position in the tree `.graph-panel-wrap` occupies for the Behavior graph
+   tab) had NO rule here at all until this fix — a plain unstyled block
+   element defaults to `height: auto` (shrink-to-fit its content), which a
+   `height: 100%` child (script-panel.css's `.script-panel`) cannot resolve
+   against (percentage heights against an auto-height containing block
+   compute as `auto`, per CSS2.1 10.5). That collapsed `.script-panel` to
+   its own content height (~1 toolbar row + a sliver), which in turn starved
+   `.script-editor-wrap`'s flex-basis down to a few px regardless of the
+   dock's actual height — Monaco's `automaticLayout: true` faithfully
+   rendered THAT (correctly measuring a ~5px-tall container), so only the
+   very top of line 1 was ever visible. Mirrors `.graph-panel-wrap` exactly:
+   a flex column filling the dock-content's real (flex-resolved-definite,
+   see the flexbox spec's "flex item sizes count as definite for descendant
+   percentage resolution" exception) height. */
+.script-tab-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.script-tab-toolbar {
+  flex: 0 0 auto;
+}
+/* `.script-panel` (script-panel.css) is a reusable component style with its
+   own `height: 100%`, which doubles as this flex item's flex-basis (an
+   explicit non-auto `height` is used as the resolved flex-basis when
+   `flex-basis` itself is `auto`, i.e. `flex: 1 1 auto`'s default) — that's
+   correct with no sibling, but when `.script-tab-toolbar` (the multi-graph
+   selector row) IS present, a 100%-basis sibling would overflow before
+   flex-shrink corrects it. Force flex-grow explicitly so it simply fills
+   whatever the toolbar doesn't use, matching `.graph-panel-canvas`'s
+   equivalent role for the Behavior graph tab. */
+.script-tab-wrap > .script-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* ---------- console ---------- */
 .console-panel {
   padding: 6px 0;
