@@ -45,6 +45,20 @@ Prefix: `UX`. This file owns the `UX-5xx` block.
 
 - [UX-511] (active) A `✦` control in the palette header ("Ask Copilot about this graph") switches the right panel to the Copilot tab and adds exactly one context chip naming the current behavior graph, per `AG-015`'s inline-affordance contract (`specs/ux-copilot.md`'s `UX-1008`).
 
+## Implementation notes (M4)
+
+`packages/graph-canvas` (this file's owned package, per `specs/ownership.json`) first lands in M4
+with the canvas itself plus editing (add/connect/disconnect/delete/drag/literal-edit, all real
+`GraphEdit` commands) and the validation overlay. Coverage against this file's requirements:
+`UX-500`, `UX-501`, `UX-503`, `UX-504`, `UX-506`, `UX-507`, and `UX-510` are implemented and
+e2e-covered (`e2e/graph-canvas.spec.ts`). `UX-502` (palette rail toggle) is implemented but not yet
+e2e-covered. `UX-505`'s two-click-target structure (underlined pointer-config text + separate `✎`
+icon) is implemented, but both handlers are stubs (log only) pending `UX-509`'s Data-tab jump and
+pointer-picker dialog, which reach into `specs/ux-data-tab.md`/`specs/ux-pointer-picker.md`
+territory not yet wired from this package. `UX-508` (scene-tree/Animations-tab drag-drop) and
+`UX-511` (inline Copilot affordance's context-chip half — the tab-switch half works) remain
+unimplemented; none of `UX-502/505/508/509/511` are retired by this note, only deferred past M4.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —
