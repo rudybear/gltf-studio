@@ -76,7 +76,7 @@ test.describe("behavior-graph canvas", () => {
     test.slow();
     await page.getByTestId("gcanvas.node.1").click();
 
-    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/, { timeout: 45000 });
+    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/, { timeout: 60000 });
     const details = page.getByTestId("gcanvas.details");
     await expect(details).toContainText("math/add");
     await expect(details).toContainText("math");
@@ -155,7 +155,7 @@ test.describe("behavior-graph canvas", () => {
       })
     );
 
-    await expect(page.getByTestId("toast")).toContainText("Connection rejected", { timeout: 45000 });
+    await expect(page.getByTestId("toast")).toContainText("Connection rejected", { timeout: 60000 });
     let graph = await getGraphJson(page);
     expect(graph.nodes[1]!.values).toEqual({ a: { type: 0, value: [1] }, b: { type: 0, value: [2] } });
     await expect(page.locator(".react-flow__edge")).toHaveCount(0);

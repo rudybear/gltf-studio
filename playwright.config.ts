@@ -20,7 +20,17 @@ export default defineConfig({
   // completely unrelated page's React state updates stalled for 45+
   // seconds (found stabilizing e2e/graph-canvas.spec.ts). A modest cap
   // trades some wall-clock time for that not happening.
-  workers: 4,
+  //
+  // Lower still in CI (M7 follow-up): GitHub-hosted `ubuntu-latest` runners
+  // have 4 vCPUs, not the many-core dev machine the cap above was tuned
+  // against — 4 workers there means every worker's headless Chromium (some
+  // with real WebGL, some with a real ELK layout worker thread) fully
+  // saturates the box, reproducing the exact "unrelated page's React state
+  // update stalls for 45+ seconds" starvation e2e/graph-canvas.spec.ts:67's
+  // own `test.slow()` + explicit 45000ms timeout were already defending
+  // against — just past its margin once M7 added more concurrently-running
+  // spec files (e2e/audio.spec.ts) to the same fixed 4-worker budget.
+  workers: process.env.CI ? 2 : 4,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
