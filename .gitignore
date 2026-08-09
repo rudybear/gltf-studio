@@ -4,3 +4,6 @@ dist/
 *.vsix
 __pycache__/
 .scratch/
+
+# vitest browser mode's automatic failure screenshots (packages/engine-three)
+__screenshots__/

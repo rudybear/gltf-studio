@@ -35,6 +35,15 @@ a sign of an accidentally skipped ID.
 `specs/README.md`'s "numbers are never reused" rule — see that file, not here, for their current
 text). SP-001, SP-004 moved to `specs/storage-provider.md` likewise.
 
+**RESOLVED(EA-pickresult-shape-tbd)** (M2, `engine-three`): `packages/engine-api/src/value-types.ts`'s
+`PickResult` (owned by this file per `specs/ownership.json`, even though it's `RenderHost.pick()`'s
+return type — see that file's own header comment on why value-types.ts stays engine-api-owned as a
+whole) gained a `distance: number` field alongside `nodeIndex`/`point`. The resolution narrative
+lives in `specs/render-host.md`'s "Open questions" (that's the spec whose `RH-015` requirement
+`pick()` implements), not duplicated here; this note exists only so this file's own ownership-drift
+obligation (a `value-types.ts` change requires an `engine-api.md` diff) is honestly satisfied rather
+than routed around.
+
 ## Requirements
 
 - [PC-001] (active) `PlayController.start(options)` accepts `options.engine` of `"interpreter"` or `"compiled"`; play mode drives the scene only through the fan-out `SceneAdapter.applyPointer -> renderHost ‖ audioHost`, never by mutating the edited document.

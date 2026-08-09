@@ -3,14 +3,23 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # msw is @vitest/browser's mock-service-worker dependency (used for network
+  # mocking inside a browser test run) — its postinstall script only writes a
+  # service-worker script file into its own package dir for a feature this
+  # repo's contract suite never exercises (no network mocking in
+  # packages/engine-three's tests). Denied rather than approved: no build
+  # output of msw's own is needed here, so there is nothing to gain from
+  # running it, only unreviewed postinstall code to avoid.
+  msw: false
 
 # Vendored @gltfi/* packages and the three.js render-host adapter are not published to
 # npm (see docs/adr/0003-vendored-gltfi-tarballs.md). These overrides force ANY resolution
 # of these package names — direct or transitive — onto the committed vendor/ tarball
-# regardless of the semver range a consumer declares. Nothing in this workspace depends on
-# them yet (engine-api and contract-tests are types-only / dependency-free per M0 scope), so
-# today these overrides are inert; scripts/refresh-vendor.mjs having produced valid,
-# installable tarballs from the sibling monorepos is what "proves the pipeline" at M0.
+# regardless of the semver range a consumer declares. As of M2, packages/engine-three
+# depends on @gltfi/gltf and @gltfi/three-adapter for real (GLTFLoader interactivity
+# plugin, index tables, pointer-router, picking) — these overrides are what makes that
+# resolve to the committed vendor/ tarballs instead of hitting the (unpublished) npm
+# registry names.
 overrides:
   "@gltfi/kernel": "file:vendor/gltfi-kernel-0.0.1.tgz"
   "@gltfi/ir": "file:vendor/gltfi-ir-0.0.1.tgz"

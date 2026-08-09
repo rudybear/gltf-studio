@@ -29,6 +29,17 @@ jobs:
       - run: pnpm install
       - run: pnpm build
       - run: pnpm test
+      # packages/engine-three's RenderHost contract suite runs in a real
+      # browser (vitest browser mode, Playwright provider, headless
+      # Chromium) rather than jsdom/node, so WebGL/canvas/pointer-capture
+      # all behave like a real editor session. Uses the runner's own
+      # pre-installed Google Chrome (`channel: "chrome"` in
+      # packages/engine-three/vitest.config.ts) instead of downloading
+      # Playwright's bundled Chromium — ubuntu-latest ships one already.
+      # `--no-sandbox` (baked into that same config's launch args) is
+      # required for Chrome to run at all under the runner's restricted
+      # container — this repo's CI history shows Chrome needs it here.
+      - run: pnpm test:browser
       - run: pnpm lint
       - run: node scripts/check-drift.mjs
       - run: node scripts/gen-status.mjs --check
