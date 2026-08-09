@@ -27,3 +27,11 @@ export { ensureTypeIndex, setLiteralValue, setPointerConfig } from "./graph-edit
 export { ensureGraphScaffold, type EnsureGraphResult } from "./ensure-graph.js";
 export { SCENE_NODE_DRAG_MIME, ANIM_CLIP_DRAG_MIME } from "./graph-view.js";
 export { type DropKind } from "./drop-menu.js";
+// M7: shared rendering internals exported for @gltf-studio/audio-canvas's
+// reuse (specs/ux-audio-graph.md UX-600 — "the identical engine ... a
+// separate canvas instance ..., never a different rendering
+// implementation") rather than a duplicate React Flow/ELK canvas. Not
+// previously exported because the only consumer was graph-canvas.tsx
+// itself, in the same package.
+export { GraphView, type GraphViewProps, type GraphCanvasTestHook } from "./graph-view.js";
+export { NodeDetails, type NodeDetailsProps } from "./node-details.js";

@@ -74,6 +74,33 @@ pointer retarget and this drop-menu's created nodes both build on.
 `UX-511` (inline Copilot affordance's context-chip half — the tab-switch half works) remains
 unimplemented; it is the one requirement in this block still deferred past M4.
 
+## Implementation notes (M7)
+
+`specs/ux-audio-graph.md`'s `UX-600` requires the audio-graph canvas to reuse "the identical engine
+and contract" this file specifies, rather than a second rendering implementation. To make that
+literal (not just similar-looking), M7 widens three of this package's own internal types/exports
+rather than duplicating them in `@gltf-studio/audio-canvas`:
+
+- `MappedNode.category` (`map-graph.ts`) widened from `OpCategory | "unknown"` to a plain `string`
+  — `@gltfi/kernel`'s `OpCategory` registry has no `"audio"` member, and never should (audio-graph
+  nodes are not `KHR_interactivity` ops). Every existing `OpCategory` value is still a valid
+  `string`, so this is source-compatible for this package's own `mapGraph` output.
+- `MappedNode.raw` widened from `InteractivityNode` to `unknown` for the same reason (audio-graph's
+  raw node shape is a `KHRGraphNodeSpec`, not an `InteractivityNode`); `node-details.tsx`'s one read
+  of it now defends with a local cast instead of assuming the interactivity shape.
+- `MappedEdge` gained an optional `invalid?: boolean` field, rendered as a dashed stroke by
+  `graph-view.tsx` when set (`specs/ux-audio-graph.md`'s `UX-603`) — always `undefined`/falsy for
+  this package's own `mapGraph` output, so no behavior-graph rendering changes. This does NOT
+  resolve `OPEN(UX-graph-invalid-edge-tbd)` below (the plumbing now exists; nothing in this package
+  sets the flag on a behavior-graph edge).
+- `GraphView`/`NodeDetails` (previously internal to this package, used only by `graph-canvas.tsx`)
+  are now exported from `index.ts` so `@gltf-studio/audio-canvas` can render its own mapped
+  `KHR_audio_graph` output through the same two components, read-only (see
+  `specs/ux-audio-graph.md`'s implementation notes for what "read-only" covers there).
+- `palette.ts`'s `CATEGORY_COLORS`/`categoryColor` gained one new fixed entry (`"audio"`) plus a
+  deterministic hash-based fallback color for any category string outside the fixed map, replacing
+  the previous flat "anything unrecognized is gray" fallback.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

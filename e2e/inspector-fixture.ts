@@ -15,10 +15,13 @@
 // `{ name, mimeType, buffer }` form, so no second file needs to live under
 // e2e/fixtures/.
 import { writeContainer, type Container } from "@gltfi/gltf";
+import { sineBeepWavBytes } from "./wav-fixture.js";
 
 const CHUNK_TYPE_JSON = 0x4e4f534a;
 
 export const INSPECTOR_FIXTURE_NAME = "inspector-fixture.glb";
+/** M7 (e2e/audio.spec.ts): the "Speaker" node's emitter index, now with real audio bound via `sources: [0]`. */
+export const INSPECTOR_FIXTURE_EMITTER_INDEX = 0;
 
 function base64FromBytes(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
@@ -29,9 +32,12 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
   const indices = new Uint16Array([0, 1, 2]);
   const positionBytes = new Uint8Array(positions.buffer);
   const indexBytes = new Uint8Array(indices.buffer);
-  const combined = new Uint8Array(positionBytes.byteLength + indexBytes.byteLength);
+  const wavBytes = sineBeepWavBytes({ frequencyHz: 660 });
+  const combined = new Uint8Array(positionBytes.byteLength + indexBytes.byteLength + wavBytes.byteLength);
   combined.set(positionBytes, 0);
   combined.set(indexBytes, positionBytes.byteLength);
+  combined.set(wavBytes, positionBytes.byteLength + indexBytes.byteLength);
+  const wavByteOffset = positionBytes.byteLength + indexBytes.byteLength;
 
   return {
     asset: { version: "2.0", generator: "gltf-studio e2e inspector fixture" },
@@ -70,7 +76,9 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
     ],
     bufferViews: [
       { buffer: 0, byteOffset: 0, byteLength: positionBytes.byteLength },
-      { buffer: 0, byteOffset: positionBytes.byteLength, byteLength: indexBytes.byteLength }
+      { buffer: 0, byteOffset: positionBytes.byteLength, byteLength: indexBytes.byteLength },
+      // bufferView 2: the Speaker's audio clip (M7) — see wav-fixture.ts.
+      { buffer: 0, byteOffset: wavByteOffset, byteLength: wavBytes.byteLength }
     ],
     buffers: [{ uri: `data:application/octet-stream;base64,${base64FromBytes(combined)}`, byteLength: combined.byteLength }],
     extensions: {
@@ -85,7 +93,14 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
       // `dispatchCommand`'s trailing `set(...)` before it ever runs — see
       // this fixture's git history for the debugging trail).
       KHR_lights_punctual: { lights: [{ type: "point" }] },
-      KHR_audio_emitter: { emitters: [{ type: "positional", gain: 0.8, distanceModel: "inverse" }] }
+      // M7: real audio (audio[]/sources[]) bound via `sources: [0]` — real
+      // enough for e2e/audio.spec.ts's audition -> active-voice assertion
+      // (diagnostics()), not just an inert gain/distanceModel-only stub.
+      KHR_audio_emitter: {
+        audio: [{ bufferView: 2, mimeType: "audio/wav" }],
+        sources: [{ audio: 0, gain: 1, loop: false }],
+        emitters: [{ type: "positional", gain: 0.8, distanceModel: "inverse", sources: [0] }]
+      }
     },
     extensionsUsed: ["KHR_lights_punctual", "KHR_audio_emitter"]
   };

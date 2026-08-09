@@ -17,6 +17,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeContainer, type Container } from "@gltfi/gltf";
+import { sineBeepWavBytes } from "./wav-fixture.js";
 
 const CHUNK_TYPE_JSON = 0x4e4f534a;
 
@@ -25,6 +26,11 @@ export const FIXTURE_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "f
 /** Front-on camera pose (see e2e/viewport.spec.ts): node 1 ("Widget") dead center, node 3 ("Widget_Detail") nowhere in frame. */
 export const FIXTURE_FRONT_CAMERA_POSE = { position: [0, 0, 3] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], target: [0, 0, 0] as [number, number, number] };
 
+/** M7 (specs/engine-api.md AH-001/AH-002, e2e/audio.spec.ts): the scene-level global emitter's index into `extensions.KHR_audio_emitter.emitters`. */
+export const FIXTURE_AUDIO_EMITTER_INDEX = 0;
+/** M7: the `extensions.KHR_audio_graph.graphs[0]` bufferSource -> gain -> emitter chain's one processing node's label. */
+export const FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL = "beepGain";
+
 function base64FromBytes(bytes: Uint8Array): string {
   // global-setup.ts runs under Node (Playwright's test runner), not a
   // browser — Buffer is the natural base64 encoder here, unlike the
@@ -32,6 +38,9 @@ function base64FromBytes(bytes: Uint8Array): string {
   // otherwise-identical fixture builder uses.
   return Buffer.from(bytes).toString("base64");
 }
+
+// sineBeepWavBytes (KHR_audio_emitter's `audio[]` WAV data, M7) lives in
+// ./wav-fixture.ts, shared with inspector-fixture.ts.
 
 function buildFixtureJson(): Record<string, unknown> {
   const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
@@ -49,17 +58,26 @@ function buildFixtureJson(): Record<string, unknown> {
   const normalBytes = new Uint8Array(normals.buffer);
   const timeBytes = new Uint8Array(times.buffer);
   const rotationBytes = new Uint8Array(rotations.buffer);
-  const combined = new Uint8Array(positionBytes.byteLength + normalBytes.byteLength + timeBytes.byteLength + rotationBytes.byteLength);
+  const wavBytes = sineBeepWavBytes();
+  const combined = new Uint8Array(
+    positionBytes.byteLength + normalBytes.byteLength + timeBytes.byteLength + rotationBytes.byteLength + wavBytes.byteLength
+  );
   let offset = 0;
-  for (const chunk of [positionBytes, normalBytes, timeBytes, rotationBytes]) {
+  for (const chunk of [positionBytes, normalBytes, timeBytes, rotationBytes, wavBytes]) {
     combined.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  const wavByteOffset = positionBytes.byteLength + normalBytes.byteLength + timeBytes.byteLength + rotationBytes.byteLength;
 
   return {
     asset: { version: "2.0", generator: "gltf-studio e2e fixture" },
     scene: 0,
-    scenes: [{ nodes: [0] }],
+    // M7: a SCENE-level global emitter binding (not on any `nodes[]` entry)
+    // — deliberately additive-only, so it can't perturb any other e2e
+    // spec's node-indexed assertions (identity-strip chip counts,
+    // scene-tree row counts, etc.) that already pin this fixture's node
+    // list exactly.
+    scenes: [{ nodes: [0], extensions: { KHR_audio_emitter: { emitters: [FIXTURE_AUDIO_EMITTER_INDEX] } } }],
     nodes: [
       { name: "Root", children: [1, 2] },
       { name: "Widget", mesh: 0, children: [3] },
@@ -103,9 +121,29 @@ function buildFixtureJson(): Record<string, unknown> {
             ]
           }
         ]
+      },
+      // M7: a real KHR_audio_emitter (sineBeepWavBytes' bufferView-embedded
+      // WAV, resolved by @gltf-studio/audio-webaudio's WebAudioHost) plus a
+      // KHR_audio_graph bufferSource -> gain -> emitter chain for
+      // e2e/audio.spec.ts's audio-graph-tab coverage — a global (not
+      // positional) emitter/graph so it needs no node binding at all.
+      KHR_audio_emitter: {
+        audio: [{ bufferView: 4, mimeType: "audio/wav" }],
+        sources: [{ audio: 0, gain: 1, loop: false }],
+        emitters: [{ type: "global", gain: 1, sources: [0] }]
+      },
+      KHR_audio_graph: {
+        graphs: [
+          {
+            nodes: [{ kind: "gain", label: FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL, params: { gain: 0.6 } }],
+            connections: [],
+            inputs: [{ source: 0, node: 0 }],
+            outputs: [{ node: 0, emitter: FIXTURE_AUDIO_EMITTER_INDEX }]
+          }
+        ]
       }
     },
-    extensionsUsed: ["KHR_lights_punctual", "KHR_interactivity"],
+    extensionsUsed: ["KHR_lights_punctual", "KHR_interactivity", "KHR_audio_emitter", "KHR_audio_graph"],
     accessors: [
       { bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] },
       { bufferView: 1, componentType: 5126, count: 3, type: "VEC3" },
@@ -120,7 +158,12 @@ function buildFixtureJson(): Record<string, unknown> {
         buffer: 0,
         byteOffset: positionBytes.byteLength + normalBytes.byteLength + timeBytes.byteLength,
         byteLength: rotationBytes.byteLength
-      }
+      },
+      // bufferView 4: the sine-beep WAV — no `accessors[]` entry references
+      // it (glTF only requires an accessor for vertex/animation data;
+      // KHR_audio_emitter's `audio[].bufferView` points at a bufferView
+      // directly, per spec).
+      { buffer: 0, byteOffset: wavByteOffset, byteLength: wavBytes.byteLength }
     ],
     buffers: [{ uri: `data:application/octet-stream;base64,${base64FromBytes(combined)}`, byteLength: combined.byteLength }]
   };

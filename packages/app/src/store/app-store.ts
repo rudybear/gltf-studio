@@ -14,7 +14,7 @@ import { parseContainer } from "@gltfi/gltf";
 import { createDocument, GraphEdit, HistoryStack, save, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
 import { IndexedDBStorage } from "@gltf-studio/storage";
-import type { GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
+import type { AudioHost, GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 
 export type ThemeOverride = "light" | "dark" | null;
@@ -93,6 +93,16 @@ export interface AppState {
   canUndo: boolean;
   canRedo: boolean;
 
+  // -- audio (M7, specs/engine-api.md AH-001/AH-002): registration side only
+  // — the CURRENT project's AudioHost instance (real @gltf-studio/audio-
+  // webaudio `WebAudioHost` once a document with KHR_audio_emitter is
+  // loaded, per `registerAudioHost` below). Ephemeral (DOC-030-style, never
+  // persisted): a fresh instance is created and re-registered on every new
+  // `document`. Play mode's `SceneAdapter.applyPointer -> renderHost ‖
+  // audioHost` fan-out (PC-001) reads this field; wiring that fan-out is
+  // NOT this store's concern (see the `packages/play` PR).
+  audioHost?: AudioHost;
+
   // -- selection (DOC-030: ephemeral only) --
   selectedNodeIndex: number | null;
   // -- behavior-graph canvas selection (specs/ux-graph-canvas.md UX-507; DOC-030: ephemeral, additive) --
@@ -131,6 +141,17 @@ export interface AppState {
   toasts: ToastMessage[];
 
   // -- actions --
+  /**
+   * M7 (registration side of specs/engine-api.md's AudioHost — see the
+   * `audioHost` field's own doc comment above): sets the store's current
+   * `AudioHost` instance. Called from the app's document-load effect once
+   * per new `document` (with a freshly constructed `WebAudioHost`) — never
+   * from this store itself, which has no document-loading side effects of
+   * its own (that lives in `packages/app/src/App.tsx`'s audio-registration
+   * effect, mirroring `Viewport.tsx`'s own RenderHost-per-document
+   * lifecycle). Passing `undefined` clears it (e.g. on dispose).
+   */
+  registerAudioHost(host: AudioHost | undefined): void;
   importGlb(file: { name: string; bytes: Uint8Array }): Promise<void>;
   dispatchCommand(command: Command): void;
   undo(): void;
@@ -199,6 +220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   journalSinceRev: 0,
   canUndo: false,
   canRedo: false,
+  audioHost: undefined,
 
   selectedNodeIndex: null,
   selectedGraphNodeIndex: null,
@@ -228,6 +250,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   consoleLines: [],
   toasts: [],
+
+  registerAudioHost(host) {
+    set({ audioHost: host });
+  },
 
   async importGlb(file) {
     const { storage, log, pushToast } = get();

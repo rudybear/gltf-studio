@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../../store/app-store";
 import type { DockTab } from "../../store/app-store";
-import { Placeholder } from "./Placeholder";
 import { ConsolePanel } from "./ConsolePanel";
 import { DataTab } from "./DataTab";
 import { BehaviorGraphPanel } from "./BehaviorGraphPanel";
+import { AudioGraphTabPanel } from "./AudioGraphTabPanel";
 import { ScriptTabPanel } from "./ScriptTabPanel";
 
 const TABS: Array<{ key: DockTab; label: string; testid: string }> = [
@@ -15,7 +15,7 @@ const TABS: Array<{ key: DockTab; label: string; testid: string }> = [
   { key: "data", label: "Data (glTF)", testid: "dock.tab.data" }
 ];
 
-/** UX-103: exactly five dock tabs, one visible at a time; Behavior graph (M4), Script (M5), Console, and Data are real — Audio graph remains a placeholder. */
+/** UX-103: exactly five dock tabs, one visible at a time; Behavior graph (M4), Script (M5), Console, Data, and (M7) Audio graph are all real. */
 export function BottomDock(): JSX.Element {
   const height = useAppStore((s) => s.panelSizes.dockHeight);
   const active = useAppStore((s) => s.activeDockTab);
@@ -59,7 +59,7 @@ export function BottomDock(): JSX.Element {
         <div style={{ display: active === "graph" ? "contents" : "none" }}>
           <BehaviorGraphPanel />
         </div>
-        {active === "audio-graph" && <Placeholder testId="audio-graph.panel" text="Audio graph canvas arrives in a later milestone." />}
+        {active === "audio-graph" && <AudioGraphTabPanel />}
         {scriptEverOpened && (
           <div style={{ display: active === "script" ? "contents" : "none" }}>
             <ScriptTabPanel />

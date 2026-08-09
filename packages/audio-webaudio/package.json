@@ -1,0 +1,32 @@
+{
+  "name": "@gltf-studio/audio-webaudio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AudioHost over the Web Audio API (specs/engine-api.md AH-001/AH-002). Lifts gltf-webgpu's KHR_audio_emitter/KHR_audio_environment layer (spatial.ts verbatim, AudioSystem adapted behind the AudioHost interface).",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test:browser": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@gltf-studio/contract-tests": "workspace:*",
+    "@vitest/browser": "^2.1.8",
+    "playwright": "^1.55.0",
+    "vitest": "^2.1.8"
+  }
+}

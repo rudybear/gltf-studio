@@ -103,7 +103,17 @@ export type MappedLiteral = {
 export type MappedNode = {
   index: number;
   op: string;
-  category: OpCategory | "unknown";
+  /**
+   * Widened from `OpCategory | "unknown"` to a plain `string` (M7, for
+   * `@gltf-studio/audio-canvas`'s reuse of this shape + `GraphView`/
+   * `NodeDetails` for `KHR_audio_graph` — specs/ux-audio-graph.md UX-600 —
+   * which has its own category namespace, e.g. `"audio"`, entirely outside
+   * `@gltfi/kernel`'s `OpCategory` registry). Every existing
+   * `KHR_interactivity` `OpCategory` value is still a valid `string`, so
+   * this is source-compatible for every caller of `mapGraph` — see
+   * `palette.ts`'s matching widening.
+   */
+  category: string;
   /** Op tail, e.g. "doN" for "flow/doN". */
   label: string;
   /** Variable/event/pointer name, when resolvable from configuration. */
@@ -113,8 +123,16 @@ export type MappedNode = {
   ports: MappedPort[];
   /** Inline constant values keyed by the value-in port name they occupy. */
   literals: Record<string, MappedLiteral>;
-  /** The raw KHR_interactivity node object this was mapped from (for the details panel's raw-JSON view). */
-  raw: InteractivityNode;
+  /**
+   * The raw per-graph-format node object this was mapped from (for the
+   * details panel's raw-JSON view). Widened from `InteractivityNode` to
+   * `unknown` alongside `category` above, for the same
+   * `@gltf-studio/audio-canvas` reuse reason — its raw node shape is a
+   * `KHRGraphNodeSpec` (audio-graph-js), not an `InteractivityNode`.
+   * `node-details.tsx`'s one read of this field already defends with a
+   * local cast rather than assuming the interactivity shape.
+   */
+  raw: unknown;
 };
 
 export type MappedEdge = {
@@ -126,6 +144,8 @@ export type MappedEdge = {
   targetPort: string;
   /** Resolved type signature, value edges only. */
   type?: string;
+  /** UX-603 (audio-graph canvas): drawn with a dashed stroke instead of hidden/omitted. Unused (always falsy) by the behavior-graph canvas. */
+  invalid?: boolean;
 };
 
 export type MappedGraph = {

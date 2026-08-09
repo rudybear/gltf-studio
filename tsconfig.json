@@ -7,6 +7,9 @@
     { "path": "packages/engine-three" },
     { "path": "packages/graph-canvas" },
     { "path": "packages/script-panel" },
-    { "path": "packages/storage" }
+    { "path": "packages/storage" },
+    { "path": "packages/audio-webaudio" },
+    { "path": "packages/audio-graph" },
+    { "path": "packages/audio-canvas" }
   ]
 }
