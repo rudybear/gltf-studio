@@ -15,7 +15,10 @@
     { "path": "../engine-api" },
     { "path": "../editor-core" },
     { "path": "../storage" },
-    { "path": "../graph-canvas" }
+    { "path": "../graph-canvas" },
+    { "path": "../audio-webaudio" },
+    { "path": "../audio-graph" },
+    { "path": "../audio-canvas" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

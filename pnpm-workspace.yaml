@@ -30,3 +30,10 @@ overrides:
   "@gltfi/runtime": "file:vendor/gltfi-runtime-0.0.1.tgz"
   "@gltfi/runtime-lib": "file:vendor/gltfi-runtime-lib-0.0.1.tgz"
   "@gltfi/three-adapter": "file:vendor/gltfi-three-adapter-0.0.1.tgz"
+  # AudioGraphJS (github.com's sibling glTF-audio/AudioGraphJS checkout) is a
+  # KHR_audio_graph runtime not published to npm either — vendored the same
+  # way as the @gltfi/* packages above (M7, packages/audio-graph). Unlike the
+  # @gltfi/* packages it builds and packs cleanly with no source changes
+  # needed (see scripts/refresh-vendor.mjs's audioGraphJsRoot block), so the
+  # tarball is a plain `npm pack` of its dist/ output.
+  "audio-graph-js": "file:vendor/audio-graph-js-0.1.0.tgz"

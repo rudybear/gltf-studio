@@ -1,0 +1,37 @@
+{
+  "name": "@gltf-studio/audio-canvas",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Audio-graph canvas for KHR_audio_graph (specs/ux-audio-graph.md UX-6xx): a second canvas instance on graph-canvas's shared React Flow + ELK engine (GraphView/NodeDetails), a KHR_audio_graph -> MappedGraph projection, and the AudioGraphHost lint banner. Read-only rendering + node selection/details in v1 (no editing — see the package README/spec notes for why).",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*",
+    "@gltf-studio/graph-canvas": "workspace:*",
+    "audio-graph-js": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "vitest": "^2.1.8"
+  }
+}

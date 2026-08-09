@@ -44,6 +44,16 @@ Prefix: `UX`. This file owns the `UX-4xx` block.
 - [UX-413] (active) With no selection, the Inspector shows exactly one "Nothing selected." message and no section content.
 - [UX-414] (active) Light and camera nodes show their Transform section plus an explicit note that type-specific properties (light color/intensity/type; camera FOV/clipping) are edited in a later iteration — never a silently missing section with no explanation.
 
+## Implementation notes
+
+- M7 (`packages/app/src/components/inspector/AudioSection.tsx`): `UX-406`'s Audition (`▶`) control
+  is real — it was a disabled stub pending "the play-mode runtime" (a stale note; the actual
+  dependency was `specs/engine-api.md`'s `AudioHost`, which lands in M7, not `PlayController`
+  specifically). The control's own `onClick` is the gesture `AudioHost.init()`'s `AH-001`
+  gesture-gating requires; a local `initialized` flag skips a redundant `init()` call on repeat
+  clicks (not a correctness requirement — `init()` is itself idempotent — just avoids an unnecessary
+  await on every click).
+
 ## Open questions
 
 - OPEN(UX-inspector-children-multi-tbd): `UX-403`'s children-chip behavior ("navigate to the

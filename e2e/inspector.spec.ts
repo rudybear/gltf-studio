@@ -176,11 +176,19 @@ test.describe("inspector (specs/ux-inspector.md UX-4xx)", () => {
     expect(json2.materials[1].pbrMetallicRoughness.baseColorFactor.slice(0, 3)).toEqual([0, 1, 0]);
   });
 
-  test("Audio Emitter section: gain/distance-model reflect and write the document; audition is a disabled stub (UX-406)", async ({ page }) => {
+  test("Audio Emitter section: gain/distance-model reflect and write the document; audition is real and gesture-gates AudioHost.init() (UX-406, M7)", async ({ page }) => {
     await page.getByTestId("scene-tree.row.4").click(); // Speaker
     await expect(page.getByTestId("inspector.audio.gain")).toHaveValue("0.8");
     await expect(page.getByTestId("inspector.audio.distance-model")).toHaveValue("inverse");
-    await expect(page.getByTestId("inspector.audio.audition")).toBeDisabled();
+    // M7: real once the store's audioHost is registered (App.tsx, every
+    // loaded document) — no longer the M2..M6-era disabled stub.
+    await expect(page.getByTestId("inspector.audio.audition")).toBeEnabled();
+    await page.getByTestId("inspector.audio.audition").click(); // first click = the AH-001 gesture
+    // The emitter has no sources bound in this fixture — auditionEmitter is
+    // a documented no-op for that case, so nothing more to assert than "the
+    // click didn't throw/crash the page" (implicitly covered: every other
+    // assertion in this test still passing after the click).
+    await expect(page.getByTestId("inspector.audio.audition")).toBeEnabled();
 
     await page.getByTestId("inspector.audio.distance-model").selectOption("linear");
     const json = (await documentJson(page)) as {

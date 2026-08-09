@@ -212,7 +212,15 @@ function ConfigEditor({
   onAddEventAndSetConfig?: NodeDetailsProps["onAddEventAndSetConfig"];
   onOpenPointerPicker?: NodeDetailsProps["onOpenPointerPicker"];
 }) {
-  const raw = node.raw.configuration ?? {};
+  // `node.raw` is `unknown` (M7 widening, see map-graph.ts's MappedNode.raw
+  // doc comment) — defends here rather than assuming the KHR_interactivity
+  // `InteractivityNode` shape, since @gltf-studio/audio-canvas's mapped
+  // nodes carry a structurally different raw object with no `configuration`
+  // (that canvas's own NodeDetails usage passes no config-editing callbacks,
+  // so `ConfigEditor` never actually renders for one of its nodes — but this
+  // still needs to not THROW while computing `keys` below).
+  const rawNode = node.raw as { configuration?: Record<string, { value?: Array<number | boolean | string> }> } | null | undefined;
+  const raw = rawNode?.configuration ?? {};
   // A blank node (e.g. added from the palette, which has no config to
   // prefill — unlike a drag-drop/Inspector-created node) has NO
   // `configuration` object yet at all, but its op still HAS a config field

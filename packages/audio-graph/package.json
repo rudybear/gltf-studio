@@ -1,0 +1,32 @@
+{
+  "name": "@gltf-studio/audio-graph",
+  "version": "0.0.1",
+  "private": true,
+  "description": "AudioGraphHost over KHR_audio_graph (specs/engine-api.md AGH-001): builds/runs the graph via vendored AudioGraphJS's buildGraph, exposes lint results (AudioGraphJS's own lint.ts plus this project's DAG-only gap-analysis validators) to the audio-graph canvas.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test:browser": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*",
+    "audio-graph-js": "0.1.0"
+  },
+  "devDependencies": {
+    "@vitest/browser": "^2.1.8",
+    "playwright": "^1.55.0",
+    "vitest": "^2.1.8"
+  }
+}

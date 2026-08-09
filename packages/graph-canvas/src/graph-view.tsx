@@ -208,7 +208,12 @@ function GraphViewInner(props: GraphViewProps) {
       animated: edge.kind === "flow",
       style: {
         stroke: edge.kind === "flow" ? "var(--gcanvas-flow-color, #e0a458)" : typeColor(edge.type),
-        strokeWidth: edge.kind === "flow" ? 2.5 : 1.5
+        strokeWidth: edge.kind === "flow" ? 2.5 : 1.5,
+        // UX-603 (audio-graph canvas): an edge lint flags stays at its normal
+        // geometric position with a dashed stroke, never hidden/omitted.
+        // Always undefined (no dash) for the behavior-graph canvas, whose
+        // `MappedEdge`s never set `invalid`.
+        strokeDasharray: edge.invalid ? "6 4" : undefined
       },
       data: { kind: edge.kind, targetNode: edge.targetNode, targetPort: edge.targetPort }
     }));

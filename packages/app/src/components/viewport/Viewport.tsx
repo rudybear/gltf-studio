@@ -44,6 +44,7 @@ declare global {
 export function Viewport(): JSX.Element {
   const document = useAppStore((s) => s.document);
   const history = useAppStore((s) => s.history);
+  const audioHost = useAppStore((s) => s.audioHost);
   const selectedNodeIndex = useAppStore((s) => s.selectedNodeIndex);
   const hoveredNodeIndex = useAppStore((s) => s.hoveredNodeIndex);
   const gizmoMode = useAppStore((s) => s.gizmoMode);
@@ -167,6 +168,38 @@ export function Viewport(): JSX.Element {
       dispatchCommand(SceneEdit.setTransform(doc, event.nodeIndex, fields));
     });
   }, [history, dispatchCommand]);
+
+  // M7 (AudioHost.setListenerPose, specs/engine-api.md): "listener pose fed
+  // from the viewport camera per-frame ONLY while playing" is this
+  // requirement's intended v1 shape, gated on a store play-state flag the
+  // `packages/play` PC-001 fan-out owns setting — as of this PR that flag
+  // does not exist yet in this checkout. Stopgap, per this task's own
+  // fallback allowance: poll the live camera pose every animation frame
+  // (cheap — RenderHost.getCameraPose() is a plain field read, no camera
+  // recompute) and forward it to `audioHost.setListenerPose` whenever it
+  // actually changed, for as long as a document is loaded — i.e. "while
+  // editing" rather than "only while playing" until that flag lands, at
+  // which point this effect's dependency array should gain it. Skips
+  // entirely (rAF loop never scheduled) when no `audioHost` is registered.
+  useEffect(() => {
+    if (!document || !audioHost) return;
+    let rafHandle = 0;
+    let lastPoseKey = "";
+    function tick(): void {
+      const host = hostRef.current;
+      if (host && sceneReady) {
+        const pose = host.getCameraPose();
+        const key = `${pose.position.join(",")}|${pose.rotation.join(",")}`;
+        if (key !== lastPoseKey) {
+          lastPoseKey = key;
+          audioHost!.setListenerPose(pose);
+        }
+      }
+      rafHandle = requestAnimationFrame(tick);
+    }
+    rafHandle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafHandle);
+  }, [document, audioHost, sceneReady]);
 
   // W/E/R keyboard shortcuts, mirroring the toolbar buttons' own tooltips.
   useEffect(() => {

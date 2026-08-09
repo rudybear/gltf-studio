@@ -35,6 +35,49 @@ Prefix: `UX`. This file owns the `UX-6xx` block.
 - [UX-606] (active) No audio-graph node belongs to the `pointer` category in v1, so every audio-graph node's config row renders with the plain (non-underlined, no `✎`) styling `specs/ux-graph-canvas.md`'s `UX-505` specifies for non-`pointer` nodes.
 - [UX-607] (active) Exactly one terminal `emitter / destination` node type appears per audio-emitter graph in view; it has no outputs, and its `config` names the scene audio emitter it feeds.
 
+## Implementation notes (M7)
+
+`packages/audio-canvas` (this file's owned package) first lands in M7, covering `UX-600`, `UX-601`,
+`UX-602`, `UX-603`, `UX-605`, `UX-606`, and `UX-607`; `UX-604` (no node-creation palette) holds by
+simply not building one. `UX-600`'s "identical engine and contract" is literal, not just
+similar-looking: `AudioGraphCanvas` renders through `@gltf-studio/graph-canvas`'s own `GraphView`/
+`NodeDetails` components (newly exported from that package's `index.ts` for this reuse — see
+`specs/ux-graph-canvas.md`'s own M7 implementation note for the three small type widenings that
+required), fed by `map-audio-graph.ts`'s pure `KHR_audio_graph -> MappedGraph` projection (the SAME
+`MappedGraph`/`MappedNode`/`MappedEdge`/`MappedPort` shape `mapGraph` produces for
+`KHR_interactivity`). That projection also synthesizes two node kinds not literally present in
+`graph.nodes[]`: an `audio-buffer-source` node per `graph.inputs[]` entry (the `KHR_audio_emitter`
+source feeding the graph) and the `UX-607` terminal `emitter` node per `graph.outputs[]` entry, so
+the canvas shows the complete source -> processing -> emitter signal path.
+
+**Read-only in v1, per this file's own allowance for descoping editing when it "would exceed
+scope":** `AudioGraphCanvas`'s `GraphView` editing callbacks (connect/disconnect/move/drop) all
+report to a toast ("Audio-graph editing isn't available yet") rather than dispatching a command. An
+`AudioGraphEdit` command factory was considered (this task's brief asked for one "IF the graph shape
+maps cleanly onto our command/patch model") and NOT built: `KHR_audio_graph`'s document-level JSON
+shape would map onto `editor-core`'s patch model in principle, but the synthetic source/emitter
+terminal nodes this projection introduces would need their own non-obvious edit semantics (does
+"connect a new node to the emitter terminal" insert into `graph.outputs[]` and rewire the previous
+producer, or something else?) that were judged to need real design work, not a mechanical port of
+`GraphEdit`'s behavior-graph verbs — out of scope for this milestone. Node selection/details and the
+lint banner (below) are real, per this file's "read-only rendering + node selection/details in v1 is
+ACCEPTABLE" allowance.
+
+**Lint banner (`UX-602`)**: `AudioGraphCanvas` renders one row per `AudioGraphHost.lint()` result
+(`specs/engine-api.md`'s `AudioGraphLintResult`, produced by `@gltf-studio/audio-graph`), whose
+`message` field is already the complete human-readable sentence this requirement wants — including
+`@gltf-studio/audio-graph`'s own cycle-path validator naming the actual node sequence (e.g. "cycle
+detected (gainA → filterB → gainA) — KHR_audio_graph is DAG-only in v1 ..."), not merely an abstract
+code. The banner also surfaces two further gap-analysis-derived warnings beyond the DAG-only
+constraint this requirement names: unsupported envelope/automation `params` keys (gap G5) and an
+oscillator/gain `"custom"` type/interpolation with no defined payload (gap G2) — see
+`packages/audio-graph/src/validators.ts`.
+
+**Invalid-edge rendering (`UX-603`)**: implemented via `MappedEdge`'s new optional `invalid` field
+(`specs/ux-graph-canvas.md`'s M7 note) — `map-audio-graph.ts` sets it on every edge between two nodes
+both named in a `"cycle"` lint violation; `graph-view.tsx` renders `invalid` edges with a dashed
+stroke rather than hiding them, exactly as this requirement specifies.
+
 ## Open questions
 
 - OPEN(UX-audiograph-palette-tbd): whether the audio graph gets its own palette (mirroring

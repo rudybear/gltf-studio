@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { SceneEdit, type EditorDocument } from "@gltf-studio/editor-core";
 import { useAppStore } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
@@ -11,8 +12,13 @@ const DISTANCE_MODELS = ["linear", "inverse", "exponential"] as const;
  * against `extensions.KHR_audio_emitter.emitters[emitterIndex]` (the
  * root-level emitters registry the node's own
  * `extensions.KHR_audio_emitter.emitter` index points into). The Audition
- * (`▶`) control is a disabled stub — real playback needs the play-mode
- * runtime, which arrives at M6.
+ * (`▶`) control is real as of M7: the store's `audioHost` (registered by
+ * App.tsx per document, specs/engine-api.md AH-001/AH-002) is gesture-gated
+ * — `init()` is only ever called from inside this button's own `onClick`,
+ * the first real user gesture this control sees, and only once (tracked
+ * locally; a second click skips straight to `auditionEmitter` — `init()`
+ * itself is idempotent too, so this is a minor redundant-call optimization,
+ * not a correctness requirement).
  */
 export function AudioSection({
   emitterIndex,
@@ -24,6 +30,9 @@ export function AudioSection({
   document: EditorDocument;
 }): JSX.Element {
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
+  const audioHost = useAppStore((s) => s.audioHost);
+  const [initialized, setInitialized] = useState(false);
+  const [auditioning, setAuditioning] = useState(false);
   const emitter = json.extensions?.KHR_audio_emitter?.emitters?.[emitterIndex] ?? {};
   const gain = emitter.gain ?? 1;
   const distanceModel = emitter.distanceModel ?? "inverse";
@@ -33,6 +42,20 @@ export function AudioSection({
   }
   function setDistanceModel(value: string): void {
     dispatchCommand(SceneEdit.setAudioEmitterProperty(document, emitterIndex, ["distanceModel"], value));
+  }
+
+  async function audition(): Promise<void> {
+    if (!audioHost || auditioning) return;
+    setAuditioning(true);
+    try {
+      if (!initialized) {
+        await audioHost.init(); // AH-001: gesture-gated — this onClick IS the gesture.
+        setInitialized(true);
+      }
+      audioHost.auditionEmitter(emitterIndex);
+    } finally {
+      setAuditioning(false);
+    }
   }
 
   return (
@@ -67,7 +90,13 @@ export function AudioSection({
             ))}
           </select>
         </div>
-        <button className="btn small" data-testid="inspector.audio.audition" disabled title="Play mode arrives in M6.">
+        <button
+          className="btn small"
+          data-testid="inspector.audio.audition"
+          disabled={!audioHost || auditioning}
+          title="Play a brief local preview of this emitter."
+          onClick={() => void audition()}
+        >
           ▶ Audition
         </button>
       </div>
