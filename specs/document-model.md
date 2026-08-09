@@ -1,10 +1,8 @@
 # document-model
 
-Owns: `packages/editor-core/**` (see `specs/ownership.json`). **`packages/editor-core` is not yet
-scaffolded** — this spec is written ahead of the package per the program plan's "Immediate next
-steps" ("First three specs ... `DOC` (document model)"); the ownership glob is added now so
-`scripts/check-drift.mjs`'s ownership-drift check governs the package from the moment it is
-created, with no separate follow-up PR required to wire that up.
+Owns: `packages/editor-core/**` (see `specs/ownership.json`). Implemented by `packages/editor-core`
+as of milestone M1 (document core: `EditorDocument`, `applyCommand`, `HistoryStack`,
+`GraphEdit`/`SceneEdit` command factories, byte-preserving `save`).
 
 `editor-core` holds the authored document model (Phase A of the program plan): the raw glTF JSON
 itself is the authored state (never a second normalized model), mutated only through immutable,
@@ -44,6 +42,8 @@ Prefix: `DOC`.
 - [DOC-016] (active) `HistoryStack.transact(fn)` groups every command pushed during the synchronous execution of `fn` into a single undo/redo step.
 - [DOC-017] (active) The undo/redo log is linear (no branching): once any command has been undone, pushing a new command discards the entire existing redo log.
 - [DOC-018] (active) `undo`/`redo` restore prior document states exclusively by applying `inverse`/`patches` JSON-Patch operations — `HistoryStack` never restores state by rewinding to a stored document snapshot pointer.
+- [DOC-035] (active) Resolves the open question of whether a coalesced sequence of commands (DOC-015) bumps `rev` (DOC-003) once per pushed command or once per coalesced group, in favor of the former: every call to `applyCommand` that succeeds — including each individual `HistoryStack.push` later merged by coalescing (DOC-015) or grouped by `transact` (DOC-016) — bumps `rev` by exactly one. Coalescing/transacting change only how many entries `HistoryStack`'s undo/redo logs contain, never how many times `rev` advances; a single `undo()`/`redo()` call over a coalesced-or-transacted entry (however many underlying commands it groups) is itself one operation and so bumps `rev` by exactly one, per DOC-003.
+- [DOC-036] (active) Resolves the open question of `HistoryStack`'s maximum depth: undo/redo depth is unbounded in v1 — no maximum depth or eviction policy is enforced. A memory-eviction policy (e.g. capping undo depth) is deferred to a future milestone.
 
 ### Index-stability policy
 
@@ -55,6 +55,7 @@ Prefix: `DOC`.
 
 - [DOC-022] (active) Every patch path is truncated to its canonical splice root via a fixed path→canonical-splice-root table (e.g. a patch under `/nodes/3/...` truncates to `/nodes/3`; a patch under `/extensions/KHR_interactivity/graphs/2/...` truncates to `/extensions/KHR_interactivity/graphs/2`).
 - [DOC-023] (active) `applyCommand` adds the canonical splice root (DOC-022) of every patch it applies to the resulting document's `dirtyRoots` set.
+- [DOC-038] (active) Resolves DOC-022's "full table" open question. The path→canonical-splice-root table is, in priority order: (1) `/extensions/KHR_interactivity/graphs/{N}/...` truncates to `/extensions/KHR_interactivity/graphs/{N}` — one interactivity graph is the editable unit, so any add/remove/reference-fixup entirely inside one graph (new nodes, declarations, variables, custom events, or index-shifted references) stays inside that graph's own root and never needs the reserialize fallback (DOC-025) merely for being "inside an existing graph"; (2) `/extensions/{name}/...` for any other extension (including `KHR_audio_emitter`, per the plan's own example) truncates to `/extensions/{name}` — the whole extension object is the root, so most future extensions need no table change at all, only ones wanting rule-1-style per-element granularity do; (3) `/{arrayRootKey}/{N}/...` for every top-level glTF array root (`nodes`, `meshes`, `materials`, `textures`, `images`, `samplers`, `skins`, `accessors`, `bufferViews`, `buffers`, `animations`, `scenes`, `cameras`) truncates to `/{arrayRootKey}/{N}` — one array element is the editable unit (this is also where `node.extras.gltfi.{x,y}`, DOC-027, ends up, since it is nested under a node root); (4) anything else (`/scene`, `/asset`, `/extensionsUsed`, `/extensionsRequired`, `/extras`, or any future unrecognized top-level key) truncates to that top-level key itself, since these are not arrays of independently-editable elements.
 
 ### Save semantics
 
@@ -75,6 +76,7 @@ Prefix: `DOC`.
 ### Document frozen during play
 
 - [DOC-031] (active) `EditorDocument` is frozen for the duration of play mode: no `Command` may be applied to it (via `applyCommand` or `HistoryStack`) while `PlayController` is running. Play-mode state changes go exclusively through `PlayController`'s fan-out (`SceneAdapter.applyPointer`), never through `applyCommand`/`HistoryStack`.
+- [DOC-037] (active) Resolves the open question of whether `applyCommand`/`HistoryStack` throw, no-op, or queue when a command is attempted while `EditorDocument` is frozen (DOC-031), in favor of throwing: `applyCommand` throws a typed `DocumentFrozenError` (not a no-op, not a queued/deferred application) when called against a frozen document; `HistoryStack.push`/`undo`/`redo` propagate the same error rather than swallowing it. UI command dispatch is expected to prevent commands from reaching `applyCommand` while play is running, upstream of this throw.
 
 ### Property-test obligations
 
@@ -84,7 +86,12 @@ Prefix: `DOC`.
 
 ## Open questions
 
-- OPEN: the precise rules for whether a coalesced sequence of commands (DOC-015) bumps `rev` (DOC-003) once per pushed command or once per coalesced group are not specified by the plan.
-- OPEN: the full contents of the path→canonical-splice-root table (DOC-022) — every extension root that needs an entry, not only the three the plan names as examples (`/extensions/KHR_interactivity/graphs/{N}`, `/nodes/{i}`, `/extensions/KHR_audio_emitter`) — are not enumerated by the plan; DOC-022 requires such a table exist, but future PRs adding new editable extension roots must extend it.
-- OPEN: `HistoryStack`'s maximum depth or any memory-eviction policy (e.g. capping undo depth) is not specified by the plan.
-- OPEN: whether `applyCommand`/`HistoryStack` throw, no-op, or queue when a command is attempted while `EditorDocument` is frozen for play (DOC-031) is not specified by the plan.
+All four open questions this spec previously carried were resolved in the M1 PR that scaffolded
+`packages/editor-core` (see DOC-035, DOC-036, DOC-037, DOC-038 above for the resolutions
+themselves): rev-bump semantics under coalescing (DOC-035), `HistoryStack` depth (DOC-036),
+command-during-play-freeze behavior (DOC-037), and the full splice-root table (DOC-038). None
+remain open as of M1.
+
+Future PRs that add a new editable extension root ahead of DOC-038's rule 2 default (i.e. wanting
+rule-1-style per-element granularity for some extension other than `KHR_interactivity`) should
+extend DOC-038's table directly rather than reopening this section.

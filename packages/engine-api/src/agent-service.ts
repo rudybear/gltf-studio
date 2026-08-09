@@ -29,18 +29,22 @@ export type AgentContextRef =
   | { kind: "explicit"; label: string; pointer: string };
 
 /**
- * Minimal structural stand-in for editor-core's not-yet-implemented
- * Command (DOC-007..010, specs/document-model.md). Deliberately NOT the
- * full Command type — this package is types-only and editor-core does not
- * exist yet. `patches`/`inverse` mirror DOC-007/DOC-008 (precomputed
- * forward + inverse JsonPatchOp batches) and `label` mirrors DOC-009; the
- * optional `coalesceKey` (DOC-010) is intentionally omitted since a
- * proposal's commands apply inside a single HistoryStack.transact (AG-004)
- * and have no reason to coalesce with anything outside that transaction.
+ * Minimal structural stand-in for editor-core's Command (DOC-007..010,
+ * specs/document-model.md). Deliberately NOT the full Command type — this
+ * package is types-only and stays dependency-free, so it cannot import
+ * editor-core's real `Command` type. `patches`/`inverse` mirror
+ * DOC-007/DOC-008 (precomputed forward + inverse JsonPatchOp batches) and
+ * `label` mirrors DOC-009; the optional `coalesceKey` (DOC-010) is
+ * intentionally omitted since a proposal's commands apply inside a single
+ * HistoryStack.transact (AG-004) and have no reason to coalesce with
+ * anything outside that transaction.
  *
- * OPEN(AG-commandlike-unification-tbd): unifying CommandLike with
- * editor-core's real Command (or confirming this becomes a type alias) is
- * left to whichever PR scaffolds editor-core.
+ * RESOLVED (M1, OPEN(AG-commandlike-unification-tbd)): editor-core's real
+ * `Command` (packages/editor-core/src/command.ts) is defined as
+ * `CommandLike & { coalesceKey?: string }` — i.e. this interface stays
+ * exactly as-is (not renamed to an alias); editor-core's `Command` is a
+ * strict structural supertype of it, so every `CommandLike` a Proposal
+ * builds is already a valid `Command` minus optional coalescing.
  */
 export interface CommandLike {
   id: string;

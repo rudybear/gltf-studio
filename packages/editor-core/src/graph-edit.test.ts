@@ -1,0 +1,181 @@
+import { describe, expect, it } from "vitest";
+import { applyCommand } from "./document.js";
+import { applyPatches } from "./patch.js";
+import { deepEqualJson } from "./json-pointer.js";
+import { GraphEdit } from "./graph-edit.js";
+import { fixtureDocument } from "./test-fixtures.js";
+import type { Command } from "./command.js";
+
+type Graph = { declarations: Array<{ op: string }>; nodes: unknown[]; variables?: unknown[]; events?: unknown[] };
+
+function graph0(json: unknown): Graph {
+  return (json as { extensions: { KHR_interactivity: { graphs: Graph[] } } }).extensions.KHR_interactivity.graphs[0];
+}
+
+/** Shared round-trip assertion for every factory below (DOC-007/DOC-008 shape, DOC-032's core mechanism). */
+function expectRoundTrip(before: unknown, command: Pick<Command, "patches" | "inverse">): unknown {
+  const after = applyPatches(before, command.patches);
+  const restored = applyPatches(after, command.inverse);
+  expect(deepEqualJson(restored, before)).toBe(true);
+  return after;
+}
+
+describe("GraphEdit.ensureDeclaration (DOC-021)", () => {
+  it("returns the existing index and a no-op command when the declaration already exists", () => {
+    const doc = fixtureDocument();
+    const { command, index } = GraphEdit.ensureDeclaration(doc, 0, "event/onStart");
+    expect(index).toBe(0);
+    expect(command.patches).toEqual([]);
+    expect(command.inverse).toEqual([]);
+  });
+
+  it("appends a new declaration and returns its fresh index otherwise", () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const { command, index } = GraphEdit.ensureDeclaration(doc, 0, "math/multiply");
+    expect(index).toBe(graph0(before).declarations.length);
+    const after = expectRoundTrip(before, command);
+    expect(graph0(after).declarations[index]).toEqual({ op: "math/multiply" });
+  });
+});
+
+describe("GraphEdit.addNode (DOC-007..010, DOC-027)", () => {
+  it("declares the op and appends a node in one command; round-trips via inverse", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addNode(doc, 0, "math/multiply", { position: { x: 10, y: 20 } });
+    expect(command.label).toContain("math/multiply");
+    expect(typeof command.id).toBe("string");
+
+    const after = expectRoundTrip(doc.json, command);
+    const g = graph0(after);
+    const newIndex = g.nodes.length - 1;
+    const newDeclIndex = g.declarations.length - 1;
+    expect(g.declarations[newDeclIndex]).toEqual({ op: "math/multiply" });
+    expect(g.nodes[newIndex]).toMatchObject({ declaration: newDeclIndex, extras: { gltfi: { x: 10, y: 20 } } });
+  });
+
+  it("reuses an existing declaration instead of adding a duplicate", () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const command = GraphEdit.addNode(doc, 0, "event/onStart");
+    const after = expectRoundTrip(before, command);
+    expect(graph0(after).declarations.length).toBe(graph0(before).declarations.length); // no new declaration
+    expect(graph0(after).nodes.length).toBe(graph0(before).nodes.length + 1);
+  });
+
+  it("via applyCommand: dirties only the owning graph root, not the whole extensions object", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addNode(doc, 0, "math/multiply");
+    const after = applyCommand(doc, command);
+    expect([...after.dirtyRoots]).toEqual(["/extensions/KHR_interactivity/graphs/0"]);
+  });
+});
+
+describe("GraphEdit.removeNode (DOC-019, DOC-021)", () => {
+  function docWithGraph(nodes: unknown[]): ReturnType<typeof fixtureDocument> {
+    return fixtureDocument({
+      asset: { version: "2.0" },
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [{ types: [], declarations: [{ op: "a" }, { op: "b" }, { op: "c" }], nodes }]
+        }
+      }
+    });
+  }
+
+  it("removes the node and shifts every surviving values/flows reference above it down by one", () => {
+    const doc = docWithGraph([
+      { declaration: 0 }, // index 0: removed
+      { declaration: 1, flows: { out: { node: 2, socket: "in" } } }, // ref above removed -> shifts 2 -> 1
+      { declaration: 2 } // index 2
+    ]);
+    const before = doc.json;
+    const command = GraphEdit.removeNode(doc, 0, 0);
+    const after = expectRoundTrip(before, command);
+    const g = graph0(after);
+    expect(g.nodes.length).toBe(2);
+    expect((g.nodes[0] as { flows: { out: { node: number } } }).flows.out.node).toBe(1);
+  });
+
+  it("leaves a dangling reference to the removed node itself untouched (not repaired, not shifted)", () => {
+    const doc = docWithGraph([
+      { declaration: 0 }, // index 0: removed
+      { declaration: 1, values: { a: { node: 0, socket: "out" } } } // dangling ref to the removed node
+    ]);
+    const command = GraphEdit.removeNode(doc, 0, 0);
+    const after = applyPatches(doc.json, command.patches);
+    const g = graph0(after);
+    expect((g.nodes[0] as { values: { a: { node: number } } }).values.a.node).toBe(0); // untouched
+  });
+});
+
+describe("GraphEdit.connectFlow / connectValue / disconnect / setLiteral", () => {
+  it("connectFlow wires a flow socket and inverse removes it", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.connectFlow(doc, 0, 0, "out", 1, "in");
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).nodes[0]).toMatchObject({ flows: { out: { node: 1, socket: "in" } } });
+  });
+
+  it("connectFlow's inverse restores a PRIOR wire (not just removal) when overwriting an existing connection", () => {
+    const doc = fixtureDocument();
+    const wired = applyCommand(doc, GraphEdit.connectFlow(doc, 0, 0, "out", 1, "in"));
+    const rewire = GraphEdit.connectFlow(wired, 0, 0, "out", 0, "in"); // rewire the same socket to a different target
+    const flowPath = "/extensions/KHR_interactivity/graphs/0/nodes/0/flows/out";
+    expect(rewire.patches).toEqual([{ op: "replace", path: flowPath, value: { node: 0, socket: "in" } }]);
+    expect(rewire.inverse).toEqual([{ op: "replace", path: flowPath, value: { node: 1, socket: "in" } }]); // the PRIOR wire, not a bare removal
+    expectRoundTrip(wired.json, rewire);
+  });
+
+  it("connectValue wires a value socket referencing another node", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.connectValue(doc, 0, 1, "a", 0, "out");
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).nodes[1]).toMatchObject({ values: { a: { node: 0, socket: "out" } } });
+  });
+
+  it("disconnect removes a wired flow/value and inverse restores it", () => {
+    const doc = fixtureDocument();
+    const wired = applyCommand(doc, GraphEdit.connectFlow(doc, 0, 0, "out", 1, "in"));
+    const command = GraphEdit.disconnect(wired, 0, 0, "out", "flow");
+    const after = expectRoundTrip(wired.json, command);
+    expect((graph0(after).nodes[0] as { flows?: unknown }).flows).toEqual({});
+  });
+
+  it("setLiteral sets a values[socket] literal and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.setLiteral(doc, 0, 1, "b", { type: 0, value: [42] });
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).nodes[1]).toMatchObject({ values: { b: { type: 0, value: [42] } } });
+  });
+});
+
+describe("GraphEdit.setNodePosition (DOC-027)", () => {
+  it("stores {x,y} at node.extras.gltfi and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.setNodePosition(doc, 0, 0, 12, 34);
+    expect(command.coalesceKey).toBe("node-position:0:0");
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).nodes[0]).toMatchObject({ extras: { gltfi: { x: 12, y: 34 } } });
+  });
+});
+
+describe("GraphEdit.addVariable / addCustomEvent", () => {
+  it("addVariable appends and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addVariable(doc, 0, { id: "v1", type: 0, value: [1] });
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).variables).toEqual([
+      { id: "v0", type: 0, value: [0] },
+      { id: "v1", type: 0, value: [1] }
+    ]);
+  });
+
+  it("addCustomEvent appends and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addCustomEvent(doc, 0, { id: "e1" });
+    const after = expectRoundTrip(doc.json, command);
+    expect(graph0(after).events).toEqual([{ id: "e1" }]);
+  });
+});

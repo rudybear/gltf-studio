@@ -51,6 +51,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(supports-color@7.2.0)
 
+  packages/editor-core:
+    dependencies:
+      '@gltf-studio/engine-api':
+        specifier: workspace:*
+        version: link:../engine-api
+      '@gltfi/gltf':
+        specifier: file:../../vendor/gltfi-gltf-0.0.1.tgz
+        version: file:vendor/gltfi-gltf-0.0.1.tgz
+      '@gltfi/ir':
+        specifier: file:../../vendor/gltfi-ir-0.0.1.tgz
+        version: file:vendor/gltfi-ir-0.0.1.tgz
+    devDependencies:
+      fast-check:
+        specifier: ^3.23.1
+        version: 3.23.2
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(supports-color@7.2.0)
+
   packages/engine-api: {}
 
 packages:
@@ -230,6 +249,18 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@gltfi/gltf@file:vendor/gltfi-gltf-0.0.1.tgz':
+    resolution: {integrity: sha512-+5s6Z32n3L5Wh8cVMTKkUCp44Lzo7Y+WF2/QlnH+lftTs23FR0cbtMjMDb4xL+jGQXTzuHOZVyzY48IcwRsdGg==, tarball: file:vendor/gltfi-gltf-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltfi/ir@file:vendor/gltfi-ir-0.0.1.tgz':
+    resolution: {integrity: sha512-I8U6fP61IfUs97SF9jBak1qmzb777g+jo/XA8WfFynYYCfNQ8PnJz2vF1oBtNVuxVJJYHs5ZJShR3M7qMFthZw==, tarball: file:vendor/gltfi-ir-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltfi/kernel@file:vendor/gltfi-kernel-0.0.1.tgz':
+    resolution: {integrity: sha512-TIa9LzCUlvkeRNKaWMKiq2A2YGgeN2XC5FfK6H9hV8cOac7hhc6TEg+7cGgctz9PUm5ergX85tQ7k9HSogEHUQ==, tarball: file:vendor/gltfi-kernel-0.0.1.tgz}
+    version: 0.0.1
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -649,6 +680,10 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
+  fast-check@3.23.2:
+    resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
+    engines: {node: '>=8.0.0'}
+
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
@@ -830,6 +865,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  pure-rand@6.1.0:
+    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
 
   resolve-from@4.0.0:
     resolution: {integrity: sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==}
@@ -1119,6 +1157,16 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+
+  '@gltfi/gltf@file:vendor/gltfi-gltf-0.0.1.tgz':
+    dependencies:
+      '@gltfi/kernel': file:vendor/gltfi-kernel-0.0.1.tgz
+
+  '@gltfi/ir@file:vendor/gltfi-ir-0.0.1.tgz':
+    dependencies:
+      '@gltfi/kernel': file:vendor/gltfi-kernel-0.0.1.tgz
+
+  '@gltfi/kernel@file:vendor/gltfi-kernel-0.0.1.tgz': {}
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -1536,6 +1584,10 @@ snapshots:
 
   expect-type@1.4.0: {}
 
+  fast-check@3.23.2:
+    dependencies:
+      pure-rand: 6.1.0
+
   fast-deep-equal@3.1.3: {}
 
   fast-json-stable-stringify@2.1.0: {}
@@ -1681,6 +1733,8 @@ snapshots:
   prelude-ls@1.2.1: {}
 
   punycode@2.3.1: {}
+
+  pure-rand@6.1.0: {}
 
   resolve-from@4.0.0: {}
 
