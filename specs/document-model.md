@@ -86,6 +86,11 @@ Prefix: `DOC`.
 - [DOC-033] (active) For any sequence of commands pushed onto a `HistoryStack` starting from a given document, calling `undo()` once per pushed command yields a `json` deep-equal to that document's `json` before the first command was pushed (undo-all ≡ initial property).
 - [DOC-034] (active) For any sequence of commands followed by save, reparsing the saved bytes yields a `json` deep-equal to the in-memory `json`, and every byte span outside the dirty roots touched by that sequence is byte-identical to the pristine container's corresponding span (save invariant).
 
+### GraphEdit scaffolding helpers
+
+- [DOC-041] (active) `GraphEdit.ensureGraph(document, graphIndex)` finds-or-scaffolds `extensions.KHR_interactivity.graphs[graphIndex]` (empty `types`/`declarations`/`variables`/`events`/`nodes` arrays, plus the extension's `graph` pointer and an `extensionsUsed` entry when either is missing) as a single command, returning a no-op command (empty `patches`/`inverse`) when that graph already exists — every other `GraphEdit` factory assumes its target graph already exists; this is the one factory a caller (e.g. `specs/ux-inspector.md`'s `UX-412` pointer-shortcut "Add pointer/…" actions) uses first when it can't assume that.
+- [DOC-042] (active) `GraphEdit.ensureType(document, graphIndex, signature)` finds-or-appends a `{ signature }` entry into `graph.types`, mirroring `ensureDeclaration`'s (DOC-021) find-or-append semantics for `graph.declarations`, so a caller that must populate a node's `configuration.type` (a `graph.types` index) gets a stable index without duplicating an already-declared signature.
+
 ## Open questions
 
 All four open questions this spec previously carried were resolved in the M1 PR that scaffolded

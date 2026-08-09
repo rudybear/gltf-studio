@@ -15,6 +15,8 @@ export function TopBar(): JSX.Element {
   const projectName = useAppStore((s) => s.projectName);
   const projectDirty = useAppStore((s) => s.projectDirty);
   const importGlb = useAppStore((s) => s.importGlb);
+  const exportProject = useAppStore((s) => s.exportProject);
+  const hasDocument = useAppStore((s) => s.document !== null);
   const canUndo = useAppStore((s) => s.canUndo);
   const canRedo = useAppStore((s) => s.canRedo);
   const undo = useAppStore((s) => s.undo);
@@ -62,7 +64,15 @@ export function TopBar(): JSX.Element {
             void onFilePicked(e);
           }}
         />
-        <button className="btn" data-testid="topbar.export" disabled title="Export arrives in M3.">
+        <button
+          className="btn"
+          data-testid="topbar.export"
+          disabled={!hasDocument}
+          title={hasDocument ? "Export the current document" : "Import a .glb first."}
+          onClick={() => {
+            void exportProject();
+          }}
+        >
           Export .glb
         </button>
       </div>

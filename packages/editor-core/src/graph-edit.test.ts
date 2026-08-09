@@ -161,6 +161,108 @@ describe("GraphEdit.setNodePosition (DOC-027)", () => {
   });
 });
 
+describe("GraphEdit.ensureGraph (DOC-041)", () => {
+  it("returns a no-op command when the graph already exists", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.ensureGraph(doc, 0);
+    expect(command.patches).toEqual([]);
+    expect(command.inverse).toEqual([]);
+  });
+
+  it("scaffolds extensions.KHR_interactivity.graphs[0] plus extensionsUsed when the extension is entirely absent, and round-trips", () => {
+    const doc = fixtureDocument({ asset: { version: "2.0" }, nodes: [{ name: "Alpha" }] });
+    const before = doc.json;
+    const command = GraphEdit.ensureGraph(doc, 0);
+    const after = expectRoundTrip(before, command) as {
+      extensionsUsed?: string[];
+      extensions: { KHR_interactivity: { graph: number; graphs: Graph[] } };
+    };
+    expect(after.extensionsUsed).toContain("KHR_interactivity");
+    expect(after.extensions.KHR_interactivity.graph).toBe(0);
+    expect(after.extensions.KHR_interactivity.graphs[0]).toEqual({
+      types: [],
+      declarations: [],
+      variables: [],
+      events: [],
+      nodes: []
+    });
+  });
+
+  it("does not disturb extensionsUsed when KHR_interactivity is already listed", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      extensionsUsed: ["KHR_interactivity"],
+      extensions: { KHR_interactivity: { graph: 0, graphs: [] } }
+    });
+    const before = doc.json;
+    const command = GraphEdit.ensureGraph(doc, 0);
+    const after = expectRoundTrip(before, command) as { extensionsUsed: string[] };
+    expect(after.extensionsUsed).toEqual(["KHR_interactivity"]);
+  });
+});
+
+describe("GraphEdit.ensureType (DOC-042)", () => {
+  it("returns the existing index and a no-op command when the signature already exists", () => {
+    const doc = fixtureDocument();
+    expect(graph0(doc.json).declarations).toBeDefined(); // sanity: graph 0 exists in the fixture
+    const { command, index } = GraphEdit.ensureType(doc, 0, "float");
+    expect(index).toBe(0);
+    expect(command.patches).toEqual([]);
+  });
+
+  it("appends a new signature and returns its fresh index otherwise", () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const { command, index } = GraphEdit.ensureType(doc, 0, "float3");
+    expect(index).toBe(2); // fixture already has ["float", "bool"]
+    const after = expectRoundTrip(before, command) as { extensions: { KHR_interactivity: { graphs: Array<{ types: Array<{ signature: string }> }> } } };
+    expect(after.extensions.KHR_interactivity.graphs[0].types[index]).toEqual({ signature: "float3" });
+  });
+});
+
+describe("GraphEdit.addPointerNode (UX-411/UX-412)", () => {
+  it("adds a pointer/set node against an EXISTING graph, reusing its types/declarations, as one command", () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const command = GraphEdit.addPointerNode(doc, 0, "set", "/nodes/0/translation", "float3", { x: 5, y: 5 });
+    const after = expectRoundTrip(before, command);
+    const g = graph0(after);
+    const newIndex = g.nodes.length - 1;
+    const node = g.nodes[newIndex] as { declaration: number; configuration: { pointer: { value: string[] }; type: { value: number[] } } };
+    const decl = g.declarations[node.declaration];
+    expect(decl).toEqual({ op: "pointer/set" });
+    expect(node.configuration.pointer.value).toEqual(["/nodes/0/translation"]);
+    const typeIndex = node.configuration.type.value[0];
+    expect((g as unknown as { types: Array<{ signature: string }> }).types[typeIndex]).toEqual({ signature: "float3" });
+  });
+
+  it("adds a pointer/interpolate node, scaffolding a MISSING graph from scratch, as ONE combined command", () => {
+    const doc = fixtureDocument({ asset: { version: "2.0" }, nodes: [{ name: "Alpha" }] });
+    const before = doc.json;
+    const command = GraphEdit.addPointerNode(doc, 0, "interpolate", "/nodes/0/scale", "float3");
+    expect(command.label).toContain("pointer/interpolate");
+    const after = expectRoundTrip(before, command) as {
+      extensions: { KHR_interactivity: { graphs: Array<{ declarations: Array<{ op: string }>; nodes: unknown[] }> } };
+    };
+    const g = after.extensions.KHR_interactivity.graphs[0];
+    expect(g.declarations).toEqual([{ op: "pointer/interpolate" }]);
+    expect(g.nodes.length).toBe(1);
+  });
+
+  it("via applyCommand: scaffolding a missing graph dirties the extensions root (its own creation, since `extensions` itself didn't exist yet) AND the graph root (the node/declaration/type appended into it), never the whole document", () => {
+    const doc = fixtureDocument({ asset: { version: "2.0" }, nodes: [{ name: "Alpha" }] });
+    const command = GraphEdit.addPointerNode(doc, 0, "set", "/nodes/0/translation", "float3");
+    const after = applyCommand(doc, command);
+    // setPathFragment (edit-fragments.ts) walks up to the deepest EXISTING
+    // ancestor when creating a brand new key — this fixture has no
+    // `extensions` object at all yet, so ensureGraph's own patch lands at
+    // `/extensions` (not `/extensions/KHR_interactivity`); canonicalSpliceRoot
+    // (splice-root.ts rule 2) truncates an extension-less `/extensions` add
+    // to `/extensions` itself.
+    expect([...after.dirtyRoots].sort()).toEqual(["/extensions", "/extensions/KHR_interactivity/graphs/0", "/extensionsUsed"]);
+  });
+});
+
 describe("GraphEdit.addVariable / addCustomEvent", () => {
   it("addVariable appends and round-trips", () => {
     const doc = fixtureDocument();

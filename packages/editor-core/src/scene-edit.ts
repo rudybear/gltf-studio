@@ -34,10 +34,22 @@ export const SceneEdit = {
       throw new Error("setTransform requires at least one field.");
     }
     const fragments = entries.map(([field, value]) => setPathFragment(document.json, ["nodes", nodeIndex, field], value));
+    // Keyed by node AND the exact set of fields this call touches (sorted,
+    // so field order in the caller's `fields` object doesn't matter) —
+    // NOT just the node — so e.g. a continuous drag/typing session on the
+    // Inspector's Position row (repeated `{translation}`-only calls) still
+    // coalesces into one history entry (DOC-015), but a translate-then-
+    // rotate sequence on the SAME node (two separate gizmo drags, or a
+    // Position edit followed by a Rotation edit) does NOT — those are two
+    // separate completed edits and each earns its own undo step.
+    const fieldKey = entries
+      .map(([field]) => field)
+      .sort()
+      .join(",");
     return {
       id: makeCommandId("set-transform"),
       label: `Set transform on node ${nodeIndex}`,
-      coalesceKey: `transform:${nodeIndex}`,
+      coalesceKey: `transform:${nodeIndex}:${fieldKey}`,
       patches: fragments.flatMap((f) => f.patches),
       inverse: fragments
         .slice()

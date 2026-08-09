@@ -21,8 +21,10 @@ UX-108..111 for real (UX-106/107's play-state chrome has no play-mode state mach
 so it isn't rendered rather than faked), plus the scene-tree/asset-browser surfaces from
 `specs/ux-scene-tree.md` and the Data (glTF) tab from `specs/ux-data-tab.md` (both real — cheap
 once `editor-core`'s document layer exists). Behavior graph/audio graph/script/Copilot render as
-placeholders; Export and the play bar are disabled-with-tooltip stubs. See `e2e/shell.spec.ts` and
-`e2e/import.spec.ts` for the Playwright coverage citing these IDs.
+placeholders; the play bar remains a disabled-with-tooltip stub. Export (`UX-112`) becomes real at
+M3 (`editor-core`'s byte-preserving `save()`, `specs/document-model.md`'s DOC-024..026/034, to a
+browser download). See `e2e/shell.spec.ts`, `e2e/import.spec.ts`, and (M3) `e2e/export.spec.ts` for
+the Playwright coverage citing these IDs.
 
 Prefix: `UX`. This file owns the `UX-1xx` block (`UX-100`..`UX-1xx`); each other `ux-*.md` file
 owns its own hundred-block (`UX-200` scene tree, `UX-300` viewport, `UX-400` inspector, `UX-500`
@@ -63,6 +65,10 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
 
 - [UX-110] (active) Every interactive or structurally-meaningful element carries a `data-testid` in the shape `panel.part[.index]` (`panel` = the top-level surface the owning `UX-###` requirement is written against; `part` = the specific control, chainable for compound parts; an optional zero-based `.index` when `part` repeats), derived from the `UX-###` requirement(s) the element realizes — never invented ad hoc once a requirement exists for the surface. See `docs/ux/README.md` for the full convention and worked examples.
 - [UX-111] (active) A top-bar toggle (the `?` control) switches a debug overlay on/off that draws every on-screen element's `data-testid` as a floating label positioned over it, recomputed on window resize and on any layout-affecting state change while the overlay is on; the overlay is purely a debugging aid and has no effect on any other requirement's behavior.
+
+### Export (M3)
+
+- [UX-112] (active) The top bar's Export control is disabled (with a tooltip) whenever no document is open; with a document open, clicking it writes the current document's bytes — via `editor-core`'s `save()` (`specs/document-model.md` DOC-024..026) — to a browser download (or, once a File-System-Access-backed `StorageProvider` is wired in, a native save-to-handle dialog when `capabilities.fileHandles` is true, `specs/storage-provider.md` SP-013) and confirms via a toast (`UX-109`) summarizing the save report (spliced roots, or a full reserialize).
 
 ## Open questions
 

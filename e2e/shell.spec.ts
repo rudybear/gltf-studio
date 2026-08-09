@@ -28,7 +28,9 @@ test.describe("shell", () => {
     await expect(page.getByTestId("topbar.redo")).toBeDisabled();
   });
 
-  test("export and the play bar are disabled stubs with a tooltip", async ({ page }) => {
+  test("export (disabled with no document open — real once one is, see e2e/export.spec.ts) and the play bar (still a stub) both have a tooltip", async ({
+    page
+  }) => {
     await page.goto("/");
     await expect(page.getByTestId("topbar.export")).toBeDisabled();
     await expect(page.getByTestId("playbar.play")).toBeDisabled();

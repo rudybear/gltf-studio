@@ -11,9 +11,10 @@
 // or the sidecar.
 import { create } from "zustand";
 import { parseContainer } from "@gltfi/gltf";
-import { createDocument, HistoryStack, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import { createDocument, GraphEdit, HistoryStack, save, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import type { GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
+import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
@@ -42,6 +43,17 @@ export interface PanelSizes {
   rightWidth: number;
   dockHeight: number;
 }
+
+/**
+ * specs/ux-inspector.md UX-403/UX-409: a transient "you found it" pointer,
+ * cleared automatically ~900ms after being set (matching the approved
+ * mockup's `flashHighlight` timing) — ephemeral only (DOC-030), never
+ * written to `json`/the sidecar. `inspector-section` drives the Inspector's
+ * own section flash (UX-403's mesh/extensions identity chips); `asset-row`
+ * drives the asset browser's row flash (UX-409's mesh-primitive material
+ * link).
+ */
+export type FlashTarget = { kind: "inspector-section"; id: string } | { kind: "asset-row"; tab: AssetTab; index: number };
 
 export const PANEL_BOUNDS = {
   left: { min: 190, max: 480, default: 260 },
@@ -83,6 +95,9 @@ export interface AppState {
   // -- data tab (UX-8xx) --
   dataPointer: string; // e.g. "/nodes/0"; "" when nothing to show
 
+  // -- inspector (UX-4xx: ephemeral only, DOC-030) --
+  flashTarget: FlashTarget | null;
+
   // -- shell chrome (UX-1xx) --
   themeOverride: ThemeOverride;
   testIdOverlay: boolean;
@@ -110,6 +125,26 @@ export interface AppState {
   selectAsset(tab: AssetTab, index: number, containerPointer: string): void;
   /** UX-805/UX-800: passive Data-tab update — never switches `activeDockTab` (unlike `selectAsset`). */
   navigateData(pointer: string): void;
+  /** UX-409: switches the asset browser to Materials and briefly flashes that row — does NOT force-switch the bottom dock (unlike `selectAsset`/UX-211). */
+  selectMaterialContext(materialIndex: number): void;
+  /** UX-403/UX-409: sets a transient flash target, auto-clearing itself after ~900ms. */
+  triggerFlash(target: FlashTarget): void;
+  /** UX-402/UX-411: best-effort clipboard copy of a pointer path, confirmed via a toast (UX-109). */
+  copyPointerPath(path: string): void;
+  /**
+   * UX-411/UX-412: creates a `pointer/set`/`pointer/interpolate` node in the
+   * behavior graph pre-configured against `pointerPath`, scaffolding the
+   * graph first if none exists yet (`GraphEdit.ensureGraph`, DOC-041), as one
+   * undoable command; switches the bottom dock to the Behavior graph tab.
+   */
+  addPointerGraphNode(kind: "set" | "interpolate", pointerPath: string, signature: string): void;
+  /**
+   * M3: real export — `editor-core`'s byte-preserving `save()` -> a browser
+   * download (or a File-System-Access save-to-handle when the current
+   * `StorageProvider` reports `capabilities.fileHandles`); toasts a summary
+   * of the save report (spliced roots / reserialized, DOC-026).
+   */
+  exportProject(): Promise<void>;
   setThemeOverride(theme: ThemeOverride): void;
   toggleThemeOverride(systemPrefersDark: boolean): void;
   toggleTestIdOverlay(): void;
@@ -145,6 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedAsset: null,
 
   dataPointer: "",
+  flashTarget: null,
 
   themeOverride: null,
   testIdOverlay: false,
@@ -273,6 +309,70 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   navigateData(pointer) {
     set({ dataPointer: pointer });
+  },
+
+  selectMaterialContext(materialIndex) {
+    set({ activeAssetTab: "materials" });
+    get().triggerFlash({ kind: "asset-row", tab: "materials", index: materialIndex });
+  },
+
+  triggerFlash(target) {
+    set({ flashTarget: target });
+    setTimeout(() => {
+      // Only clear if nothing newer has replaced it in the meantime.
+      set((state) => (state.flashTarget === target ? { flashTarget: null } : {}));
+    }, 900);
+  },
+
+  copyPointerPath(path) {
+    try {
+      void navigator.clipboard?.writeText(path);
+    } catch {
+      // Clipboard unavailable (permissions/insecure context) — still toast;
+      // the toast is the user-visible confirmation either way.
+    }
+    get().pushToast(`Copied ${path}`);
+  },
+
+  addPointerGraphNode(kind, pointerPath, signature) {
+    const { history, dispatchCommand, setActiveDockTab, pushToast } = get();
+    if (!history) return;
+    const command = GraphEdit.addPointerNode(history.document, 0, kind, pointerPath, signature);
+    dispatchCommand(command);
+    setActiveDockTab("graph");
+    pushToast(`Added ${kind === "set" ? "pointer/set" : "pointer/interpolate"} node for ${pointerPath}.`);
+  },
+
+  async exportProject() {
+    const { history, storage, projectName, log, pushToast } = get();
+    if (!history) return;
+
+    try {
+      const result = save(history.document);
+      const isGlb = result.document.container.kind === "glb";
+      const filename = `${(projectName || "untitled").trim() || "untitled"}.${isGlb ? "glb" : "gltf"}`;
+      const blob = new Blob([result.report.bytes as BlobPart], { type: isGlb ? "model/gltf-binary" : "model/gltf+json" });
+
+      const savedViaHandle = storage.capabilities.fileHandles ? await trySaveFilePicker(blob, filename) : "unsupported";
+      if (savedViaHandle === "cancelled") return; // user backed out of the native picker — not a failure, no toast.
+      if (savedViaHandle === "unsupported") {
+        await triggerBrowserDownload(blob, filename);
+      }
+
+      set({ projectDirty: false });
+      const report = result.report;
+      const summary = report.reserialized
+        ? "Export complete (full reserialize)."
+        : report.splicedRoots.length > 0
+          ? `Export complete (spliced ${report.splicedRoots.length} root${report.splicedRoots.length === 1 ? "" : "s"}).`
+          : "Export complete (no changes since import).";
+      pushToast(summary);
+      log("info", `Exported "${filename}": ${JSON.stringify(report.splicedRoots)}, reserialized=${report.reserialized}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("error", `Export failed: ${message}`);
+      pushToast(`Export failed: ${message}`);
+    }
   },
 
   setThemeOverride(theme) {

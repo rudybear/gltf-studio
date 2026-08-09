@@ -11,16 +11,60 @@ export interface GltfNodeJson {
   translation?: [number, number, number];
   rotation?: [number, number, number, number];
   scale?: [number, number, number];
-  extensions?: Record<string, unknown>;
+  weights?: number[];
+  extensions?: {
+    KHR_audio_emitter?: { emitter: number };
+    KHR_lights_punctual?: { light: number };
+    [key: string]: unknown;
+  };
+}
+
+export interface GltfPrimitiveJson {
+  attributes: Record<string, number>;
+  indices?: number;
+  material?: number;
+  mode?: number;
+  targets?: Array<Record<string, number>>;
+}
+
+export interface GltfMeshJson {
+  name?: string;
+  primitives: GltfPrimitiveJson[];
+}
+
+export interface GltfAccessorJson {
+  type: string;
+  componentType: number;
+  count: number;
+}
+
+export interface GltfMaterialJson {
+  name?: string;
+  pbrMetallicRoughness?: {
+    baseColorFactor?: [number, number, number, number];
+    metallicFactor?: number;
+    roughnessFactor?: number;
+  };
+}
+
+export interface GltfAudioEmitterJson {
+  type?: string;
+  gain?: number;
+  distanceModel?: string;
 }
 
 export interface GltfJsonShape {
   scene?: number;
   scenes?: Array<{ nodes?: number[]; name?: string }>;
   nodes?: GltfNodeJson[];
-  meshes?: Array<{ name?: string }>;
-  materials?: Array<{ name?: string }>;
+  meshes?: GltfMeshJson[];
+  materials?: GltfMaterialJson[];
+  accessors?: GltfAccessorJson[];
   animations?: Array<{ name?: string }>;
+  extensions?: {
+    KHR_audio_emitter?: { emitters?: GltfAudioEmitterJson[] };
+    [key: string]: unknown;
+  };
 }
 
 export interface SceneTreeRow {
