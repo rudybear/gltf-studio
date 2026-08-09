@@ -73,10 +73,20 @@ test.describe("behavior-graph canvas", () => {
     // assertions under heavy Playwright worker parallelism (many concurrent
     // headless Chromium instances, several with real WebGL rendering) —
     // `test.slow()` triples this test's timeout budget accordingly.
+    //
+    // M8-copilot follow-up: this test's own 60000ms explicit assertion
+    // timeout (independent of test.slow()'s test-level multiplier) started
+    // failing on CI's 2-worker budget once e2e/copilot.spec.ts added more
+    // concurrently-running spec files with real WebGL/interpreter work,
+    // same "past its margin" pattern this file's CI-worker-cap comment
+    // (playwright.config.ts) already documents from M7's audio.spec.ts.
+    // Raised both the explicit assertion timeout and the overall test
+    // timeout accordingly rather than trimming concurrency further.
     test.slow();
+    test.setTimeout(180_000);
     await page.getByTestId("gcanvas.node.1").click();
 
-    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/, { timeout: 60000 });
+    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/, { timeout: 120000 });
     const details = page.getByTestId("gcanvas.details");
     await expect(details).toContainText("math/add");
     await expect(details).toContainText("math");
