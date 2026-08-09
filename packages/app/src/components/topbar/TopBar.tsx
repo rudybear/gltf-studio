@@ -3,6 +3,27 @@ import type { EngineKind } from "@gltf-studio/engine-api";
 import { useAppStore } from "../../store/app-store";
 import { useSystemPrefersDark } from "../../hooks/use-system-theme";
 import { HistoryDropdown } from "./HistoryDropdown";
+import { filesFromDataTransfer } from "../../lib/file-drop.js";
+
+// `window.showOpenFilePicker` isn't declared in TypeScript's bundled `dom`
+// lib (same reason `packages/app/src/lib/export.ts`'s own
+// `ShowSaveFilePicker`, and `MissingFilesDialog.tsx`'s own
+// `ShowDirectoryPicker`, are local structural types rather than real File
+// System Access DOM types) — a small local shape covers exactly what this
+// file calls; a real `FileSystemFileHandle.getFile()` returns a genuine
+// `File`, which `importFiles` already accepts.
+interface OpenFilePickerOptions {
+  multiple?: boolean;
+  types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+}
+interface FileSystemFileHandleLike {
+  getFile(): Promise<File>;
+}
+type ShowOpenFilePicker = (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandleLike[]>;
+
+function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
+  return (window as unknown as { showOpenFilePicker?: ShowOpenFilePicker }).showOpenFilePicker;
+}
 
 /**
  * specs/ux-shell.md UX-100 (top bar), UX-108 (history dropdown), UX-105
@@ -47,18 +68,64 @@ export function TopBar(): JSX.Element {
     await importFiles(files);
   }
 
+  // specs/ux-shell.md UX-118: when the browser supports it (Chrome/Edge),
+  // clicking Import uses `showOpenFilePicker` (a native multi-select dialog)
+  // instead of the hidden `<input>` -- one step fewer than click -> hidden
+  // `<input>` -> OS dialog, though it still can't grant directory access on
+  // its own (a single `.gltf` picked this way with unresolved references
+  // still surfaces the UX-117 missing-files dialog same as the `<input>`
+  // path). Falls back to the `<input>` automatically when unsupported, or if
+  // the picker throws for any reason other than the user cancelling it.
+  async function onImportClick(): Promise<void> {
+    const showOpenFilePicker = getShowOpenFilePicker();
+    if (showOpenFilePicker) {
+      try {
+        const handles = await showOpenFilePicker({
+          multiple: true,
+          types: [
+            {
+              description: "glTF/GLB assets",
+              accept: {
+                "model/gltf-binary": [".glb"],
+                "model/gltf+json": [".gltf"],
+                "application/octet-stream": [".bin"],
+                "image/*": [".png", ".jpg", ".jpeg", ".webp"],
+                "audio/*": [".mp3", ".wav", ".ogg"]
+              }
+            }
+          ]
+        });
+        const files = await Promise.all(handles.map((h) => h.getFile()));
+        if (files.length > 0) await importFiles(files);
+        return;
+      } catch (err) {
+        // AbortError: the user dismissed the native picker -- same as
+        // closing the `<input>` dialog with nothing picked, do nothing more.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        // Anything else (the API exists but threw for some other reason):
+        // fall through to the always-available `<input>` fallback below.
+      }
+    }
+    fileInputRef.current?.click();
+  }
+
   // Drag-and-drop onto the Import control: a multi-file .gltf + siblings
-  // (or a single .glb) dropped here goes through the exact same
-  // `importFiles` path as a multi-select via the file input, per
-  // specs/ux-shell.md's import requirements.
+  // (or a single .glb), OR an entire dropped FOLDER (UX-118,
+  // `filesFromDataTransfer`'s directory-entry traversal), goes through the
+  // exact same `importFiles` path as a multi-select via the file input, per
+  // specs/ux-shell.md's import requirements. `stopPropagation` keeps
+  // App.tsx's whole-window drop handler from ALSO importing the same drop a
+  // second time.
   function onImportDragOver(e: React.DragEvent<HTMLButtonElement>): void {
     if (e.dataTransfer.types.includes("Files")) e.preventDefault();
   }
 
   async function onImportDrop(e: React.DragEvent<HTMLButtonElement>): Promise<void> {
-    if (e.dataTransfer.files.length === 0) return;
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
-    await importFiles(Array.from(e.dataTransfer.files));
+    e.stopPropagation();
+    const files = await filesFromDataTransfer(e.dataTransfer);
+    if (files.length > 0) await importFiles(files);
   }
 
   const topbarTintClass = playState === "playing" ? "topbar-playing" : playState === "paused" ? "topbar-paused" : "";
@@ -76,8 +143,10 @@ export function TopBar(): JSX.Element {
         <button
           className="btn"
           data-testid="topbar.import"
-          title="Import a .glb, or a .gltf together with its .bin/texture/audio siblings (select or drag-and-drop all of them at once)."
-          onClick={() => fileInputRef.current?.click()}
+          title="Import a .glb, or a .gltf together with its .bin/texture/audio siblings — select them together, or drag-and-drop a whole folder at once."
+          onClick={() => {
+            void onImportClick();
+          }}
           onDragOver={onImportDragOver}
           onDrop={(e) => {
             void onImportDrop(e);

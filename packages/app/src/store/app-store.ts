@@ -39,6 +39,7 @@ import type {
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 import { packMultiFileGltf, type PackFileMap } from "../lib/pack-gltf.js";
 import { extractBinaryChunk } from "../lib/audio-container.js";
+import { resolveUrisFromDirectory, type DirectoryHandleLike } from "@gltf-studio/storage";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
@@ -89,6 +90,31 @@ export interface PointerPickerRequest {
   graphIndex: number;
   currentPath?: string;
   currentType?: string;
+}
+
+/** The minimal shape `importFiles`/`packMultiFileGltf` need from a selected/dropped/`showOpenFilePicker`-returned file — a real `File` satisfies it. */
+export interface ImportFileLike {
+  name: string;
+  text(): Promise<string>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/**
+ * specs/ux-shell.md UX-117: state for the missing-files dialog a single
+ * `.gltf` pick (or drop) with unresolved `buffers[].uri`/`images[].uri`/
+ * `KHR_audio_emitter.audio[].uri` references opens, alongside the existing
+ * UX-116 toast — `gltfFile` and `otherFiles` are exactly what `importFiles`
+ * already had in hand when `packMultiFileGltf` reported `missing`, kept
+ * around so `grantFolderAndRetryImport` can re-run the same pack attempt
+ * once the missing names resolve against a granted directory, with no need
+ * to ask the user to reselect anything already provided.
+ */
+export interface MissingFilesDialogState {
+  gltfFile: ImportFileLike;
+  otherFiles: PackFileMap;
+  missing: string[];
+  /** True while a "Grant folder access…" attempt is in flight (disables the dialog's action button; distinct from the native picker's own modality). */
+  resolving: boolean;
 }
 
 /**
@@ -186,6 +212,9 @@ export interface AppState {
   // -- pointer-picker dialog (specs/ux-pointer-picker.md UX-9xx; DOC-030: ephemeral only) --
   pointerPickerRequest: PointerPickerRequest | null;
 
+  // -- missing-files dialog (specs/ux-shell.md UX-117; DOC-030: ephemeral only) --
+  missingFilesDialog: MissingFilesDialogState | null;
+
   // -- inspector (UX-4xx: ephemeral only, DOC-030) --
   flashTarget: FlashTarget | null;
 
@@ -260,7 +289,19 @@ export interface AppState {
    * (never a silent empty viewport) and leaves the current document
    * untouched.
    */
-  importFiles(files: Array<{ name: string; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>): Promise<void>;
+  importFiles(files: ImportFileLike[]): Promise<void>;
+  /** specs/ux-shell.md UX-117: closes the missing-files dialog (Cancel/close-x/backdrop) without importing anything; the current document (if any) is untouched, same as the toast-only UX-116 path always was. */
+  closeMissingFilesDialog(): void;
+  /**
+   * specs/ux-shell.md UX-117's primary action: given a directory handle from
+   * `window.showDirectoryPicker()` (or a test double structurally matching
+   * `DirectoryHandleLike`), resolves the dialog's current `missing` list
+   * against it (`resolveUrisFromDirectory`), merges any resolved files into
+   * `otherFiles`, and re-runs `packMultiFileGltf`. Success imports and closes
+   * the dialog; a still-incomplete folder updates `missing` in place (the
+   * dialog stays open) and surfaces a toast rather than failing silently.
+   */
+  grantFolderAndRetryImport(dirHandle: DirectoryHandleLike): Promise<void>;
   dispatchCommand(command: Command): void;
   undo(): void;
   redo(): void;
@@ -474,6 +515,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   dataPointer: "",
   pointerPickerRequest: null,
+  missingFilesDialog: null,
   flashTarget: null,
 
   copilotContextChips: [],
@@ -536,7 +578,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         copilotThread: [],
         copilotPrompt: "",
         tryInPlayController: null,
-        tryInPlayEntryId: null
+        tryInPlayEntryId: null,
+        // UX-117: a successful import (whether straight-through or via a
+        // resolved missing-files dialog retry) always closes the dialog --
+        // there is nothing left to resolve once a document is actually open.
+        missingFilesDialog: null
       });
       syncAgentProviderDocument(document);
       log("info", `Imported "${file.name}" (${file.bytes.byteLength.toLocaleString()} bytes).`);
@@ -550,6 +596,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   async importFiles(files) {
     const { importGlb, log, pushToast } = get();
     if (files.length === 0) return;
+    // A brand-new pick/drop attempt supersedes any still-open missing-files
+    // dialog from a previous one (the dialog's own Cancel/close-x already
+    // covers the explicit case; this covers "tried again without closing
+    // it first").
+    set({ missingFilesDialog: null });
 
     const gltfFile = files.find((f) => /\.gltf$/i.test(f.name));
     if (!gltfFile) {
@@ -579,10 +630,73 @@ export const useAppStore = create<AppState>((set, get) => ({
       const list = result.missing.join(", ");
       log("error", `Import failed: missing external file(s) referenced by "${gltfFile.name}": ${list}`);
       pushToast(`Import failed: select ${list} together with ${gltfFile.name}.`);
+      // UX-117: alongside the UX-116 toast (kept verbatim -- still the only
+      // signal in a non-visual/screen-reader context), open the
+      // missing-files dialog so a Chromium user has a one-click way forward
+      // (grant folder access) instead of having to re-pick everything by
+      // hand. `otherFiles` excludes the .gltf itself -- `gltfFile` is kept
+      // separately since `grantFolderAndRetryImport` re-reads its JSON.
+      const otherFiles: PackFileMap = new Map(fileMap);
+      otherFiles.delete(gltfFile.name);
+      set({ missingFilesDialog: { gltfFile, otherFiles, missing: result.missing, resolving: false } });
       return;
     }
 
     await importGlb({ name: gltfFile.name, bytes: result.bytes });
+  },
+
+  closeMissingFilesDialog() {
+    set({ missingFilesDialog: null });
+  },
+
+  async grantFolderAndRetryImport(dirHandle) {
+    const { missingFilesDialog, importGlb, pushToast, log } = get();
+    if (!missingFilesDialog) return;
+    set({ missingFilesDialog: { ...missingFilesDialog, resolving: true } });
+
+    const { resolved, missing } = await resolveUrisFromDirectory(dirHandle, missingFilesDialog.missing);
+    if (missing.length > 0) {
+      // Granted the wrong folder, or an incomplete one -- update the list in
+      // place (never silently drop the ones that WERE found) and keep the
+      // dialog open rather than failing the whole attempt outright.
+      const list = missing.join(", ");
+      pushToast(`Still missing after folder access: ${list}.`);
+      set((state) =>
+        state.missingFilesDialog
+          ? { missingFilesDialog: { ...state.missingFilesDialog, missing, resolving: false } }
+          : {}
+      );
+      return;
+    }
+
+    const mergedFileMap: PackFileMap = new Map([...missingFilesDialog.otherFiles, ...resolved]);
+    let gltfJson: unknown;
+    try {
+      gltfJson = JSON.parse(await missingFilesDialog.gltfFile.text());
+    } catch {
+      log("error", `Import failed: "${missingFilesDialog.gltfFile.name}" is not valid JSON.`);
+      pushToast(`Import failed: "${missingFilesDialog.gltfFile.name}" is not valid JSON.`);
+      set({ missingFilesDialog: null });
+      return;
+    }
+
+    const result = await packMultiFileGltf(gltfJson, mergedFileMap);
+    if (!result.ok) {
+      // Shouldn't normally happen (every name `resolveUrisFromDirectory`
+      // reported resolved should satisfy `packMultiFileGltf` too), but
+      // handled the same way as the initial failure rather than assumed
+      // impossible.
+      const list = result.missing.join(", ");
+      pushToast(`Import failed: select ${list} together with ${missingFilesDialog.gltfFile.name}.`);
+      set((state) =>
+        state.missingFilesDialog
+          ? { missingFilesDialog: { ...state.missingFilesDialog, missing: result.missing, resolving: false } }
+          : {}
+      );
+      return;
+    }
+
+    await importGlb({ name: missingFilesDialog.gltfFile.name, bytes: result.bytes });
   },
 
   dispatchCommand(command) {

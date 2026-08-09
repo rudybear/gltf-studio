@@ -1,20 +1,32 @@
 // Unit coverage for `importFiles` (TopBar's multi-select/drag-drop entry
 // point, added to fix the reported "multi-file .gltf import shows the scene
-// tree but renders no meshes" bug): a lone .glb still goes straight through
+// tree but renders no meshes" bug) and, since (UX-117) `importFiles` opens
+// the missing-files dialog on the same failure `grantFolderAndRetryImport`
+// resolves, that action too: a lone .glb still goes straight through
 // `importGlb`; a .gltf among the selection gets packed via
 // `packMultiFileGltf` first; a missing external reference fails the whole
-// import with a toast naming it, leaving whatever document was already open
-// untouched (never a silent empty viewport).
+// import with a toast naming it (UX-116) AND opens the missing-files dialog
+// (UX-117), leaving whatever document was already open untouched (never a
+// silent empty viewport) either way.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DirectoryHandleLike, FileHandleLike, FileLike } from "@gltf-studio/storage";
 
-vi.mock("@gltf-studio/storage", () => ({
-  IndexedDBStorage: class {
-    capabilities = { fileHandles: false, remote: false };
-    create = vi.fn(async (meta: { name: string; createdAt: string; updatedAt: string }) => ({ id: "proj-1", ...meta }));
-    save = vi.fn(async () => {});
-    autosaveJournal = vi.fn(async () => {});
-  }
-}));
+// `importOriginal` keeps `resolveUrisFromDirectory` real (app-store.ts's
+// `grantFolderAndRetryImport` needs the genuine implementation) while still
+// swapping out `IndexedDBStorage` for an in-memory double, same as before
+// this file started needing anything else from the module.
+vi.mock("@gltf-studio/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@gltf-studio/storage")>();
+  return {
+    ...actual,
+    IndexedDBStorage: class {
+      capabilities = { fileHandles: false, remote: false };
+      create = vi.fn(async (meta: { name: string; createdAt: string; updatedAt: string }) => ({ id: "proj-1", ...meta }));
+      save = vi.fn(async () => {});
+      autosaveJournal = vi.fn(async () => {});
+    }
+  };
+});
 
 const { useAppStore } = await import("./app-store.js");
 
@@ -52,9 +64,53 @@ function gltfWithExternalBufferAndAudio(): string {
   });
 }
 
+/**
+ * A minimal, flat, in-memory `DirectoryHandleLike` (fs-handle-types.ts) --
+ * everything `resolveUrisFromDirectory`/`grantFolderAndRetryImport` actually
+ * call (`keys()`, `getFileHandle()`) and nothing else, standing in for a
+ * real `window.showDirectoryPicker()` handle without needing a browser.
+ * Deliberately its own tiny double rather than reaching for
+ * `packages/storage`'s own `MemoryDirectoryHandle` test shim (not part of
+ * that package's public API/exports -- `directory-resolve.test.ts`, in the
+ * same package, uses it directly; a real `showDirectoryPicker()` handle is
+ * duck-typed against this exact interface either way).
+ */
+function fakeDirectoryHandle(files: Record<string, string | Uint8Array>): DirectoryHandleLike {
+  const entries = new Map(
+    Object.entries(files).map(([name, content]) => {
+      const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
+      const file: FileLike = {
+        async arrayBuffer() {
+          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        },
+        async text() {
+          return new TextDecoder().decode(bytes);
+        }
+      };
+      return [name, file] as const;
+    })
+  );
+  return {
+    kind: "directory",
+    name: "",
+    async getFileHandle(name: string): Promise<FileHandleLike> {
+      const file = entries.get(name);
+      if (!file) throw new Error(`"${name}" not found.`);
+      return { kind: "file", name, getFile: async () => file, createWritable: async () => { throw new Error("not implemented"); } };
+    },
+    async getDirectoryHandle(): Promise<DirectoryHandleLike> {
+      throw new Error("no subdirectories in this fake");
+    },
+    async removeEntry() {},
+    async *keys() {
+      for (const name of entries.keys()) yield name;
+    }
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ toasts: [], consoleLines: [] });
+  useAppStore.setState({ toasts: [], consoleLines: [], missingFilesDialog: null });
 });
 
 describe("importFiles", () => {
@@ -106,5 +162,91 @@ describe("importFiles", () => {
     expect(text).toContain("scene.bin");
     expect(text).toContain("kick.mp3");
     expect(text).toContain("scene.gltf");
+  });
+
+  it("also opens the missing-files dialog (UX-117), alongside the UX-116 toast, naming every unresolved reference", async () => {
+    await useAppStore.getState().importFiles([fakeFile("scene.gltf", gltfWithExternalBufferAndAudio())]);
+
+    const dialog = useAppStore.getState().missingFilesDialog;
+    expect(dialog).not.toBeNull();
+    expect(dialog!.gltfFile.name).toBe("scene.gltf");
+    expect(dialog!.resolving).toBe(false);
+    expect([...dialog!.missing].sort()).toEqual(["kick.mp3", "scene.bin"]);
+    expect(dialog!.otherFiles.size).toBe(0); // nothing else was selected alongside the lone .gltf.
+  });
+
+  it("a successful pack does not leave a stale missing-files dialog open", async () => {
+    useAppStore.setState({
+      missingFilesDialog: {
+        gltfFile: fakeFile("stale.gltf", "{}"),
+        otherFiles: new Map(),
+        missing: ["stale.bin"],
+        resolving: false
+      }
+    });
+    const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
+    await useAppStore.getState().importFiles([
+      fakeFile("scene.gltf", gltfWithExternalBufferAndAudio()),
+      fakeFile("scene.bin", new Uint8Array(positions.buffer)),
+      fakeFile("kick.mp3", new Uint8Array([0xff, 0xfb, 1, 2, 3]))
+    ]);
+    expect(useAppStore.getState().missingFilesDialog).toBeNull();
+  });
+});
+
+describe("closeMissingFilesDialog", () => {
+  it("clears the dialog without importing anything", async () => {
+    const before = useAppStore.getState().document;
+    await useAppStore.getState().importFiles([fakeFile("scene.gltf", gltfWithExternalBufferAndAudio())]);
+    expect(useAppStore.getState().missingFilesDialog).not.toBeNull();
+
+    useAppStore.getState().closeMissingFilesDialog();
+    expect(useAppStore.getState().missingFilesDialog).toBeNull();
+    expect(useAppStore.getState().document).toBe(before); // untouched -- Cancel never imports anything.
+  });
+});
+
+describe("grantFolderAndRetryImport (UX-117)", () => {
+  it("resolves every missing reference from the granted directory and completes the import", async () => {
+    const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
+    await useAppStore.getState().importFiles([fakeFile("scene.gltf", gltfWithExternalBufferAndAudio())]);
+    expect(useAppStore.getState().missingFilesDialog).not.toBeNull();
+
+    const dir = fakeDirectoryHandle({
+      "scene.bin": new Uint8Array(positions.buffer),
+      "kick.mp3": new Uint8Array([0xff, 0xfb, 1, 2, 3]),
+      // An unrelated file also living in the same real folder -- must not
+      // confuse resolution or leak into the packed document.
+      "readme.txt": "not part of the asset"
+    });
+
+    await useAppStore.getState().grantFolderAndRetryImport(dir);
+
+    expect(useAppStore.getState().missingFilesDialog).toBeNull();
+    expect(useAppStore.getState().projectName).toBe("scene");
+    const document = useAppStore.getState().document;
+    expect(document).not.toBeNull();
+    expect(document!.container.kind).toBe("glb");
+  });
+
+  it("an incomplete folder updates the dialog's missing list in place and keeps it open, rather than failing outright", async () => {
+    const before = useAppStore.getState().document;
+    await useAppStore.getState().importFiles([fakeFile("scene.gltf", gltfWithExternalBufferAndAudio())]);
+
+    // Grants a folder with only ONE of the two missing files.
+    const dir = fakeDirectoryHandle({ "scene.bin": new Uint8Array(36) });
+    await useAppStore.getState().grantFolderAndRetryImport(dir);
+
+    const dialog = useAppStore.getState().missingFilesDialog;
+    expect(dialog).not.toBeNull(); // still open -- not closed/discarded on partial failure.
+    expect(dialog!.missing).toEqual(["kick.mp3"]);
+    expect(useAppStore.getState().document).toBe(before); // no partial import happened.
+  });
+
+  it("does nothing when no dialog is open (defensive -- should be unreachable from the UI)", async () => {
+    const before = useAppStore.getState().document;
+    await useAppStore.getState().grantFolderAndRetryImport(fakeDirectoryHandle({}));
+    expect(useAppStore.getState().missingFilesDialog).toBeNull();
+    expect(useAppStore.getState().document).toBe(before);
   });
 });

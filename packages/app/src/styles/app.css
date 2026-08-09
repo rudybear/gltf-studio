@@ -1493,3 +1493,32 @@ body.testid-mode [data-testid] {
   font-size: 12px;
   color: var(--text-1);
 }
+.mf-modal {
+  width: min(480px, 92vw);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mf-body {
+  flex-direction: column;
+  padding: 12px 14px;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.mf-body p {
+  margin: 0 0 8px;
+}
+.mf-missing-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.mf-hint {
+  color: var(--text-dim);
+}

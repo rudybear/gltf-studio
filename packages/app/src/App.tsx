@@ -11,6 +11,8 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import { TestIdOverlay } from "./components/TestIdOverlay";
 import { ToastLayer } from "./components/ToastLayer";
 import { PointerPickerDialog } from "./components/pointer-picker/PointerPickerDialog";
+import { MissingFilesDialog } from "./components/import/MissingFilesDialog";
+import { filesFromDataTransfer } from "./lib/file-drop.js";
 
 /**
  * Test-only seam (no UX-### requirement covers it — same rationale as
@@ -117,6 +119,36 @@ export function App(): JSX.Element {
     };
   }, []);
 
+  // specs/ux-shell.md UX-118: dropping a file (or an entire FOLDER — see
+  // `file-drop.ts`'s directory-entry traversal) ANYWHERE on the window
+  // imports it, not just onto the `topbar.import` button — the "it just
+  // sees the files" flow this feature adds alongside UX-117's folder-grant
+  // dialog. Gated on `dataTransfer.types.includes("Files")` so this never
+  // fires for the app's OWN internal HTML5 drag sources (SceneTree's
+  // scene-node drag, AssetBrowser's animation-clip drag), neither of which
+  // ever sets the "Files" kind on their `DataTransfer` — only a real OS
+  // file/folder drag does. `TopBar.tsx`'s own button-level drop handler
+  // calls `stopPropagation()` so a drop landing exactly on that button
+  // doesn't ALSO run through this window-level handler a second time.
+  useEffect(() => {
+    function onDragOver(e: DragEvent): void {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    }
+    function onDrop(e: DragEvent): void {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      void filesFromDataTransfer(e.dataTransfer).then((files) => {
+        if (files.length > 0) void useAppStore.getState().importFiles(files);
+      });
+    }
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
   return (
     <div id="app">
       <TopBar />
@@ -152,6 +184,7 @@ export function App(): JSX.Element {
       <TestIdOverlay />
       <ToastLayer />
       <PointerPickerDialog />
+      <MissingFilesDialog />
     </div>
   );
 }
