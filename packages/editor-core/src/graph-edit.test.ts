@@ -5,6 +5,7 @@ import { deepEqualJson } from "./json-pointer.js";
 import { GraphEdit } from "./graph-edit.js";
 import { fixtureDocument } from "./test-fixtures.js";
 import type { Command } from "./command.js";
+import type { EditorDocument } from "./document.js";
 
 type Graph = { declarations: Array<{ op: string }>; nodes: unknown[]; variables?: unknown[]; events?: unknown[] };
 
@@ -284,6 +285,44 @@ describe("GraphEdit.addPointerNode (UX-411/UX-412)", () => {
     // (splice-root.ts rule 2) truncates an extension-less `/extensions` add
     // to `/extensions` itself.
     expect([...after.dirtyRoots].sort()).toEqual(["/extensions", "/extensions/KHR_interactivity/graphs/0", "/extensionsUsed"]);
+  });
+
+  it('also accepts kind "get" (UX-508 drop-menu), producing a pointer/get declaration', () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const command = GraphEdit.addPointerNode(doc, 0, "get", "/nodes/1/translation", "float3");
+    const after = expectRoundTrip(before, command);
+    const g = graph0(after);
+    const node = g.nodes[g.nodes.length - 1] as { declaration: number };
+    expect(g.declarations[node.declaration]).toEqual({ op: "pointer/get" });
+  });
+});
+
+describe("GraphEdit.setNodeConfig (DOC-044)", () => {
+  it("replaces an existing configuration field, round-tripping via inverse", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addPointerNode(doc, 0, "set", "/nodes/0/translation", "float3");
+    const afterAdd: EditorDocument = { ...doc, json: applyPatches(doc.json, command.patches) };
+    const nodeIndex = graph0(afterAdd.json).nodes.length - 1;
+
+    const before = afterAdd.json;
+    const retarget = GraphEdit.setNodeConfig(afterAdd, 0, nodeIndex, "pointer", ["/nodes/1/translation"]);
+    const after = expectRoundTrip(before, retarget) as unknown;
+    const node = graph0(after).nodes[nodeIndex] as { configuration: { pointer: { value: string[] } } };
+    expect(node.configuration.pointer.value).toEqual(["/nodes/1/translation"]);
+  });
+
+  it("adds a NEW configuration field when the node has none yet for that key", () => {
+    const doc = fixtureDocument();
+    const command = GraphEdit.addNode(doc, 0, "debug/log");
+    const afterAdd: EditorDocument = { ...doc, json: applyPatches(doc.json, command.patches) };
+    const nodeIndex = graph0(afterAdd.json).nodes.length - 1;
+
+    const before = afterAdd.json;
+    const setMsg = GraphEdit.setNodeConfig(afterAdd, 0, nodeIndex, "message", ["hello"]);
+    const after = expectRoundTrip(before, setMsg) as unknown;
+    const node = graph0(after).nodes[nodeIndex] as { configuration: { message: { value: string[] } } };
+    expect(node.configuration.message.value).toEqual(["hello"]);
   });
 });
 

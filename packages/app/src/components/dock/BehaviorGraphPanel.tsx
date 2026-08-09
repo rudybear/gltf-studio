@@ -41,6 +41,8 @@ export function BehaviorGraphPanel(): JSX.Element {
   const log = useAppStore((s) => s.log);
   const pushToast = useAppStore((s) => s.pushToast);
   const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
+  const jumpToDataFromGraph = useAppStore((s) => s.jumpToDataFromGraph);
+  const openPointerPicker = useAppStore((s) => s.openPointerPicker);
 
   useEffect(() => {
     window.__gltfStudioGraphTest = { getDocumentJson: () => document?.json };
@@ -88,6 +90,8 @@ export function BehaviorGraphPanel(): JSX.Element {
           onLog={log}
           onToast={pushToast}
           onAskCopilot={() => setActiveRightTab("copilot")}
+          onJumpToData={jumpToDataFromGraph}
+          onOpenPointerPicker={openPointerPicker}
         />
       </div>
     </div>

@@ -202,6 +202,29 @@ export const GraphEdit = {
   },
 
   /**
+   * DOC-044: sets `nodes[nodeIndex].configuration[field]` to `{ value }`
+   * (overwriting whatever was there, adding the field if it wasn't) — a
+   * generic, single-field primitive `addNode`'s create-time shape doesn't
+   * cover: retargeting an existing pointer node's `pointer`/`type` fields
+   * (M4's pointer-picker dialog, `specs/ux-pointer-picker.md`'s `UX-906`),
+   * switching a `variable/get|set`/`event/send|receive` node's referenced
+   * declaration, or editing any other op's config field the M4 config-field
+   * editor doesn't have a dedicated command for (the generic key/value
+   * fallback). Mirrors `setLiteral`'s shape for `values` but for
+   * `configuration` instead.
+   */
+  setNodeConfig(document: EditorDocument, graphIndex: number, nodeIndex: number, field: string, value: Array<number | boolean | string>): Command {
+    const path = [...graphPath(graphIndex), "nodes", nodeIndex, "configuration", field];
+    const fragment = setPathFragment(document.json, path, { value });
+    return {
+      id: makeCommandId("set-node-config"),
+      label: `Set ${field} config on node ${nodeIndex}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * DOC-041: find-or-scaffolds `extensions.KHR_interactivity.graphs[graphIndex]`
    * as a single command (empty `types`/`declarations`/`variables`/`events`/
    * `nodes` arrays, plus the extension's `graph` pointer and an
@@ -290,7 +313,10 @@ export const GraphEdit = {
   },
 
   /**
-   * `specs/ux-inspector.md`'s `UX-411`/`UX-412`: builds a `pointer/set` or
+   * `specs/ux-inspector.md`'s `UX-411`/`UX-412` (`set`/`interpolate`) and
+   * `specs/ux-graph-canvas.md`'s `UX-508` scene-tree-row drag-drop (`get`,
+   * added for M4's drop-menu, which offers `pointer/get` alongside
+   * `set`/`interpolate`): builds a `pointer/get`, `pointer/set`, or
    * `pointer/interpolate` node targeting `pointerPath`, as ONE combined
    * command — scaffolding the graph (`ensureGraph`, DOC-041) and the value's
    * `types` entry (`ensureType`, DOC-042) first if either is missing, then
@@ -300,12 +326,12 @@ export const GraphEdit = {
   addPointerNode(
     document: EditorDocument,
     graphIndex: number,
-    kind: "set" | "interpolate",
+    kind: "get" | "set" | "interpolate",
     pointerPath: string,
     signature: string,
     position?: { x: number; y: number }
   ): Command {
-    const op = kind === "set" ? "pointer/set" : "pointer/interpolate";
+    const op = kind === "get" ? "pointer/get" : kind === "set" ? "pointer/set" : "pointer/interpolate";
 
     const ensureGraphCmd = GraphEdit.ensureGraph(document, graphIndex);
     const jsonAfterGraph = ensureGraphCmd.patches.length > 0 ? applyPatches(document.json, ensureGraphCmd.patches) : document.json;

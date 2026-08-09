@@ -22,7 +22,7 @@ Prefix: `UX`. This file owns the `UX-5xx` block.
 
 - [UX-503] (active) Each graph node renders a header (op id, category name, category-colored left border) with input ports on the left and output ports on the right; a `flow`-typed port renders as a triangle, any value-typed port renders as a colored dot whose color is keyed by that port's value type (e.g. `bool`, `float`, `int`, `ref`, `audio` each have a distinct, consistent color across every node).
 - [UX-504] (active) An unconnected value-typed input port that carries a literal default renders that literal inline as a small chip alongside its port dot.
-- [UX-505] (active) A node with a `config` value shows it in a row below its ports; for `pointer` category nodes, that row's text renders visually distinct (underlined) from a plain label and is paired with a separate `✎` icon button — the text and the icon are always two distinct click targets (`UX-508`).
+- [UX-505] (active) A node with a `config` value shows it in a row below its ports; for `pointer` category nodes, that row's text renders visually distinct (underlined) from a plain label and is paired with a separate `✎` icon button — the text and the icon are always two distinct click targets (`UX-508`). A `pointer` node's row (and its `✎` icon) renders even before any pointer is configured yet (e.g. added blank from the palette, `UX-500`, which has no path to prefill unlike the Inspector `◈`/scene-tree-drag paths) — showing a `(no pointer set)` placeholder in the text's place — since the icon is that node's only route to ever getting one; the placeholder text itself is a no-op click target (nothing to jump to yet), keeping the two-click-target contract intact either way.
 
 ### Validation
 
@@ -52,12 +52,27 @@ with the canvas itself plus editing (add/connect/disconnect/delete/drag/literal-
 `GraphEdit` commands) and the validation overlay. Coverage against this file's requirements:
 `UX-500`, `UX-501`, `UX-503`, `UX-504`, `UX-506`, `UX-507`, and `UX-510` are implemented and
 e2e-covered (`e2e/graph-canvas.spec.ts`). `UX-502` (palette rail toggle) is implemented but not yet
-e2e-covered. `UX-505`'s two-click-target structure (underlined pointer-config text + separate `✎`
-icon) is implemented, but both handlers are stubs (log only) pending `UX-509`'s Data-tab jump and
-pointer-picker dialog, which reach into `specs/ux-data-tab.md`/`specs/ux-pointer-picker.md`
-territory not yet wired from this package. `UX-508` (scene-tree/Animations-tab drag-drop) and
-`UX-511` (inline Copilot affordance's context-chip half — the tab-switch half works) remain
-unimplemented; none of `UX-502/505/508/509/511` are retired by this note, only deferred past M4.
+e2e-covered.
+
+A follow-up M4 change (pointer picker + drag-to-graph + config editors) completes the rest:
+`UX-505`'s two click targets now do real work — the `✎` icon calls `onOpenPointerPicker` (a new
+`GraphCanvasProps` callback `packages/app`'s `BehaviorGraphPanel` wires to
+`specs/ux-pointer-picker.md`'s dialog, preselecting via the resolved "value" port's type per
+`UX-907`), and the pointer-config text calls `onJumpToData` (wired to the store's
+`jumpToDataFromGraph`, `specs/ux-data-tab.md`'s `UX-806` force-switch). `UX-508`'s drop-menu is
+implemented (`drop-menu.tsx`, driven by `graph-view.tsx`'s HTML5-drop handling of the
+`application/x-scenenode`/`application/x-animclip` MIME types `packages/app`'s
+`SceneTree.tsx`/`AssetBrowser.tsx` now set as drag sources) with a `simulateExternalDrop` test hook
+(same rationale as `simulateConnect`) covering the drag gesture only — the drop-menu option click
+stays real. `UX-509` is fully wired (both halves above). The node-details panel also gained a
+config-field editor (variable/event dropdown selectors with "+ new…" flows, a pointer node's
+"Retarget…" button routing through the same picker dialog, an animation-clip selector for
+`animation/start|stop`'s `values.animation`, and a generic key/value fallback for every other
+config field) — not itself a numbered requirement in this file, but the mechanism `UX-505`'s
+pointer retarget and this drop-menu's created nodes both build on.
+
+`UX-511` (inline Copilot affordance's context-chip half — the tab-switch half works) remains
+unimplemented; it is the one requirement in this block still deferred past M4.
 
 ## Open questions
 

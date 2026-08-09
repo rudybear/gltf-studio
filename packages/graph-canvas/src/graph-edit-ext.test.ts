@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyPatches, type EditorDocument } from "@gltf-studio/editor-core";
-import { ensureTypeIndex, setLiteralValue } from "./graph-edit-ext.js";
+import { ensureTypeIndex, setLiteralValue, setPointerConfig } from "./graph-edit-ext.js";
 
 function makeDocument(graph: unknown): EditorDocument {
   const json = { asset: { version: "2.0" }, extensions: { KHR_interactivity: { graphs: [graph] } } };
@@ -65,5 +65,42 @@ describe("setLiteralValue", () => {
     expect(graph.types).toEqual([{ signature: "float" }]);
     expect(graph.nodes[0].values.a).toEqual({ type: 0, value: [1] });
     expect(graph.nodes[0].values.b).toEqual({ type: 0, value: [2] });
+  });
+});
+
+describe("setPointerConfig (UX-906)", () => {
+  it("retargets an existing pointer node's pointer+type config in one command, reusing an already-declared type", () => {
+    const document = makeDocument({
+      types: [{ signature: "float3" }],
+      declarations: [{ op: "pointer/set" }],
+      nodes: [{ declaration: 0, configuration: { pointer: { value: ["/nodes/0/translation"] }, type: { value: [0] } } }]
+    });
+    const command = setPointerConfig(document, 0, 0, "/nodes/1/translation", "float3");
+    const after = applyPatches(document.json, command.patches) as {
+      extensions: { KHR_interactivity: { graphs: [{ types: Array<{ signature: string }>; nodes: Array<{ configuration: { pointer: { value: string[] }; type: { value: number[] } } }> }] } };
+    };
+    const graph = after.extensions.KHR_interactivity.graphs[0];
+    expect(graph.types).toEqual([{ signature: "float3" }]); // no duplicate types[] entry
+    expect(graph.nodes[0].configuration.pointer.value).toEqual(["/nodes/1/translation"]);
+    expect(graph.nodes[0].configuration.type.value).toEqual([0]);
+
+    const restored = applyPatches(after, command.inverse);
+    expect(restored).toEqual(document.json);
+  });
+
+  it("appends a fresh types[] entry when retargeting to a NEW signature", () => {
+    const document = makeDocument({
+      types: [{ signature: "float3" }],
+      declarations: [{ op: "pointer/set" }],
+      nodes: [{ declaration: 0, configuration: { pointer: { value: ["/nodes/0/translation"] }, type: { value: [0] } } }]
+    });
+    const command = setPointerConfig(document, 0, 0, "/materials/0/pbrMetallicRoughness/metallicFactor", "float");
+    const after = applyPatches(document.json, command.patches) as {
+      extensions: { KHR_interactivity: { graphs: [{ types: Array<{ signature: string }>; nodes: Array<{ configuration: { pointer: { value: string[] }; type: { value: number[] } } }> }] } };
+    };
+    const graph = after.extensions.KHR_interactivity.graphs[0];
+    expect(graph.types).toEqual([{ signature: "float3" }, { signature: "float" }]);
+    expect(graph.nodes[0].configuration.pointer.value).toEqual(["/materials/0/pbrMetallicRoughness/metallicFactor"]);
+    expect(graph.nodes[0].configuration.type.value).toEqual([1]);
   });
 });

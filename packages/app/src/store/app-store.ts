@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { parseContainer } from "@gltfi/gltf";
 import { createDocument, GraphEdit, HistoryStack, save, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import { setPointerConfig } from "@gltf-studio/graph-canvas";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import type { GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
@@ -54,6 +55,18 @@ export interface PanelSizes {
  * link).
  */
 export type FlashTarget = { kind: "inspector-section"; id: string } | { kind: "asset-row"; tab: AssetTab; index: number };
+
+/**
+ * specs/ux-pointer-picker.md: which graph node's `✎` icon (UX-505/UX-508)
+ * opened the dialog, and (UX-907) what it's currently pointing at, if
+ * anything, so the dialog can preselect that tree item/property/component.
+ */
+export interface PointerPickerRequest {
+  nodeIndex: number;
+  graphIndex: number;
+  currentPath?: string;
+  currentType?: string;
+}
 
 export const PANEL_BOUNDS = {
   left: { min: 190, max: 480, default: 260 },
@@ -99,6 +112,9 @@ export interface AppState {
   // -- data tab (UX-8xx) --
   dataPointer: string; // e.g. "/nodes/0"; "" when nothing to show
 
+  // -- pointer-picker dialog (specs/ux-pointer-picker.md UX-9xx; DOC-030: ephemeral only) --
+  pointerPickerRequest: PointerPickerRequest | null;
+
   // -- inspector (UX-4xx: ephemeral only, DOC-030) --
   flashTarget: FlashTarget | null;
 
@@ -131,6 +147,14 @@ export interface AppState {
   selectAsset(tab: AssetTab, index: number, containerPointer: string): void;
   /** UX-805/UX-800: passive Data-tab update — never switches `activeDockTab` (unlike `selectAsset`). */
   navigateData(pointer: string): void;
+  /** specs/ux-graph-canvas.md UX-509: clicking a pointer node's config TEXT — force-switches to the Data tab (UX-806), unlike `navigateData`'s passive update. */
+  jumpToDataFromGraph(pointer: string): void;
+  /** specs/ux-graph-canvas.md UX-509/UX-505: opens the pointer-picker dialog for the given graph node (UX-907 preselection via `currentPath`/`currentType`, when set). */
+  openPointerPicker(info: { nodeIndex: number; currentPath?: string; currentType?: string }): void;
+  /** specs/ux-pointer-picker.md UX-908: Cancel/close-x/backdrop/Escape — closes without writing any config change. */
+  closePointerPicker(): void;
+  /** specs/ux-pointer-picker.md UX-906: "Use pointer" — writes the assembled path+type into the requesting node's config (via `setPointerConfig`) as one undoable command, then closes. */
+  confirmPointerPicker(path: string, signature: string): void;
   /** UX-409: switches the asset browser to Materials and briefly flashes that row — does NOT force-switch the bottom dock (unlike `selectAsset`/UX-211). */
   selectMaterialContext(materialIndex: number): void;
   /** UX-403/UX-409: sets a transient flash target, auto-clearing itself after ~900ms. */
@@ -188,6 +212,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedAsset: null,
 
   dataPointer: "",
+  pointerPickerRequest: null,
   flashTarget: null,
 
   themeOverride: null,
@@ -327,6 +352,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   navigateData(pointer) {
     set({ dataPointer: pointer });
+  },
+
+  jumpToDataFromGraph(pointer) {
+    // UX-509/UX-806: a deliberate "inspect this" action, unlike navigateData's passive update.
+    set({ dataPointer: pointer, activeDockTab: "data" });
+  },
+
+  openPointerPicker(info) {
+    set({ pointerPickerRequest: { graphIndex: get().selectedGraphIndex, ...info } });
+  },
+
+  closePointerPicker() {
+    set({ pointerPickerRequest: null });
+  },
+
+  confirmPointerPicker(path, signature) {
+    const { history, dispatchCommand, pointerPickerRequest, pushToast } = get();
+    if (!history || !pointerPickerRequest) return;
+    const command = setPointerConfig(history.document, pointerPickerRequest.graphIndex, pointerPickerRequest.nodeIndex, path, signature as Parameters<typeof setPointerConfig>[4]);
+    dispatchCommand(command);
+    set({ pointerPickerRequest: null });
+    pushToast(`Pointer set: ${path}`);
   },
 
   selectMaterialContext(materialIndex) {

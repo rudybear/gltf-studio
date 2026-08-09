@@ -6,7 +6,7 @@
 // Command and handed to `dispatchCommand`; this is the ONLY module in the
 // package that calls those command factories.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GraphEdit, applyPatches, getIn, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import { GraphEdit, applyPatches, combineCommandParts, getIn, makeCommandId, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import type { ValueType } from "@gltfi/kernel";
 import { mapGraph, type InteractivityGraph, type MappedGraph } from "./map-graph.js";
 import { GraphView } from "./graph-view.js";
@@ -17,6 +17,30 @@ import { setLiteralValue } from "./graph-edit-ext.js";
 import { ensureGraphScaffold } from "./ensure-graph.js";
 
 const VALIDATION_DEBOUNCE_MS = 300;
+
+/** A zero-valued literal shaped for `signature` — used as a freshly-created variable's initial `value` (the config editor's "+ new variable…" flow doesn't ask the user for a starting value). */
+function defaultLiteralFor(signature: ValueType): Array<number | boolean> {
+  switch (signature) {
+    case "bool":
+      return [false];
+    case "float2":
+      return [0, 0];
+    case "float3":
+      return [0, 0, 0];
+    case "float4":
+    case "float4x4":
+      return signature === "float4x4" ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] : [0, 0, 0, 0];
+    case "float3x3":
+      return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    case "float2x2":
+      return [1, 0, 0, 1];
+    case "int":
+    case "float":
+    case "ref":
+    default:
+      return [0];
+  }
+}
 
 const EMPTY_VALIDATION: ValidationResult = { ok: true, diagnostics: [], byNodeIndex: new Map(), unindexed: [] };
 
@@ -30,6 +54,22 @@ export type GraphCanvasProps = {
   onLog?: (level: "info" | "warn" | "error", text: string) => void;
   onToast?: (text: string) => void;
   onAskCopilot?: () => void;
+  /**
+   * specs/ux-graph-canvas.md UX-509: clicking a pointer node's config TEXT —
+   * out of scope for this package (it reaches into the Data tab, owned by
+   * `packages/app`). Omitted, this click is a no-op (structurally distinct
+   * from the `✎` icon regardless, per UX-505/UX-508).
+   */
+  onJumpToData?: (pointerPath: string) => void;
+  /**
+   * specs/ux-graph-canvas.md UX-509 / specs/ux-pointer-picker.md: clicking a
+   * pointer node's `✎` icon — likewise out of scope here (the picker dialog
+   * itself is owned by `packages/app`, no dedicated ownership glob yet per
+   * that spec's "Owns" note). `currentPath`/`currentType` seed the dialog's
+   * preselection (UX-907); either may be `undefined` for a pointer node with
+   * no config yet.
+   */
+  onOpenPointerPicker?: (info: { nodeIndex: number; currentPath?: string; currentType?: string }) => void;
 };
 
 export function GraphCanvas({
@@ -40,7 +80,9 @@ export function GraphCanvas({
   onSelectNode,
   onLog,
   onToast,
-  onAskCopilot
+  onAskCopilot,
+  onJumpToData,
+  onOpenPointerPicker
 }: GraphCanvasProps): JSX.Element {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [validation, setValidation] = useState<ValidationResult>(EMPTY_VALIDATION);
@@ -50,6 +92,10 @@ export function GraphCanvas({
   const graphs = getIn(document.json, ["extensions", "KHR_interactivity", "graphs"]) as unknown[] | undefined;
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
   const rawGraph = hasGraph ? (graphs![graphIndex] as InteractivityGraph) : undefined;
+  const animationNames = useMemo(
+    () => ((getIn(document.json, ["animations"]) as Array<{ name?: string }> | undefined) ?? []).map((a, i) => a.name ?? `Animation ${i}`),
+    [document.json]
+  );
 
   const mapped: MappedGraph | null = useMemo(() => (rawGraph ? mapGraph(rawGraph, graphIndex) : null), [rawGraph, graphIndex]);
 
@@ -139,21 +185,136 @@ export function GraphCanvas({
     dispatchCommand(GraphEdit.setNodePosition(document, graphIndex, nodeIndex, x, y));
   }
 
+  /** The M4 config-field editor's generic fallback (node-details.tsx's ConfigEditor) — every OTHER case below builds a more specific command. */
+  function handleSetConfigField(nodeIndex: number, field: string, value: Array<number | boolean | string>) {
+    dispatchCommand(GraphEdit.setNodeConfig(document, graphIndex, nodeIndex, field, value));
+  }
+
+  /**
+   * The config editor's "variable/set|get variable selector ... + 'new
+   * variable…'" case: ensures a `types[]` entry for `signature` (a brand new
+   * variable needs its OWN type, unlike a config field that reuses an
+   * already-declared one), appends the variable, then points `field` (
+   * "variable" for get/interpolate, "variables" for set — `arraySlot`
+   * disambiguates which slot of the latter) at its fresh index, as ONE
+   * combined undo/redo step.
+   */
+  function handleAddVariableAndSetConfig(nodeIndex: number, field: string, id: string, signature: ValueType, arraySlot?: number) {
+    const { command: ensureTypeCmd, index: typeIndex } = GraphEdit.ensureType(document, graphIndex, signature);
+    const jsonAfterType = ensureTypeCmd.patches.length > 0 ? applyPatches(document.json, ensureTypeCmd.patches) : document.json;
+    const docAfterType: EditorDocument = { ...document, json: jsonAfterType };
+
+    const addVarCmd = GraphEdit.addVariable(docAfterType, graphIndex, { id, type: typeIndex, value: defaultLiteralFor(signature) });
+    const jsonAfterVar = applyPatches(jsonAfterType, addVarCmd.patches);
+    const newVarIndex = ((getIn(jsonAfterType, ["extensions", "KHR_interactivity", "graphs", graphIndex, "variables"]) as unknown[] | undefined)?.length ?? 0);
+
+    const currentArray = field === "variables" ? (getIn(document.json, ["extensions", "KHR_interactivity", "graphs", graphIndex, "nodes", nodeIndex, "configuration", "variables", "value"]) as number[] | undefined) ?? [] : undefined;
+    const configValue: Array<number | boolean | string> =
+      field === "variables"
+        ? (() => {
+            const next = currentArray!.slice();
+            next[arraySlot ?? 0] = newVarIndex;
+            return next;
+          })()
+        : [newVarIndex];
+
+    const setCfgCmd = GraphEdit.setNodeConfig({ ...document, json: jsonAfterVar }, graphIndex, nodeIndex, field, configValue);
+    const combined = combineCommandParts([ensureTypeCmd, addVarCmd, setCfgCmd]);
+    dispatchCommand({ id: makeCommandId("add-variable-and-set"), label: `Add variable "${id}" and assign to node ${nodeIndex}`, patches: combined.patches, inverse: combined.inverse });
+  }
+
+  function handleSetEventConfig(nodeIndex: number, eventIndex: number) {
+    dispatchCommand(GraphEdit.setNodeConfig(document, graphIndex, nodeIndex, "event", [eventIndex]));
+  }
+
+  function handleAddEventAndSetConfig(nodeIndex: number, id: string) {
+    const addEventCmd = GraphEdit.addCustomEvent(document, graphIndex, { id });
+    const jsonAfterEvent = applyPatches(document.json, addEventCmd.patches);
+    const newEventIndex = ((getIn(document.json, ["extensions", "KHR_interactivity", "graphs", graphIndex, "events"]) as unknown[] | undefined)?.length ?? 0);
+    const setCfgCmd = GraphEdit.setNodeConfig({ ...document, json: jsonAfterEvent }, graphIndex, nodeIndex, "event", [newEventIndex]);
+    const combined = combineCommandParts([addEventCmd, setCfgCmd]);
+    dispatchCommand({ id: makeCommandId("add-event-and-set"), label: `Add event "${id}" and assign to node ${nodeIndex}`, patches: combined.patches, inverse: combined.inverse });
+  }
+
+  /** `animation/start`/`animation/stop`'s "animation" socket is a VALUE (ref-typed literal), not a `configuration` field — see handleCreateFromDrop's own doc comment for why `ref` needs its own `types[]` entry. */
+  function handleSetAnimationValue(nodeIndex: number, animationIndex: number) {
+    dispatchCommand(setLiteralValue(document, graphIndex, nodeIndex, "animation", "ref", [animationIndex]));
+  }
+
   function handleLiteralCommit(nodeIndex: number, socket: string, type: ValueType, value: Array<number | boolean | string>) {
     dispatchCommand(setLiteralValue(document, graphIndex, nodeIndex, socket, type, value));
   }
 
   function handlePointerTextClick(nodeIndex: number) {
-    // UX-509 (Data-tab jump on pointer config text click) is out of scope
-    // for this package — it reaches into the Data tab, owned elsewhere.
-    onLog?.("info", `Pointer node ${nodeIndex}: jump-to-Data-tab is not wired yet (UX-509).`);
+    // UX-509: the pointer path IS the node's subtitle (map-graph.ts's
+    // nodeSubtitle returns `configuration.pointer`'s string for every
+    // pointer/* op) — no config with a pointer isn't clickable text in the
+    // first place (OpNode only renders this row when `node.subtitle` is set).
+    const node = mapped?.nodes.find((n) => n.index === nodeIndex);
+    if (node?.subtitle) {
+      onJumpToData?.(node.subtitle);
+    } else {
+      onLog?.("warn", `Pointer node ${nodeIndex}: no pointer configured yet — nothing to jump to.`);
+    }
   }
 
   function handlePointerIconClick(nodeIndex: number) {
-    // UX-509's pointer-picker dialog (specs/ux-pointer-picker.md) likewise
-    // out of scope here — stubbed so the two click targets stay structurally
-    // distinct (UX-505/UX-508) without faking functionality that isn't wired.
-    onLog?.("info", `Pointer node ${nodeIndex}: retarget dialog is not wired yet (UX-509).`);
+    const node = mapped?.nodes.find((n) => n.index === nodeIndex);
+    if (!node) return;
+    // The pointer's resolved value type: pointer/get exposes it on its
+    // "value" OUTPUT port, pointer/set|interpolate on their "value" INPUT
+    // port — map-graph.ts already resolved this from `configuration.type`.
+    const valuePort = node.ports.find((p) => p.name === "value" && (p.kind === "value-in" || p.kind === "value-out"));
+    onOpenPointerPicker?.({ nodeIndex, currentPath: node.subtitle, currentType: valuePort?.type });
+  }
+
+  /**
+   * specs/ux-graph-canvas.md UX-508 (scene-tree-row / Animations-tab-clip
+   * drag-drop): builds the chosen drop-menu option's node as one command,
+   * scaffolding the graph first if needed (same `resolveTargetDocumentAndGraphIndex`
+   * `handleAddNode` uses) — `pointer/get|set|interpolate` default to the
+   * dragged node's `translation` (every node has one; the picker's `✎` icon
+   * lets the user retarget afterward, same as the Inspector's `◈`
+   * shortcuts), `event/onSelect (this node)` sets `configuration.nodeIndex`,
+   * `animation/start|stop` set a `ref`-typed `values.animation` literal
+   * pointing at the dragged clip's index.
+   */
+  function handleCreateFromDrop(kind: "node" | "anim", refId: number, optionKey: string, position: { x: number; y: number }) {
+    const { workingDocument, index } = resolveTargetDocumentAndGraphIndex();
+    const existingCount = (getIn(workingDocument.json, ["extensions", "KHR_interactivity", "graphs", index, "nodes"]) as unknown[] | undefined)?.length ?? 0;
+
+    let command: Command;
+    if (kind === "node" && optionKey === "pointer-get") {
+      command = GraphEdit.addPointerNode(workingDocument, index, "get", `/nodes/${refId}/translation`, "float3", position);
+    } else if (kind === "node" && optionKey === "pointer-set") {
+      command = GraphEdit.addPointerNode(workingDocument, index, "set", `/nodes/${refId}/translation`, "float3", position);
+    } else if (kind === "node" && optionKey === "pointer-interpolate") {
+      command = GraphEdit.addPointerNode(workingDocument, index, "interpolate", `/nodes/${refId}/translation`, "float3", position);
+    } else if (kind === "node" && optionKey === "event-onselect") {
+      command = GraphEdit.addNode(workingDocument, index, "event/onSelect", {
+        extension: "KHR_node_selectability",
+        configuration: { nodeIndex: { value: [refId] } },
+        position
+      });
+    } else if (kind === "anim" && (optionKey === "animation-start" || optionKey === "animation-stop")) {
+      const { command: ensureRefCmd, index: refTypeIndex } = GraphEdit.ensureType(workingDocument, index, "ref");
+      const jsonAfterType = ensureRefCmd.patches.length > 0 ? applyPatches(workingDocument.json, ensureRefCmd.patches) : workingDocument.json;
+      const addCmd = GraphEdit.addNode(
+        { ...workingDocument, json: jsonAfterType },
+        index,
+        optionKey === "animation-start" ? "animation/start" : "animation/stop",
+        { values: { animation: { type: refTypeIndex, value: [refId] } }, position }
+      );
+      const combined = combineCommandParts([ensureRefCmd, addCmd]);
+      command = { id: makeCommandId("add-anim-node"), label: addCmd.label, patches: combined.patches, inverse: combined.inverse };
+    } else {
+      onLog?.("warn", `Drop menu: unhandled option "${optionKey}" for ${kind} drop.`);
+      return;
+    }
+
+    dispatchCommand(command);
+    onSelectNode(existingCount);
+    onToast?.(`Added node from drag-drop.`);
   }
 
   const selectedNode = mapped?.nodes.find((n) => n.index === selectedNodeIndex) ?? null;
@@ -177,6 +338,7 @@ export function GraphCanvas({
           onRemoveNodes={handleRemoveNodes}
           onMoveNode={handleMoveNode}
           onDropOp={handleAddNode}
+          onCreateFromDrop={handleCreateFromDrop}
         />
       ) : (
         <div className="gcanvas-empty-state" data-testid="gcanvas.empty">
@@ -191,6 +353,15 @@ export function GraphCanvas({
           onToggleCollapsed={() => setDetailsCollapsed((v) => !v)}
           diagnosticsByNode={validation.byNodeIndex}
           unindexedDiagnostics={validation.unindexed}
+          variables={rawGraph?.variables ?? []}
+          events={rawGraph?.events ?? []}
+          animationNames={animationNames}
+          onSetConfigField={handleSetConfigField}
+          onAddVariableAndSetConfig={handleAddVariableAndSetConfig}
+          onSetEventConfig={handleSetEventConfig}
+          onAddEventAndSetConfig={handleAddEventAndSetConfig}
+          onSetAnimationValue={handleSetAnimationValue}
+          onOpenPointerPicker={onOpenPointerPicker ? (nodeIndex) => handlePointerIconClick(nodeIndex) : undefined}
         />
       ) : null}
     </div>
