@@ -29,17 +29,23 @@ export interface CameraPose {
   target?: [number, number, number];
 }
 
-// OPEN(EA-pickresult-shape-tbd): the plan says RenderHost has a "pick"
-// method and PickResult is a shared value type, but does not enumerate
-// PickResult's fields beyond "picking" (Raycaster-backed, swappable per the
-// reuse table). nodeIndex is the one field the plan's reuse notes
-// (glTF-index<->Object3D index tables) make unambiguous. pick()'s
-// coordinate space (not PickResult's shape) is pinned down by RH-015; see
-// specs/render-host.md's "Open questions" for this still-open field-shape
-// question.
+// RESOLVED(EA-pickresult-shape-tbd) (see specs/render-host.md's "Open
+// questions"): the plan says RenderHost has a "pick" method and PickResult
+// is a shared value type, but did not originally enumerate PickResult's
+// fields beyond "picking" (Raycaster-backed, swappable per the reuse
+// table). nodeIndex/point are the fields the plan's reuse notes (glTF-index
+// <-> Object3D index tables) made unambiguous; `distance` (the world-space
+// ray length from the camera to `point`) is added because engine-three's
+// underlying Raycaster hit (THREE.Intersection) always carries it for free
+// and callers (e.g. a "closest of several picks" comparison, or a
+// depth-aware inspector readout) have an obvious use for it. Barycentric
+// coordinates and material index remain deliberately omitted — no consumer
+// needs them yet. pick()'s coordinate space (not PickResult's shape) is
+// pinned down by RH-015.
 export interface PickResult {
   nodeIndex: number;
   point: [number, number, number];
+  distance: number;
 }
 
 /** SP-011 (see specs/storage-provider.md): thumbnail is the only optional field. */

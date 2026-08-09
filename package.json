@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "test:browser": "pnpm --filter @gltf-studio/engine-three run test:browser",
     "lint": "eslint .",
     "status": "node scripts/gen-status.mjs",
     "check:drift": "node scripts/check-drift.mjs",

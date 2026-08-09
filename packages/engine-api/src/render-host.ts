@@ -33,18 +33,22 @@ export interface GizmoChangeEvent {
  * time. `setHighlight([])` clears all highlighting (RH-023).
  */
 export interface RenderHost {
-  // OPEN(RH-mount-shape-tbd): plan names "mount" without specifying its
-  // parameter beyond "viewport" — a DOM container is the minimal reasonable
-  // reading for a browser render host. See specs/render-host.md's "Open
-  // questions" (still unresolved). Lifecycle behavior (idempotency,
-  // re-entry) is pinned down by RH-004, RH-009, RH-010.
+  // RESOLVED(RH-mount-shape-tbd) at the engine-api (interface) layer: plan
+  // names "mount" without specifying its parameter beyond "viewport" — a DOM
+  // container is the minimal reasonable reading for a browser render host,
+  // and stays that way here. See specs/render-host.md's "Open questions" for
+  // engine-three's concrete choice of what it does with that container
+  // (owns its own child canvas, resizes via ResizeObserver). Lifecycle
+  // behavior (idempotency, re-entry) is pinned down by RH-004, RH-009,
+  // RH-010.
   mount(container: HTMLElement): void;
 
-  // OPEN(RH-loadscene-shape-tbd): plan does not specify whether loadScene
-  // takes raw glTF JSON, a parsed container, or an EditorDocument-derived
-  // view. `unknown` pending editor-core's document shape (see
-  // specs/document-model.md). Lifecycle behavior (readiness, re-entry) is
-  // pinned down by RH-007, RH-008.
+  // RESOLVED(RH-loadscene-shape-tbd) at the engine-api (interface) layer:
+  // stays `unknown` here (pending editor-core's document shape, see
+  // specs/document-model.md, and because a future non-three RenderHost may
+  // want a different concrete shape) — see specs/render-host.md's "Open
+  // questions" for engine-three's concrete accepted shape. Lifecycle
+  // behavior (readiness, re-entry) is pinned down by RH-007, RH-008.
   loadScene(json: unknown): Promise<void>;
 
   /** RH-005/RH-006: idempotent, and safe to call without a prior loadScene. */
@@ -72,11 +76,13 @@ export interface RenderHost {
   attachGizmo(nodeIndex: number, mode: GizmoMode): void;
   onGizmoChange(handler: (event: GizmoChangeEvent) => void): () => void;
 
-  // OPEN(RH-pointer-value-tbd): applyPointer's value type is left `unknown`
-  // — the plan's pointer-router reuse note (~35 families) implies a wide
-  // variety of pointer value shapes that this types-only package should not
-  // narrow prematurely. Delegation/return contract pinned down by RH-020,
-  // RH-021.
+  // RESOLVED(RH-pointer-value-tbd) at the engine-api (interface) layer:
+  // stays `unknown` here — the plan's pointer-router reuse note (~35
+  // families) implies a wide variety of pointer value shapes that this
+  // types-only package should not narrow prematurely. See
+  // specs/render-host.md's "Open questions" for engine-three's concrete
+  // accepted value shape (the three-adapter's own PointerValue union).
+  // Delegation/return contract pinned down by RH-020, RH-021.
   applyPointer(pointer: string, value: unknown): void;
 
   /** RH-022/RH-023. */
