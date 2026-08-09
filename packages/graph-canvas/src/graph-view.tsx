@@ -130,6 +130,56 @@ function GraphViewInner(props: GraphViewProps) {
   // once) never closes over a stale `handleConnect` from an earlier render.
   const handleConnectRef = useRef<OnConnect>(() => {});
 
+  // Bug fix (hidden-mount `fitView`, same class as the Script tab's Monaco
+  // sizing bug — see specs/ux-shell.md's follow-up note): BottomDock.tsx
+  // keeps the Behavior graph tab's whole subtree permanently mounted, only
+  // `display: none`-hiding it while another dock tab is active (UX-103's
+  // "don't reset the tab being left" contract). `<ReactFlow fitView>`
+  // computes its initial fit ONCE, synchronously on this component's first
+  // real layout pass — if that pass happens to land while the container is
+  // `display: none` (e.g. a document is imported/re-imported while parked
+  // on the Data or Script tab), it fits against a 0x0 box, leaving the
+  // canvas permanently zoomed/positioned wrong even after the tab becomes
+  // visible (nodes rendered pinned to one corner at the wrong scale).
+  // `ReactFlow`'s own internal pane ResizeObserver repositions the SVG
+  // viewBox on later size changes but never re-runs `fitView` itself, so
+  // this doesn't self-heal.
+  //
+  // Fix: watch this component's own root for its first-ever NON-zero size
+  // and re-run `fitView()` at that point — deliberately gated to fire at
+  // most once (`didInitialRealFitRef`), not on every subsequent resize/
+  // show, so a later legitimate tab-away-and-back (where the container was
+  // already sized correctly before hiding) does NOT reset the user's own
+  // pan/zoom — that would silently violate UX-103's own "graph canvas
+  // scroll position" example of state a tab switch must preserve. When the
+  // very first layout already happened at a real size (the common case:
+  // the graph tab is active when a document loads), this still fires once
+  // and simply re-applies the same already-correct fit — a harmless no-op
+  // rerun, not a visible change.
+  // A callback ref (not a plain useRef) on purpose: the component returns
+  // an ELK-pending placeholder `<div>` (below) until `elkPositions`
+  // resolves, so the real `.gcanvas-canvas-inner` node this observer needs
+  // doesn't exist during this component's first render(s) — a plain
+  // `useRef` + a `[reactFlow]`-only effect would attach its observer too
+  // early (against a null ref) and never retry once the real node mounts.
+  // Tracking the node in state instead makes the effect below re-run
+  // exactly when that node actually appears.
+  const [canvasRootEl, setCanvasRootEl] = useState<HTMLDivElement | null>(null);
+  const didInitialRealFitRef = useRef(false);
+  useEffect(() => {
+    if (!canvasRootEl || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      if (didInitialRealFitRef.current) return;
+      const { width, height } = entries[0].contentRect;
+      if (width > 1 && height > 1) {
+        didInitialRealFitRef.current = true;
+        reactFlow.fitView();
+      }
+    });
+    observer.observe(canvasRootEl);
+    return () => observer.disconnect();
+  }, [canvasRootEl, reactFlow]);
+
   // One long-lived LayoutEngine for the mounted GraphView's whole lifetime.
   useEffect(() => {
     const engine = new LayoutEngine({
@@ -353,7 +403,7 @@ function GraphViewInner(props: GraphViewProps) {
   }
 
   return (
-    <div className="gcanvas-canvas-inner" onDrop={handleDrop} onDragOver={handleDragOver} data-testid="gcanvas.canvas">
+    <div className="gcanvas-canvas-inner" ref={setCanvasRootEl} onDrop={handleDrop} onDragOver={handleDragOver} data-testid="gcanvas.canvas">
       {layoutMode === "fallback" ? (
         <div className="gcanvas-banner gcanvas-banner-warning gcanvas-canvas-overlay-banner">
           Layout worker unavailable — laid out on the main thread instead. The graph is fully usable; layout may be slower to update for

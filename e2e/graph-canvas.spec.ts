@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { assertRegionRendersContent } from "./visual-assert.js";
 
 /**
  * M4 behavior-graph canvas (specs/ux-graph-canvas.md UX-5xx): the lifted
@@ -249,5 +250,41 @@ test.describe("behavior-graph canvas", () => {
     await page.getByTestId("topbar.undo").click();
     await expect(page.getByTestId("gcanvas.node.2")).toHaveCount(0);
     await expect(page.getByTestId("gcanvas.badge.2")).toHaveCount(0);
+  });
+
+  // Real-pixel sanity check (see specs/ux-shell.md's bug-fix note on the Script tab's
+  // `.script-tab-wrap` CSS-collapse bug, which prompted auditing every dock tab for the same
+  // "hidden-mount measures near-zero" class of bug): confirms the canvas actually renders visible
+  // content once opened, not merely that node testids exist in the DOM.
+  test("the canvas renders non-trivial visible content once opened, not just DOM nodes (visual sanity check)", async ({ page }) => {
+    await assertRegionRendersContent(page.getByTestId("gcanvas.canvas"), { minNonBackgroundFraction: 0.02 });
+  });
+});
+
+// Regression for the hidden-mount `fitView` bug (specs/ux-graph-canvas.md's bug-fix note): found
+// during the same "audit every dock tab for the Script tab's class of bug" pass. `BottomDock.tsx`
+// keeps this tab's whole canvas subtree permanently mounted (`display: none`-hidden, never
+// unmounted) so React Flow's own pan/zoom state survives a tab switch (UX-103) — but that means a
+// document import/re-import that happens while parked on a DIFFERENT dock tab makes React Flow's
+// one-time initial `fitView` compute against a 0x0 (hidden) container, permanently mis-scaling and
+// mis-positioning the graph even after switching back.
+test.describe("behavior-graph canvas — hidden-mount fitView regression", () => {
+  test("importing a document while parked on a different dock tab still renders the graph correctly once the Behavior graph tab is opened", async ({
+    page
+  }) => {
+    await page.goto("/");
+    await page.getByTestId("dock.tab.data").click();
+    await expect(page.getByTestId("dock.tab.data")).toHaveClass(/active/);
+
+    await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
+    await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
+
+    await page.getByTestId("dock.tab.graph").click();
+    await expect(page.getByTestId("gcanvas.node.0")).toBeVisible();
+    // The bug's actual symptom wasn't absence — React Flow still rendered the (mis-scaled,
+    // mis-positioned) nodes technically inside the pane — so this real-pixel check, not just a DOM
+    // presence check, is the meaningful regression guard: the fitView bug this fix addresses
+    // shrinks the graph into a small corner of the pane, well under this fraction of the region.
+    await assertRegionRendersContent(page.getByTestId("gcanvas.canvas"), { minNonBackgroundFraction: 0.02 });
   });
 });

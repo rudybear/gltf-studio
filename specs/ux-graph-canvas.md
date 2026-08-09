@@ -107,6 +107,25 @@ rather than duplicating them in `@gltf-studio/audio-canvas`:
   deterministic hash-based fallback color for any category string outside the fixed map, replacing
   the previous flat "anything unrecognized is gray" fallback.
 
+## Implementation notes (bug fix)
+
+Follow-up (hidden-mount `fitView`, found auditing `specs/ux-shell.md`'s M5 Script-tab sizing bug for
+the same "measures 0 because the dock kept it mounted-but-hidden" class of bug across every dock
+tab): `specs/ux-shell.md`'s M4 note above already establishes that `BottomDock` keeps this package's
+whole canvas subtree permanently mounted, `display: none`-hiding it (not conditionally rendering it)
+while another dock tab is active, specifically so `UX-103`'s "don't reset the tab being left" state
+survives a tab switch. `<ReactFlow fitView>` (`graph-view.tsx`) only computes its initial fit ONCE,
+on this component's first real layout pass — when a document is imported (or re-imported) while the
+Behavior graph tab isn't the active one, that first pass lands against a `display: none` (0×0)
+container, so the fit is computed from a degenerate box: nodes render pinned into one corner at the
+wrong scale, and switching to the tab afterward does not self-correct (React Flow's own internal
+pane `ResizeObserver` repositions the SVG viewBox on later size changes but never re-runs `fitView`
+itself). Fixed with a `ResizeObserver` on the canvas's own root node that watches for its first-ever
+non-zero size and calls `reactFlow.fitView()` at that point — gated to fire at most once per mount
+(`didInitialRealFitRef`) so a later legitimate tab-away-and-back does NOT re-run `fitView` and wipe
+the user's own pan/zoom, which would otherwise quietly violate `UX-103`'s own "graph canvas scroll
+position" example of state a tab switch must preserve.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

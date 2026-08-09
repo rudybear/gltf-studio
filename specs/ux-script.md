@@ -43,6 +43,19 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
 - [UX-712] (active) Selecting a graph node on the Behavior graph canvas, when the Script tab can determine a corresponding emitted identifier for that node (via `@gltfi/emit-ts`'s returned `names` and the IR module's own source-node bookkeeping), scrolls to and highlights that identifier's text occurrence in the Script tab's buffer. This mapping is identifier-level (a name-based text search), not a source-range-accurate cross-reference — nodes with no determinable corresponding identifier (e.g. fully inlined/constant-folded away, or contributing only to a nested temporary) silently produce no highlight rather than a wrong one.
 - [UX-713] (active) Supersedes UX-704: while `DIVERGED`, the badge (UX-703) carries a tooltip summarizing `@gltfi/verify`'s `compareDeclarations` output (the list of structural differences between the document graph and the edited script's exported graph) — this is the tab's honest ceiling for "divergence is never communicated by the badge alone" given the real toolchain reports structural differences, not source-text positions; no per-line marking is implemented (see UX-704's retirement note for why one wouldn't be genuine).
 
+### No-graph empty state
+
+- [UX-714] (active) Found and fixed alongside a follow-up bug report (`specs/ux-shell.md`'s M5
+  implementation note documents the sibling Monaco-sizing bug this was found auditing for): when the
+  current document has no `KHR_interactivity` graph at `graphIndex` at all (never-added, or a
+  document with zero graphs), the Script tab shows a plain, honest empty-state message ("No behavior
+  graph in this asset — add nodes from the graph palette or ask Copilot") in place of the toolbar and
+  editor, rather than a live (if mostly blank) Monaco buffer holding only a placeholder comment —
+  the previous behavior was, in effect, a real read-only code editor whose one line of "content" was
+  itself just a stand-in message, which is the same category of dishonesty a genuinely-collapsed
+  (0-height) editor is. This is UX-700/UX-707's necessary precondition, not a new mode: every other
+  UX-7xx requirement in this file continues to assume a graph is present.
+
 ## Open questions
 
 - OPEN(UX-script-sugar-tbd): **the approved mockup renders script lines using an aspirational
