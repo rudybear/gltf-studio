@@ -158,6 +158,24 @@ describe("HistoryStack", () => {
     expect(() => stack.push(setName(0, "Zed", "Alpha"))).toThrow(DocumentFrozenError);
   });
 
+  describe("freeze()/unfreeze() (DOC-045)", () => {
+    it("freeze() on a live HistoryStack causes a subsequent push() to throw DocumentFrozenError", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      stack.push(setName(0, "Zed", "Alpha"));
+      stack.freeze();
+      expect(() => stack.push(setName(0, "Yorp", "Zed"))).toThrow(DocumentFrozenError);
+    });
+
+    it("unfreeze() after freeze() allows push() to succeed again", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      stack.freeze();
+      expect(() => stack.push(setName(0, "Zed", "Alpha"))).toThrow(DocumentFrozenError);
+      stack.unfreeze();
+      stack.push(setName(0, "Zed", "Alpha"));
+      expect(nodeName(stack, 0)).toBe("Zed");
+    });
+  });
+
   it("DOC-036: HistoryStack enforces no maximum undo depth in v1", () => {
     const stack = new HistoryStack(fixtureDocument());
     for (let i = 0; i < 500; i += 1) {

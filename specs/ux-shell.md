@@ -77,6 +77,10 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
 
 - [UX-112] (active) The top bar's Export control is disabled (with a tooltip) whenever no document is open; with a document open, clicking it writes the current document's bytes — via `editor-core`'s `save()` (`specs/document-model.md` DOC-024..026) — to a browser download (or, once a File-System-Access-backed `StorageProvider` is wired in, a native save-to-handle dialog when `capabilities.fileHandles` is true, `specs/storage-provider.md` SP-013) and confirms via a toast (`UX-109`) summarizing the save report (spliced roots, or a full reserialize).
 
+### Play mode (M6)
+
+- [UX-113] (active) The play-bar's Play/Pause/Stop buttons and engine-picker (`playbar.play`/`playbar.pause`/`playbar.stop`/`playbar.engine-picker`) drive `PlayController` per `specs/ux-viewport.md`'s `UX-310`; while `paused`, the locked banner (`UX-106`) reads "Playback paused — Stop to edit."; edit-affordances (Data tab, Inspector, gizmo, scene-tree drag/drop) are disabled while `playing` or `paused`, matching the same states in which `UX-107` shows the banner.
+
 ## Implementation notes
 
 - M4 (`packages/graph-canvas`'s dock-tab wiring, `packages/app/src/components/dock/BottomDock.tsx`):

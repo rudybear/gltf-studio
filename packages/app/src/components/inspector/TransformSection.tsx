@@ -28,6 +28,11 @@ export function TransformSection({
   document: EditorDocument;
 }): JSX.Element {
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
+  // UX-113 (best-effort): the functional guarantee is dispatchCommand's own
+  // frozen-document pre-check (DOC-031/DOC-037) — this only disables the
+  // visible affordance so it doesn't look editable while playing/paused.
+  const playState = useAppStore((s) => s.playState);
+  const editingDisabled = playState !== "stopped";
 
   const translation = (node.translation ?? [0, 0, 0]) as [number, number, number];
   const rotationQuat = (node.rotation ?? [0, 0, 0, 1]) as Quat;
@@ -76,6 +81,7 @@ export function TransformSection({
               step="0.1"
               value={roundForDisplay(translation[i])}
               data-testid={`inspector.transform.position-${axis}`}
+              disabled={editingDisabled}
               onChange={(e) => onPositionChange(i as 0 | 1 | 2, e.target.value)}
             />
           ))}
@@ -91,6 +97,7 @@ export function TransformSection({
               step="0.1"
               value={roundForDisplay(rotationDeg[i])}
               data-testid={`inspector.transform.rotation-${axis}`}
+              disabled={editingDisabled}
               onChange={(e) => onRotationChange(i as 0 | 1 | 2, e.target.value)}
             />
           ))}
@@ -106,6 +113,7 @@ export function TransformSection({
               step="0.1"
               value={roundForDisplay(scale[i])}
               data-testid={`inspector.transform.scale-${axis}`}
+              disabled={editingDisabled}
               onChange={(e) => onScaleChange(i as 0 | 1 | 2, e.target.value)}
             />
           ))}

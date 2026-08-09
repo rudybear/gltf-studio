@@ -14,3 +14,7 @@ __screenshots__/
 e2e/fixtures/
 playwright-report/
 test-results/
+
+# packages/app/scripts/bundle-runtime-lib.mjs regenerates this self-contained
+# @gltfi/runtime-lib bundle on every predev/prebuild — never committed.
+packages/app/public/gltfi-runtime-lib.mjs*

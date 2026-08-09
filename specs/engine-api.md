@@ -34,9 +34,13 @@ here have since moved to their own full specs — `specs/render-host.md` and
 `AGH` (AudioGraphHost) requirements, and remains a seed for those three pending their own follow-up
 spec tasks.
 
-Prefixes used below: `PC` (PlayController), `AH` (AudioHost), `AGH` (AudioGraphHost). Gaps in
-numbering (e.g. no `PC-002` yet) are reserved for requirements a follow-up spec task will add — not
-a sign of an accidentally skipped ID.
+Prefixes used below: `PC` (PlayController), `AH` (AudioHost), `AGH` (AudioGraphHost). `PC-002` was
+the one gap reserved for a follow-up spec task (see the previous revision of this note); it is now
+filled in by `PC-002` below, along with `PC-004`..`PC-008`, which resolve the three `OPEN(...)`
+comments that were embedded directly in `packages/engine-api/src/play-controller.ts` (inspect()'s
+shape, start()'s return contract, and onDiagnostic()'s payload shape) plus the cross-file tension
+between this file's `PC-003` and `specs/render-host.md`'s `RH-024` over what "the scene snapshot"
+`stop()` restores actually means.
 
 **Moved**: RH-001, RH-002, RH-003 moved to `specs/render-host.md` (same IDs, per
 `specs/README.md`'s "numbers are never reused" rule — see that file, not here, for their current
@@ -54,7 +58,13 @@ than routed around.
 ## Requirements
 
 - [PC-001] (active) `PlayController.start(options)` accepts `options.engine` of `"interpreter"` or `"compiled"`; play mode drives the scene only through the fan-out `SceneAdapter.applyPointer -> renderHost ‖ audioHost`, never by mutating the edited document.
+- [PC-002] (active) `PlayController.inspect()` returns `{ time: number; variables: Record<string, unknown>; sentEvents: readonly unknown[] }`; `variables` is keyed by each variable's declared `id` from the document's `KHR_interactivity` graph where the graph declares one, and by its numeric index (as a string) otherwise; `sentEvents` mirrors the underlying engine's `sentEvents` at the most recent tick.
 - [PC-003] (active) `PlayController.stop()` contractually reloads the scene snapshot captured at play-start — the guaranteed-correct v1 restore for the known dispose/hot-reload lifecycle gap (see the program plan's "Greenfield gaps the project must build").
+- [PC-004] (active) `PlayController.start(options)` returns `Promise<void>`, resolving once the interpreter or compiled engine has been constructed, bound to the fan-out `SceneAdapter`, and started (i.e. play is already ticking by the time the promise resolves); it rejects (without partially mutating play state) if engine construction fails (e.g. a compiled-engine emit/import error).
+- [PC-005] (active) `PlayController.onDiagnostic(handler)` delivers `{ kind: "unhandled-pointer" | "engine-error"; message: string; pointer?: string }` events raised either by the fan-out `SceneAdapter` (an `applyPointer` call the active `RenderHost`/`AudioHost` could not resolve) or by an uncaught engine error during a tick; returns an unsubscribe function.
+- [PC-006] (active) `PlayController.stop()` returns `Promise<void>`; it is idempotent (calling `stop()` when already stopped resolves immediately without re-invoking `renderHost.loadScene`), and while a `stop()` call's returned promise is pending, `start()` must not be called again (callers await `stop()` before restarting).
+- [PC-007] (active) Resolves the tension `specs/render-host.md`'s `RH-024` OPEN note raised against `PC-003`: "the scene snapshot" `PlayController.stop()` restores is the `EditorDocument.json` captured at the moment `start()` was called (not `RenderHost.snapshot()`'s rendered-image Blob, which remains solely for `RH-024`'s image-export use case); `stop()` restores by calling `renderHost.loadScene(capturedJson)` with that captured value.
+- [PC-008] (active) While play mode is `playing` or `paused` (i.e. between `start()` resolving and `stop()` being called), viewport pointer picks are routed to the active engine's `EngineInteractive.fireSelect`/`fireHoverIn`/`fireHoverOut` (from `@gltfi/runtime`/`@gltfi/runtime-lib`) instead of the editor's own `selectNode`/hover state — both the interpreter engine (via `InteractivityRuntime.asEngineLike()`) and the compiled engine (the `EngineFactory` result) satisfy this same `EngineInteractive` surface, so play-mode pointer routing is identical across both `engine` kinds.
 - [AH-001] (active) `AudioHost.init()` is gesture-gated: it must not create or resume a browser `AudioContext` before a user gesture has occurred.
 - [AH-002] (active) `AudioHost`'s method surface in v1 is exactly `init/loadEmitters/applyPointer/setListenerPose/auditionEmitter` plus the `suspend/resume/dispose` lifecycle — no additional emitter-authoring methods.
 - [AGH-001] (active) `AudioGraphHost` builds and runs `KHR_audio_graph` via AudioGraphJS's `buildGraph` and exposes lint results — combining AudioGraphJS's own `lint.ts` with this project's audio-graph gap-analysis constraints (DAG-only; no cycles, envelopes, or param-modulation in v1) — to the audio-graph canvas.

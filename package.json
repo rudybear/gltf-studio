@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @gltf-studio/app run build",
     "test": "vitest run",
-    "test:browser": "pnpm --filter @gltf-studio/engine-three run test:browser && pnpm --filter @gltf-studio/audio-webaudio run test:browser && pnpm --filter @gltf-studio/audio-graph run test:browser",
+    "test:browser": "pnpm --filter @gltf-studio/engine-three run test:browser && pnpm --filter @gltf-studio/audio-webaudio run test:browser && pnpm --filter @gltf-studio/audio-graph run test:browser && pnpm --filter @gltf-studio/play run test:browser",
     "lint": "eslint .",
     "status": "node scripts/gen-status.mjs",
     "check:drift": "node scripts/check-drift.mjs",

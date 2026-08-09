@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>gltf-studio</title>
+
+    <!--
+      The compiled-engine path (packages/play's engine-host.ts,
+      buildCompiledEngine) transpiles a KHR_interactivity graph to a JS
+      module string via @gltfi/emit-ts, loads it from a `blob:` module URL
+      via dynamic import(), and that module's own
+      `import { createEngine, m } from "@gltfi/runtime-lib";` statement needs
+      somewhere to resolve to — browsers resolve a bare specifier in ANY
+      module script (blob: origin included) against the document's own
+      import map, so one entry here is all that's needed. The target is a
+      self-contained bundle (see scripts/bundle-runtime-lib.mjs, run as
+      predev/prebuild) written to public/, which Vite serves at this exact
+      path in both `vite` (dev) and `vite build && vite preview`.
+    -->
+    <script type="importmap">
+      { "imports": { "@gltfi/runtime-lib": "/gltfi-runtime-lib.mjs" } }
+    </script>
   </head>
   <body>
     <div id="root"></div>

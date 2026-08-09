@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine-three";
 import type { CameraPose, GizmoMode } from "@gltf-studio/engine-api";
 import { SceneEdit, type TransformFields } from "@gltf-studio/editor-core";
-import { useAppStore } from "../../store/app-store";
+import { useAppStore, getActivePlayController } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
+import { PlayOverlay } from "./PlayOverlay";
 
 /** specs/ux-viewport.md UX-304: exactly W/E/R, mutually exclusive, one-to-one with RH-018's GizmoMode. */
 const GIZMO_MODES: ReadonlyArray<{ mode: GizmoMode; label: string; title: string }> = [
@@ -48,10 +49,12 @@ export function Viewport(): JSX.Element {
   const selectedNodeIndex = useAppStore((s) => s.selectedNodeIndex);
   const hoveredNodeIndex = useAppStore((s) => s.hoveredNodeIndex);
   const gizmoMode = useAppStore((s) => s.gizmoMode);
+  const playState = useAppStore((s) => s.playState);
   const selectNode = useAppStore((s) => s.selectNode);
   const setHover = useAppStore((s) => s.setHover);
   const setGizmoMode = useAppStore((s) => s.setGizmoMode);
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
+  const registerRenderHost = useAppStore((s) => s.registerRenderHost);
 
   const mountRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<ThreeRenderHost | null>(null);
@@ -78,6 +81,7 @@ export function Viewport(): JSX.Element {
     const host = hostRef.current!;
     const el = mountRef.current!;
     host.mount(el);
+    registerRenderHost(host);
     window.__gltfStudioTest = {
       setCameraPose: (pose) => host.setCameraPose(pose),
       getCameraPose: () => host.getCameraPose(),
@@ -86,9 +90,10 @@ export function Viewport(): JSX.Element {
     };
     return () => {
       delete window.__gltfStudioTest;
+      registerRenderHost(null);
       host.dispose();
     };
-  }, []);
+  }, [registerRenderHost]);
 
   // Load / patch the scene as the store's document changes. `history`'s own
   // identity is stable for the life of one project — it only changes when a
@@ -136,15 +141,21 @@ export function Viewport(): JSX.Element {
   // setHighlight/setHover/pick, attachGizmo THROWS if the scene hasn't
   // finished loading yet, which a selection made during that async load
   // (e.g. a fast scene-tree click right after import) can otherwise race.
+  // Also gated on `playState === "stopped"` (specs/ux-shell.md UX-113: the
+  // gizmo is one of play mode's disabled edit-affordances) — `startPlay()`
+  // itself clears `selectedNodeIndex`, but a scene-tree row click (allowed
+  // during play/pause; it's a selection, not a document edit) can set it
+  // again mid-session, which would otherwise reattach a live, draggable
+  // gizmo onto a node the running engine may itself be animating.
   useEffect(() => {
     const host = hostRef.current!;
     if (!sceneReady) return;
-    if (selectedNodeIndex !== null) {
+    if (selectedNodeIndex !== null && playState === "stopped") {
       host.attachGizmo(selectedNodeIndex, gizmoMode);
     } else {
       host.detachGizmo();
     }
-  }, [selectedNodeIndex, gizmoMode, history, sceneReady]);
+  }, [selectedNodeIndex, gizmoMode, history, sceneReady, playState]);
 
   // Gizmo drag/commit (UX-305, RH-003): the "drag" phase is already live —
   // TransformControls writes straight to the object's transform, which the
@@ -169,17 +180,14 @@ export function Viewport(): JSX.Element {
     });
   }, [history, dispatchCommand]);
 
-  // M7 (AudioHost.setListenerPose, specs/engine-api.md): "listener pose fed
-  // from the viewport camera per-frame ONLY while playing" is this
-  // requirement's intended v1 shape, gated on a store play-state flag the
-  // `packages/play` PC-001 fan-out owns setting — as of this PR that flag
-  // does not exist yet in this checkout. Stopgap, per this task's own
-  // fallback allowance: poll the live camera pose and forward it to
-  // `audioHost.setListenerPose` whenever it actually changed, for as long
-  // as a document is loaded — i.e. "while editing" rather than "only while
-  // playing" until that flag lands, at which point this effect's dependency
-  // array should gain it. Skips entirely (interval never scheduled) when no
-  // `audioHost` is registered.
+  // M7 (AudioHost.setListenerPose, specs/engine-api.md): listener pose fed
+  // from the viewport camera per-frame ONLY while playing, gated here on the
+  // store's `playState === "playing"` (packages/play PC-001's own flag —
+  // pausing or stopping stops the feed too, matching how the rest of play
+  // mode freezes/pauses cleanly). While gated in: poll the live camera pose
+  // and forward it to `audioHost.setListenerPose` whenever it actually
+  // changed. Skips entirely (interval never scheduled) when no `audioHost`
+  // is registered or play mode isn't active.
   //
   // A `setInterval` at 10Hz, NOT a `requestAnimationFrame` loop: this ran
   // continuously (60 wakeups/sec) for every mounted Viewport in EVERY test
@@ -192,7 +200,7 @@ export function Viewport(): JSX.Element {
   // this PR's own description. Spatial audio has no need for 60Hz listener
   // updates anyway; 10Hz is standard practice for this exact purpose.
   useEffect(() => {
-    if (!document || !audioHost) return;
+    if (!document || !audioHost || playState !== "playing") return;
     let lastPoseKey = "";
     function tick(): void {
       const host = hostRef.current;
@@ -207,7 +215,7 @@ export function Viewport(): JSX.Element {
     }
     const intervalId = window.setInterval(tick, 100);
     return () => window.clearInterval(intervalId);
-  }, [document, audioHost, sceneReady]);
+  }, [document, audioHost, sceneReady, playState]);
 
   // W/E/R keyboard shortcuts, mirroring the toolbar buttons' own tooltips.
   useEffect(() => {
@@ -233,6 +241,14 @@ export function Viewport(): JSX.Element {
     if (!document) return;
     const [x, y] = ndcFromEvent(e);
     const result = hostRef.current?.pick(x, y) ?? null;
+    if (playState !== "stopped") {
+      // PC-008: route clicks to the running engine's fireSelect instead of
+      // editor selection while playing/paused — do not touch editor
+      // selection state (UX-113: editing affordances are disabled).
+      const controller = getActivePlayController();
+      if (result) controller?.fireSelect(result.nodeIndex, result.point, hostRef.current?.getCameraPose().position);
+      return;
+    }
     selectNode(result?.nodeIndex ?? null); // UX-302 (hit) / UX-303 (empty space clears)
   }
 
@@ -240,10 +256,20 @@ export function Viewport(): JSX.Element {
     if (!document) return;
     const [x, y] = ndcFromEvent(e);
     const result = hostRef.current?.pick(x, y) ?? null;
+    if (playState !== "stopped") {
+      const controller = getActivePlayController();
+      if (result) controller?.fireHoverIn(result.nodeIndex, result.point);
+      else controller?.fireHoverOut();
+      return;
+    }
     setHover(result?.nodeIndex ?? null);
   }
 
   function onPointerLeave(): void {
+    if (playState !== "stopped") {
+      getActivePlayController()?.fireHoverOut();
+      return;
+    }
     setHover(null);
   }
 
@@ -300,6 +326,7 @@ export function Viewport(): JSX.Element {
           )}
         </>
       )}
+      <PlayOverlay />
     </div>
   );
 }
