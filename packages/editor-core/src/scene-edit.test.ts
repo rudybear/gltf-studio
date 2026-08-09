@@ -34,6 +34,18 @@ describe("SceneEdit.setTransform", () => {
     const doc = fixtureDocument();
     expect(() => SceneEdit.setTransform(doc, 0, {})).toThrow();
   });
+
+  it("coalesceKey is scoped per node AND per field set — same field coalesces, different fields on the same node don't (DOC-010/DOC-015)", () => {
+    const doc = fixtureDocument();
+    const positionA = SceneEdit.setTransform(doc, 0, { translation: [1, 0, 0] });
+    const positionB = SceneEdit.setTransform(doc, 0, { translation: [2, 0, 0] });
+    const rotation = SceneEdit.setTransform(doc, 0, { rotation: [0, 0, 0, 1] });
+    const otherNodePosition = SceneEdit.setTransform(doc, 1, { translation: [1, 0, 0] });
+
+    expect(positionA.coalesceKey).toBe(positionB.coalesceKey); // same node, same field -> coalesces
+    expect(positionA.coalesceKey).not.toBe(rotation.coalesceKey); // same node, different field -> does not
+    expect(positionA.coalesceKey).not.toBe(otherNodePosition.coalesceKey); // different node -> does not
+  });
 });
 
 describe("SceneEdit.setName", () => {

@@ -5,6 +5,7 @@
 // splice-root table here — one table, one place it can drift.
 import { canonicalSpliceRoot, parsePointer } from "@gltf-studio/editor-core";
 import type { JsonPatchOp } from "@gltf-studio/engine-api";
+import { isPointerValue } from "./pointer-value.js";
 
 const STRUCTURAL_ROOTS = new Set(["/nodes", "/scenes", "/scene", "/meshes"]);
 
@@ -40,6 +41,15 @@ export function isStructuralPatch(patch: JsonPatchOp, referenceJson: unknown): b
     (patch.op === "add" || patch.op === "remove" || patch.op === "move") &&
     targetsArrayElement(patch.path, referenceJson)
   ) {
+    return true;
+  }
+  // A value-bearing op whose value has no live-pointer representation (e.g.
+  // a string enum such as KHR_audio_emitter's `distanceModel`, or any future
+  // non-numeric/boolean property some SceneEdit/GraphEdit command writes)
+  // can't take the non-structural fast path — `applyNonStructuralPatch`
+  // would throw trying to coerce it. Route it to a full reload instead,
+  // same as any other patch this module doesn't know how to apply live.
+  if ((patch.op === "add" || patch.op === "replace") && !isPointerValue(patch.value)) {
     return true;
   }
   return STRUCTURAL_ROOTS.has(canonicalSpliceRoot(patch.path));

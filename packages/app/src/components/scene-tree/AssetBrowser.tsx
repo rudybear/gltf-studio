@@ -25,6 +25,7 @@ export function AssetBrowser(): JSX.Element {
   const selectedAsset = useAppStore((s) => s.selectedAsset);
   const selectAsset = useAppStore((s) => s.selectAsset);
   const showIndices = useAppStore((s) => s.showIndices);
+  const flashTarget = useAppStore((s) => s.flashTarget);
 
   const json = document?.json as GltfJsonShape | undefined;
   const rowsFor = (tab: AssetTab): string[] => {
@@ -63,10 +64,12 @@ export function AssetBrowser(): JSX.Element {
           </div>
         ) : (
           <div className="asset-list">
-            {rows.map((name, i) => (
+            {rows.map((name, i) => {
+              const flashed = flashTarget?.kind === "asset-row" && flashTarget.tab === activeAssetTab && flashTarget.index === i;
+              return (
               <div
                 key={i}
-                className={`asset-item${selectedAsset?.tab === activeAssetTab && selectedAsset.index === i ? " selected" : ""}`}
+                className={`asset-item${selectedAsset?.tab === activeAssetTab && selectedAsset.index === i ? " selected" : ""}${flashed ? " flash-highlight" : ""}`}
                 data-testid={`asset-browser.${activeAssetTab}.${i}`}
                 onClick={() => selectAsset(activeAssetTab, i, `/${activeAssetTab}/${i}`)}
               >
@@ -87,7 +90,8 @@ export function AssetBrowser(): JSX.Element {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

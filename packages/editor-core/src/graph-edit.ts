@@ -199,6 +199,108 @@ export const GraphEdit = {
       patches: fragment.patches,
       inverse: fragment.inverse
     };
+  },
+
+  /**
+   * DOC-041: find-or-scaffolds `extensions.KHR_interactivity.graphs[graphIndex]`
+   * as a single command (empty `types`/`declarations`/`variables`/`events`/
+   * `nodes` arrays, plus the extension's `graph` pointer and an
+   * `extensionsUsed` entry when either is missing) — a no-op command when the
+   * graph already exists. Every other `GraphEdit` factory (`addNode`, etc.)
+   * assumes its target graph already exists (`getGraph` throws otherwise);
+   * this is the one factory a caller uses FIRST when it can't assume that —
+   * e.g. the Inspector's `◈` pointer-shortcut "Add pointer/…" actions
+   * (`specs/ux-inspector.md`'s `UX-412`) against a freshly-imported asset
+   * with no `KHR_interactivity` extension at all yet.
+   */
+  ensureGraph(document: EditorDocument, graphIndex = 0): Command {
+    const existingExtension = getIn(document.json, ["extensions", "KHR_interactivity"]) as
+      | { graph?: number; graphs?: Graph[] }
+      | undefined;
+    const existingGraphs = existingExtension?.graphs ?? [];
+    if (existingGraphs[graphIndex] !== undefined) {
+      return { id: makeCommandId("ensure-graph"), label: "Ensure interactivity graph", patches: [], inverse: [] };
+    }
+
+    const graphs = existingGraphs.slice();
+    while (graphs.length <= graphIndex) {
+      graphs.push({ types: [], declarations: [], variables: [], events: [], nodes: [] });
+    }
+    const newExtension = { graph: existingExtension?.graph ?? graphIndex, graphs };
+    const extFragment = setPathFragment(document.json, ["extensions", "KHR_interactivity"], newExtension);
+
+    const extensionsUsed = (getIn(document.json, ["extensionsUsed"]) as string[] | undefined) ?? [];
+    const usedFragment: PatchPair = extensionsUsed.includes("KHR_interactivity")
+      ? { patches: [], inverse: [] }
+      : appendFragment(document.json, ["extensionsUsed"], "KHR_interactivity");
+
+    const combined = combineCommandParts([usedFragment, extFragment]);
+    return {
+      id: makeCommandId("ensure-graph"),
+      label: "Ensure interactivity graph",
+      patches: combined.patches,
+      inverse: combined.inverse
+    };
+  },
+
+  /**
+   * DOC-042: `ensureDeclaration`'s (DOC-021) counterpart for `graph.types` —
+   * find-or-appends a `{ signature }` entry (e.g. `"float3"`, `"float4"`),
+   * returning its index. Used by callers that must fill in a node's
+   * `configuration.type` (a `graph.types` index) without duplicating an
+   * already-declared signature — e.g. `addPointerNode` below.
+   */
+  ensureType(document: EditorDocument, graphIndex: number, signature: string): { command: Command; index: number } {
+    const { fragment, index } = ensureTypeFragment(document.json, graphIndex, signature);
+    return {
+      index,
+      command: {
+        id: makeCommandId("ensure-type"),
+        label: `Ensure type "${signature}"`,
+        patches: fragment.patches,
+        inverse: fragment.inverse
+      }
+    };
+  },
+
+  /**
+   * `specs/ux-inspector.md`'s `UX-411`/`UX-412`: builds a `pointer/set` or
+   * `pointer/interpolate` node targeting `pointerPath`, as ONE combined
+   * command — scaffolding the graph (`ensureGraph`, DOC-041) and the value's
+   * `types` entry (`ensureType`, DOC-042) first if either is missing, then
+   * `addNode` itself — so the whole thing is one undo/redo step regardless of
+   * how many of those three sub-steps actually had anything to do.
+   */
+  addPointerNode(
+    document: EditorDocument,
+    graphIndex: number,
+    kind: "set" | "interpolate",
+    pointerPath: string,
+    signature: string,
+    position?: { x: number; y: number }
+  ): Command {
+    const op = kind === "set" ? "pointer/set" : "pointer/interpolate";
+
+    const ensureGraphCmd = GraphEdit.ensureGraph(document, graphIndex);
+    const jsonAfterGraph = ensureGraphCmd.patches.length > 0 ? applyPatches(document.json, ensureGraphCmd.patches) : document.json;
+    const docAfterGraph: EditorDocument = { ...document, json: jsonAfterGraph };
+
+    const { command: ensureTypeCmd, index: typeIndex } = GraphEdit.ensureType(docAfterGraph, graphIndex, signature);
+    const jsonAfterType = ensureTypeCmd.patches.length > 0 ? applyPatches(jsonAfterGraph, ensureTypeCmd.patches) : jsonAfterGraph;
+    const docAfterType: EditorDocument = { ...document, json: jsonAfterType };
+
+    const addCmd = GraphEdit.addNode(docAfterType, graphIndex, op, {
+      configuration: { pointer: { value: [pointerPath] }, type: { value: [typeIndex] } },
+      ...(position ? { position } : {})
+    });
+
+    const combined = combineCommandParts([ensureGraphCmd, ensureTypeCmd, addCmd]);
+    return {
+      id: makeCommandId("add-pointer-node"),
+      label: `Add ${op} for ${pointerPath}`,
+      patches: combined.patches,
+      inverse: combined.inverse
+    };
   }
 };
 
@@ -214,5 +316,17 @@ function ensureDeclarationFragment(json: unknown, graphIndex: number, op: string
   const declaration = extension === undefined ? { op } : { op, extension };
   const arrayPath = [...graphPath(graphIndex), "declarations"];
   const fragment = appendFragment(json, arrayPath, declaration);
+  return { fragment, index: fragment.index };
+}
+
+function ensureTypeFragment(json: unknown, graphIndex: number, signature: string): { fragment: PatchPair; index: number } {
+  const graph = getGraph(json, graphIndex);
+  const types = graph.types ?? [];
+  const existingIndex = types.findIndex((t) => t.signature === signature);
+  if (existingIndex !== -1) {
+    return { fragment: { patches: [], inverse: [] }, index: existingIndex };
+  }
+  const arrayPath = [...graphPath(graphIndex), "types"];
+  const fragment = appendFragment(json, arrayPath, { signature });
   return { fragment, index: fragment.index };
 }

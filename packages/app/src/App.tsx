@@ -8,6 +8,26 @@ import { ResizeHandle } from "./components/ResizeHandle";
 import { TestIdOverlay } from "./components/TestIdOverlay";
 import { ToastLayer } from "./components/ToastLayer";
 
+/**
+ * Test-only seam (no UX-### requirement covers it — same rationale as
+ * Viewport.tsx's own `window.__gltfStudioTest`): the bottom dock's Behavior
+ * graph tab is still a placeholder (no real canvas yet), so an e2e test
+ * asserting `specs/ux-inspector.md`'s `UX-412` ("Add pointer/set|interpolate
+ * to graph" creates a real `KHR_interactivity` graph node) has no UI path to
+ * inspect `extensions.KHR_interactivity` short of reading the live document.
+ * Installed here (App.tsx), not Viewport.tsx, since it's a whole-document
+ * concern rather than a RenderHost one.
+ */
+export interface GltfStudioDocumentTestHook {
+  getJson(): unknown;
+}
+
+declare global {
+  interface Window {
+    __gltfStudioDocumentTest?: GltfStudioDocumentTestHook;
+  }
+}
+
 export function App(): JSX.Element {
   const themeOverride = useAppStore((s) => s.themeOverride);
   const setPanelSize = useAppStore((s) => s.setPanelSize);
@@ -23,6 +43,15 @@ export function App(): JSX.Element {
       document.documentElement.removeAttribute("data-theme");
     }
   }, [themeOverride]);
+
+  useEffect(() => {
+    window.__gltfStudioDocumentTest = {
+      getJson: () => useAppStore.getState().document?.json ?? null
+    };
+    return () => {
+      delete window.__gltfStudioDocumentTest;
+    };
+  }, []);
 
   return (
     <div id="app">
