@@ -3,6 +3,7 @@ import type { DockTab } from "../../store/app-store";
 import { Placeholder } from "./Placeholder";
 import { ConsolePanel } from "./ConsolePanel";
 import { DataTab } from "./DataTab";
+import { BehaviorGraphPanel } from "./BehaviorGraphPanel";
 
 const TABS: Array<{ key: DockTab; label: string; testid: string }> = [
   { key: "graph", label: "Behavior graph", testid: "dock.tab.graph" },
@@ -12,7 +13,7 @@ const TABS: Array<{ key: DockTab; label: string; testid: string }> = [
   { key: "data", label: "Data (glTF)", testid: "dock.tab.data" }
 ];
 
-/** UX-103: exactly five dock tabs, one visible at a time; Console + Data are real, the rest are M2 placeholders. */
+/** UX-103: exactly five dock tabs, one visible at a time; Behavior graph (M4), Console, and Data are real, Audio graph/Script remain placeholders. */
 export function BottomDock(): JSX.Element {
   const height = useAppStore((s) => s.panelSizes.dockHeight);
   const active = useAppStore((s) => s.activeDockTab);
@@ -28,7 +29,7 @@ export function BottomDock(): JSX.Element {
         ))}
       </div>
       <div className="dock-content">
-        {active === "graph" && <Placeholder testId="graph.panel" text="Behavior graph canvas arrives in a later milestone." />}
+        {active === "graph" && <BehaviorGraphPanel />}
         {active === "audio-graph" && <Placeholder testId="audio-graph.panel" text="Audio graph canvas arrives in a later milestone." />}
         {active === "script" && <Placeholder testId="script.panel" text="Script view arrives in a later milestone." />}
         {active === "console" && <ConsolePanel />}

@@ -1,0 +1,42 @@
+{
+  "name": "@gltf-studio/graph-canvas",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Behavior-graph canvas for KHR_interactivity (specs/ux-graph-canvas.md UX-5xx): palette, React Flow node/edge rendering, full editing (add/connect/disconnect/literal/position) via editor-core's GraphEdit, and a debounced @gltfi/ir + @gltfi/verify validation overlay.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./graph-canvas.css": "./src/graph-canvas.css"
+  },
+  "files": [
+    "dist",
+    "src/graph-canvas.css"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltf-studio/editor-core": "workspace:*",
+    "@gltfi/ir": "0.0.1",
+    "@gltfi/kernel": "0.0.1",
+    "@gltfi/verify": "0.0.1",
+    "@xyflow/react": "^12.11.2",
+    "elkjs": "^0.12.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "vitest": "^2.1.8"
+  }
+}

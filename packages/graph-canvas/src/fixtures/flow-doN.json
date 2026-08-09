@@ -1,0 +1,1778 @@
+{
+  "types": [
+    {
+      "signature": "bool"
+    },
+    {
+      "signature": "int"
+    },
+    {
+      "signature": "float"
+    },
+    {
+      "signature": "float3"
+    },
+    {
+      "signature": "ref"
+    }
+  ],
+  "variables": [
+    {
+      "id": "467a7f10-2a70-49b0-ac90-a045449a37e9",
+      "type": 1,
+      "value": [
+        0
+      ]
+    },
+    {
+      "id": "TestResult_flow/doN_[out] flow",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_flow/doN_[out] iteration (5)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_flow/doN_[out] iteration (5)",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_flow/doN_[currentCount]",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_flow/doN_[currentCount]",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    },
+    {
+      "id": "8043697e-0ae2-4500-a1c9-9d9ff12a4a79",
+      "type": 1,
+      "value": [
+        0
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_flow/doN_[reset] flow (N = 2, out/out/out/reset/out/out)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_flow/doN_[reset] flow (N = 2, out/out/out/reset/out/out)",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    },
+    {
+      "id": "983a7860-0d44-41f1-abea-9a2ed508a47a",
+      "type": 1,
+      "value": [
+        0
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_flow/doN_Max Iteration flow",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_flow/doN_Max Iteration flow",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "test/onStart",
+      "values": {
+        "expectedDuration": {
+          "type": 2,
+          "value": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "test/onSuccess",
+      "values": {}
+    },
+    {
+      "id": "test/onFailed",
+      "values": {}
+    }
+  ],
+  "declarations": [
+    {
+      "op": "flow/doN"
+    },
+    {
+      "op": "event/onStart"
+    },
+    {
+      "op": "flow/sequence"
+    },
+    {
+      "op": "variable/get"
+    },
+    {
+      "op": "math/add"
+    },
+    {
+      "op": "variable/set"
+    },
+    {
+      "op": "pointer/set"
+    },
+    {
+      "op": "debug/log"
+    },
+    {
+      "op": "event/send"
+    },
+    {
+      "op": "flow/branch"
+    },
+    {
+      "op": "math/eq"
+    },
+    {
+      "op": "math/and"
+    }
+  ],
+  "nodes": [
+    {
+      "declaration": 0,
+      "configuration": {},
+      "values": {
+        "n": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 48,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 13,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "000": {
+          "node": 0,
+          "socket": "in"
+        },
+        "001": {
+          "node": 0,
+          "socket": "in"
+        },
+        "002": {
+          "node": 0,
+          "socket": "in"
+        },
+        "003": {
+          "node": 0,
+          "socket": "in"
+        },
+        "004": {
+          "node": 0,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 4,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 3,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 4,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 7,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [out] flow>: Flow triggered"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 8,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {
+        "1": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 8,
+      "configuration": {
+        "event": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 10,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 12,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <flow/doN - [out] flow>: Flow not triggered! This should not happened!"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "001": {
+          "node": 11,
+          "socket": "in"
+        },
+        "002": {
+          "node": 25,
+          "socket": "in"
+        },
+        "003": {
+          "node": 45,
+          "socket": "in"
+        },
+        "000": {
+          "node": 2,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 3,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 14,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 47,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 3,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 16,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 18,
+          "socket": "in"
+        },
+        "false": {
+          "node": 19,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            11
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 21,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [out] iteration (5)>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 3,
+          "socket": "value"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 22,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [out] iteration (5)>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 19,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {
+        "2": {
+          "node": 16,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 20,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "3": {
+          "node": 3,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 8,
+      "configuration": {
+        "event": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 24,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 26,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <flow/doN - [out] iteration (5)>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 0,
+          "socket": "currentCount"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 27,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 29,
+          "socket": "in"
+        },
+        "false": {
+          "node": 30,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            17
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 32,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [currentCount]>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 0,
+          "socket": "currentCount"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 33,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [currentCount]>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 30,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            4
+          ]
+        }
+      },
+      "values": {
+        "4": {
+          "node": 27,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 31,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            5
+          ]
+        }
+      },
+      "values": {
+        "5": {
+          "node": 0,
+          "socket": "currentCount"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 34,
+          "socket": "value"
+        },
+        "b": {
+          "node": 35,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            4
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 36,
+          "socket": "value"
+        },
+        "b": {
+          "node": 37,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 38,
+          "socket": "value"
+        },
+        "b": {
+          "node": 39,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 40,
+          "socket": "value"
+        },
+        "b": {
+          "node": 41,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 42,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 23,
+          "socket": "in"
+        },
+        "false": {
+          "node": 9,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            4
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 44,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 46,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <flow/doN - [currentCount]>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "s000": {
+          "node": 17,
+          "socket": "in"
+        },
+        "s001": {
+          "node": 28,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "s000": {
+          "node": 5,
+          "socket": "in"
+        },
+        "s001": {
+          "node": 6,
+          "socket": "in"
+        },
+        "s002": {
+          "node": 15,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 0,
+      "configuration": {},
+      "values": {
+        "n": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 53,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 64,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            6
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 4,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 51,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            6
+          ]
+        }
+      },
+      "values": {
+        "6": {
+          "node": 52,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 51,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            4
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 54,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 56,
+          "socket": "in"
+        },
+        "false": {
+          "node": 57,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            23
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 59,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [reset] flow (N = 2, out/out/out/reset/out/out)>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 51,
+          "socket": "value"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            4
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 60,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - [reset] flow (N = 2, out/out/out/reset/out/out)>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 57,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {
+        "7": {
+          "node": 54,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 58,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            8
+          ]
+        }
+      },
+      "values": {
+        "8": {
+          "node": 51,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 61,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 63,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <flow/doN - [reset] flow (N = 2, out/out/out/reset/out/out)>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "001": {
+          "node": 62,
+          "socket": "in"
+        },
+        "000": {
+          "node": 65,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "000": {
+          "node": 49,
+          "socket": "in"
+        },
+        "001": {
+          "node": 49,
+          "socket": "in"
+        },
+        "002": {
+          "node": 49,
+          "socket": "in"
+        },
+        "003": {
+          "node": 49,
+          "socket": "reset"
+        },
+        "004": {
+          "node": 49,
+          "socket": "in"
+        },
+        "005": {
+          "node": 49,
+          "socket": "in"
+        },
+        "006": {
+          "node": 55,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 0,
+      "configuration": {},
+      "values": {
+        "n": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 70,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 81,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            9
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 4,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 68,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            9
+          ]
+        }
+      },
+      "values": {
+        "9": {
+          "node": 69,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 68,
+          "socket": "value"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 71,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 73,
+          "socket": "in"
+        },
+        "false": {
+          "node": 74,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            29
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 76,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - Max Iteration flow>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 68,
+          "socket": "value"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 77,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "<flow/doN - Max Iteration flow>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 74,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {
+        "10": {
+          "node": 71,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 75,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            11
+          ]
+        }
+      },
+      "values": {
+        "11": {
+          "node": 68,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "variable": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 78,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 80,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 7,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <flow/doN - Max Iteration flow>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "001": {
+          "node": 79,
+          "socket": "in"
+        },
+        "000": {
+          "node": 82,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "000": {
+          "node": 66,
+          "socket": "in"
+        },
+        "001": {
+          "node": 66,
+          "socket": "in"
+        },
+        "002": {
+          "node": 66,
+          "socket": "in"
+        },
+        "003": {
+          "node": 66,
+          "socket": "in"
+        },
+        "004": {
+          "node": 66,
+          "socket": "in"
+        },
+        "005": {
+          "node": 72,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 84,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 8,
+      "configuration": {
+        "event": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "expectedDuration": {
+          "type": 2,
+          "value": [
+            0
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 43,
+          "socket": "in"
+        }
+      }
+    }
+  ]
+}

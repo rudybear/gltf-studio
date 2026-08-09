@@ -1,0 +1,2745 @@
+{
+  "types": [
+    {
+      "signature": "bool"
+    },
+    {
+      "signature": "int"
+    },
+    {
+      "signature": "float"
+    },
+    {
+      "signature": "float3"
+    },
+    {
+      "signature": "ref"
+    }
+  ],
+  "variables": [
+    {
+      "id": "TestResult_event/send and receive_Without Parameters",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Default Event Value (Int)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Default Event Value (Int)",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Default Event Value (Bool)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Default Event Value (Bool)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Default Event Value (Float)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Default Event Value (Float)",
+      "type": 2,
+      "value": [
+        -0.0142
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_With Parameters (flow received)",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Rcv Parameter Int",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Rcv Parameter Int",
+      "type": 1,
+      "value": [
+        -1
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Rcv Parameter Bool",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Rcv Parameter Bool",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_HasPassed_event/send and receive_Rcv Parameter Float",
+      "type": 0,
+      "value": [
+        false
+      ]
+    },
+    {
+      "id": "TestResult_event/send and receive_Rcv Parameter Float",
+      "type": 2,
+      "value": [
+        -0.0142
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "_eventWithoutParametersb6d646f8-2845-4396-bf78-97c3d53c1870",
+      "values": {}
+    },
+    {
+      "id": "_eventWithParameters40f08b1d-312c-4968-bed1-f3e2ab96dcbc",
+      "values": {
+        "boolParameter": {
+          "type": 0,
+          "value": [
+            false
+          ]
+        },
+        "floatParameter": {
+          "type": 2,
+          "value": [
+            1
+          ]
+        },
+        "intParameter": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "test/onStart",
+      "values": {
+        "expectedDuration": {
+          "type": 2,
+          "value": [
+            1.5
+          ]
+        }
+      }
+    },
+    {
+      "id": "test/onSuccess",
+      "values": {}
+    },
+    {
+      "id": "test/onFailed",
+      "values": {}
+    }
+  ],
+  "declarations": [
+    {
+      "op": "event/send"
+    },
+    {
+      "op": "event/onStart"
+    },
+    {
+      "op": "event/receive"
+    },
+    {
+      "op": "pointer/set"
+    },
+    {
+      "op": "debug/log"
+    },
+    {
+      "op": "variable/set"
+    },
+    {
+      "op": "variable/get"
+    },
+    {
+      "op": "flow/branch"
+    },
+    {
+      "op": "flow/setDelay"
+    },
+    {
+      "op": "math/eq"
+    },
+    {
+      "op": "flow/sequence"
+    },
+    {
+      "op": "math/and"
+    }
+  ],
+  "nodes": [
+    {
+      "declaration": 0,
+      "configuration": {
+        "event": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 12,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {
+        "event": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 3,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 4,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            6
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 5,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Without Parameters>: Flow triggered"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 6,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 0,
+      "configuration": {
+        "event": {
+          "value": [
+            4
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 8,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 10,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Without Parameters>: Flow not triggered! This should not happened!"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            6
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 9,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 8,
+      "configuration": {},
+      "values": {
+        "duration": {
+          "type": 2,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 62,
+          "socket": "in"
+        },
+        "done": {
+          "node": 25,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 2,
+      "configuration": {
+        "event": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 114,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "intParameter"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 14,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 16,
+          "socket": "in"
+        },
+        "false": {
+          "node": 17,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            17
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 19,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Int)>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "intParameter"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 20,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Int)>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 17,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {
+        "1": {
+          "node": 14,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 18,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {
+        "2": {
+          "node": 13,
+          "socket": "intParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 0,
+      "configuration": {
+        "event": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 22,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 24,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Default Event Value (Int)>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "001": {
+          "node": 11,
+          "socket": "in"
+        },
+        "002": {
+          "node": 23,
+          "socket": "in"
+        },
+        "003": {
+          "node": 50,
+          "socket": "in"
+        },
+        "004": {
+          "node": 60,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "boolParameter"
+        },
+        "b": {
+          "type": 0,
+          "value": [
+            false
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 26,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 28,
+          "socket": "in"
+        },
+        "false": {
+          "node": 29,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            23
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 31,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Bool)>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "boolParameter"
+        },
+        "1": {
+          "type": 0,
+          "value": [
+            false
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 32,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Bool)>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 29,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "3": {
+          "node": 26,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 30,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            4
+          ]
+        }
+      },
+      "values": {
+        "4": {
+          "node": 13,
+          "socket": "boolParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 33,
+          "socket": "value"
+        },
+        "b": {
+          "node": 34,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 35,
+          "socket": "value"
+        },
+        "b": {
+          "node": 36,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 37,
+          "socket": "value"
+        },
+        "b": {
+          "node": 38,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            5
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 39,
+          "socket": "value"
+        },
+        "b": {
+          "node": 40,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            8
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 41,
+          "socket": "value"
+        },
+        "b": {
+          "node": 42,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 43,
+          "socket": "value"
+        },
+        "b": {
+          "node": 44,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            12
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 11,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 45,
+          "socket": "value"
+        },
+        "b": {
+          "node": 46,
+          "socket": "value"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 47,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 21,
+          "socket": "in"
+        },
+        "false": {
+          "node": 7,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 49,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 51,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Default Event Value (Bool)>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "floatParameter"
+        },
+        "b": {
+          "type": 2,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 52,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 54,
+          "socket": "in"
+        },
+        "false": {
+          "node": 55,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            29
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 57,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Float)>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "floatParameter"
+        },
+        "1": {
+          "type": 2,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 58,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Default Event Value (Float)>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 55,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            5
+          ]
+        }
+      },
+      "values": {
+        "5": {
+          "node": 52,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 56,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            6
+          ]
+        }
+      },
+      "values": {
+        "6": {
+          "node": 13,
+          "socket": "floatParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            5
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 59,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 61,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Default Event Value (Float)>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "000": {
+          "node": 0,
+          "socket": "in"
+        },
+        "001": {
+          "node": 15,
+          "socket": "in"
+        },
+        "002": {
+          "node": 27,
+          "socket": "in"
+        },
+        "003": {
+          "node": 53,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 0,
+      "configuration": {
+        "event": {
+          "value": [
+            1
+          ]
+        }
+      },
+      "values": {
+        "boolParameter": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        },
+        "floatParameter": {
+          "type": 2,
+          "value": [
+            2
+          ]
+        },
+        "intParameter": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 73,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            11
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 66,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            12
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 67,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - With Parameters (flow received)>: Flow triggered"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 68,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {
+        "7": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            7
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 69,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 71,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - With Parameters (flow received)>: Flow not triggered! This should not happened!"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            12
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 70,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 8,
+      "configuration": {},
+      "values": {
+        "duration": {
+          "type": 2,
+          "value": [
+            1
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 63,
+          "socket": "in"
+        },
+        "done": {
+          "node": 87,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "intParameter"
+        },
+        "b": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 74,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 76,
+          "socket": "in"
+        },
+        "false": {
+          "node": 79,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            35
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 77,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            36
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 81,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            36
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 75,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Int>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "intParameter"
+        },
+        "1": {
+          "type": 1,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 82,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Int>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 79,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            8
+          ]
+        }
+      },
+      "values": {
+        "8": {
+          "node": 74,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 80,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            9
+          ]
+        }
+      },
+      "values": {
+        "9": {
+          "node": 13,
+          "socket": "intParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            8
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 83,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 85,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Rcv Parameter Int>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            36
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 84,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "001": {
+          "node": 72,
+          "socket": "in"
+        },
+        "002": {
+          "node": 86,
+          "socket": "in"
+        },
+        "003": {
+          "node": 100,
+          "socket": "in"
+        },
+        "004": {
+          "node": 113,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "boolParameter"
+        },
+        "b": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 88,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 90,
+          "socket": "in"
+        },
+        "false": {
+          "node": 93,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            41
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 91,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            42
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 95,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            42
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 89,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Bool>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "boolParameter"
+        },
+        "1": {
+          "type": 0,
+          "value": [
+            true
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 96,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Bool>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 93,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {
+        "10": {
+          "node": 88,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 94,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            11
+          ]
+        }
+      },
+      "values": {
+        "11": {
+          "node": 13,
+          "socket": "boolParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            10
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 97,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 99,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Rcv Parameter Bool>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            42
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 98,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 9,
+      "configuration": {},
+      "values": {
+        "a": {
+          "node": 13,
+          "socket": "floatParameter"
+        },
+        "b": {
+          "type": 2,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 101,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "true": {
+          "node": 103,
+          "socket": "in"
+        },
+        "false": {
+          "node": 106,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0.8
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            47
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 104,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            48
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 108,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            48
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 102,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Float>: Value is {0}, should be {1} "
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {
+        "0": {
+          "node": 13,
+          "socket": "floatParameter"
+        },
+        "1": {
+          "type": 2,
+          "value": [
+            2
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 109,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "<event/send and receive - Rcv Parameter Float>: Test Successful"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 106,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            12
+          ]
+        }
+      },
+      "values": {
+        "12": {
+          "node": 101,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 107,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 5,
+      "configuration": {
+        "variables": {
+          "value": [
+            13
+          ]
+        }
+      },
+      "values": {
+        "13": {
+          "node": 13,
+          "socket": "floatParameter"
+        }
+      },
+      "flows": {}
+    },
+    {
+      "declaration": 6,
+      "configuration": {
+        "variable": {
+          "value": [
+            12
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 7,
+      "configuration": {},
+      "values": {
+        "condition": {
+          "node": 110,
+          "socket": "value"
+        }
+      },
+      "flows": {
+        "false": {
+          "node": 112,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 4,
+      "configuration": {
+        "message": {
+          "value": [
+            "ERROR! <event/send and receive - Rcv Parameter Float>: Test Failed"
+          ]
+        },
+        "severity": {
+          "value": [
+            0
+          ]
+        }
+      },
+      "values": {},
+      "flows": {}
+    },
+    {
+      "declaration": 3,
+      "configuration": {
+        "pointer": {
+          "value": [
+            "/nodes/[nodeIndex]/translation"
+          ]
+        },
+        "type": {
+          "value": [
+            3
+          ]
+        }
+      },
+      "values": {
+        "value": {
+          "type": 3,
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        "nodeIndex": {
+          "type": 1,
+          "value": [
+            48
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 111,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 10,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "s000": {
+          "node": 65,
+          "socket": "in"
+        },
+        "s001": {
+          "node": 78,
+          "socket": "in"
+        },
+        "s002": {
+          "node": 92,
+          "socket": "in"
+        },
+        "s003": {
+          "node": 105,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 1,
+      "configuration": {},
+      "values": {},
+      "flows": {
+        "out": {
+          "node": 116,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 0,
+      "configuration": {
+        "event": {
+          "value": [
+            2
+          ]
+        }
+      },
+      "values": {
+        "expectedDuration": {
+          "type": 2,
+          "value": [
+            1.5
+          ]
+        }
+      },
+      "flows": {
+        "out": {
+          "node": 117,
+          "socket": "in"
+        }
+      }
+    },
+    {
+      "declaration": 8,
+      "configuration": {},
+      "values": {
+        "duration": {
+          "type": 2,
+          "value": [
+            1.5
+          ]
+        }
+      },
+      "flows": {
+        "done": {
+          "node": 48,
+          "socket": "in"
+        }
+      }
+    }
+  ]
+}

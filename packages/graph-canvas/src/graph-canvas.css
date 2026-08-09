@@ -1,0 +1,510 @@
+/* Retheme of the source VS Code extension's graph.css onto gltf-studio's own
+   CSS vars (packages/app/src/styles/app.css: --bg-0/1/2/3, --border,
+   --text-0/1/dim, --accent/--accent-soft, --danger/--warn/--ok, --shadow).
+   Category left-border / flow / value-port colors still come from the fixed
+   accent palette (palette.ts) via inline style props, not this stylesheet. */
+
+.gcanvas-root {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+}
+
+/* ---------- palette ---------- */
+.gcanvas-palette {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.gcanvas-palette-rail {
+  flex: 0 0 30px;
+  align-items: center;
+  padding: 6px 0;
+  gap: 6px;
+}
+.gcanvas-palette-rail-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.gcanvas-palette-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.gcanvas-palette-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+.gcanvas-palette-copilot,
+.gcanvas-palette-rail-toggle {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-1);
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.gcanvas-palette-copilot:hover,
+.gcanvas-palette-rail-toggle:hover {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.gcanvas-palette-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+.gcanvas-palette-category-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: none;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-0);
+  padding: 5px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.gcanvas-palette-twisty {
+  color: var(--text-dim);
+  font-size: 9px;
+  flex: 0 0 auto;
+}
+.gcanvas-palette-category-name {
+  flex: 1 1 auto;
+  text-align: left;
+}
+.gcanvas-palette-category-count {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.gcanvas-palette-op-list {
+  padding: 2px 0;
+}
+.gcanvas-palette-op {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-1);
+  padding: 4px 10px 4px 22px;
+  font-size: 11.5px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  cursor: grab;
+}
+.gcanvas-palette-op:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+
+/* ---------- canvas ---------- */
+.gcanvas-canvas-inner {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gcanvas-layout-pending {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.gcanvas-layout-error {
+  color: var(--danger);
+}
+.gcanvas-banner {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--text-1);
+}
+.gcanvas-banner-warning {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.gcanvas-canvas-overlay-banner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 5;
+  margin: 0;
+  background: var(--bg-1);
+}
+.gcanvas-empty-state {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 24px;
+}
+
+/* ---------- op node ---------- */
+.gcanvas-op-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-left-style: solid;
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-0);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.gcanvas-op-node-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.gcanvas-op-node-unknown {
+  border-left-style: dashed;
+  opacity: 0.9;
+}
+
+.gcanvas-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  z-index: 2;
+  cursor: default;
+}
+.gcanvas-badge-error {
+  background: var(--danger);
+}
+.gcanvas-badge-warning {
+  background: var(--warn);
+}
+
+.gcanvas-op-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-weight: 600;
+}
+.gcanvas-op-badge,
+.gcanvas-badge-chip {
+  font-size: 0.72em;
+  padding: 0 5px;
+  border-radius: 8px;
+  color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+.gcanvas-op-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gcanvas-op-index {
+  color: var(--text-dim);
+  font-weight: normal;
+  font-size: 0.85em;
+  flex-shrink: 0;
+}
+.gcanvas-op-subtitle {
+  padding: 0 8px;
+  font-size: 0.85em;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* UX-505/UX-508: pointer config row — text and icon are two distinct click targets. */
+.gcanvas-op-pointer-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+}
+.gcanvas-pointer-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 0.85em;
+  padding: 0;
+  cursor: pointer;
+}
+.gcanvas-pointer-icon {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85em;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.gcanvas-pointer-icon:hover {
+  color: var(--accent);
+}
+
+.gcanvas-op-body {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+}
+.gcanvas-op-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.gcanvas-op-col-west {
+  align-items: flex-start;
+  padding-left: 10px;
+}
+.gcanvas-op-col-east {
+  align-items: flex-end;
+  padding-right: 10px;
+}
+
+.gcanvas-op-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.gcanvas-op-row-west {
+  justify-content: flex-start;
+}
+.gcanvas-op-row-east {
+  justify-content: flex-end;
+}
+.gcanvas-op-row .gcanvas-port-name,
+.gcanvas-op-row .gcanvas-port-type,
+.gcanvas-op-row .gcanvas-port-literal {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gcanvas-port-type,
+.gcanvas-port-literal {
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
+
+.gcanvas-literal-input {
+  width: 46px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 0.85em;
+}
+.gcanvas-literal-bool {
+  width: auto;
+}
+
+.gcanvas-op-unknown-badge {
+  font-size: 0.68em;
+  text-align: center;
+  padding: 1px 0;
+  color: var(--text-dim);
+}
+
+.gcanvas-handle {
+  width: 8px !important;
+  height: 8px !important;
+  border-width: 1.5px !important;
+}
+.gcanvas-handle-flow {
+  border-radius: 2px !important;
+}
+.gcanvas-handle-value {
+  border-radius: 50% !important;
+}
+
+.react-flow__minimap {
+  background: var(--bg-1) !important;
+  /* Overview only — see graph-view.tsx's comment on why it must never
+     intercept pointer events (a fixed-corner overlay reliably ends up on
+     top of a small graph's port handles, stealing connect/disconnect
+     drags). */
+  pointer-events: none !important;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__background {
+  background: var(--bg-0);
+}
+
+/* ---------- details panel ---------- */
+.gcanvas-details-panel {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.gcanvas-details-collapsed {
+  flex: 0 0 20px;
+  background: var(--bg-1);
+  border-left: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.gcanvas-details-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.gcanvas-details-header button {
+  background: none;
+  border: none;
+  color: var(--text-1);
+}
+.gcanvas-details-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 8px;
+  font-size: 11.5px;
+}
+.gcanvas-details-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.gcanvas-node-label {
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.gcanvas-node-index,
+.gcanvas-node-op,
+.gcanvas-subtitle {
+  color: var(--text-dim);
+}
+.gcanvas-node-op {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  margin-bottom: 4px;
+}
+.gcanvas-details-section {
+  margin-top: 10px;
+}
+.gcanvas-details-section h3 {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+}
+.gcanvas-details-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.gcanvas-details-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.gcanvas-details-key {
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.gcanvas-details-port-kind {
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
+.gcanvas-details-value {
+  color: var(--text-0);
+  word-break: break-word;
+}
+.gcanvas-details-hint {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.gcanvas-details-summary dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 6px 0;
+}
+.gcanvas-details-summary dt {
+  color: var(--text-dim);
+}
+.gcanvas-diagnostic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gcanvas-diagnostic {
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+.gcanvas-diagnostic-error {
+  border-color: var(--danger);
+}
+.gcanvas-diagnostic-warning {
+  border-color: var(--warn);
+}
+.gcanvas-diagnostic-code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  margin-right: 4px;
+}

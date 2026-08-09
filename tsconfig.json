@@ -5,6 +5,7 @@
     { "path": "packages/contract-tests" },
     { "path": "packages/editor-core" },
     { "path": "packages/engine-three" },
+    { "path": "packages/graph-canvas" },
     { "path": "packages/storage" }
   ]
 }
