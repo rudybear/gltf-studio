@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
-import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { FIXTURE_GLB_PATH, FIXTURE_NO_GRAPH_GLB_PATH } from "./global-setup.js";
+import { assertRegionRendersContent, assertRegionSpansMultipleLines } from "./visual-assert.js";
 
 /**
  * M5 Script tab (specs/ux-script.md UX-7xx): Monaco emit/edit surface,
@@ -122,5 +123,76 @@ test.describe("Script tab", () => {
 
     await expect(page.getByTestId("script.diagnostics")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("script.apply")).toBeDisabled();
+  });
+
+  // Visual (real-pixel) regression for the `.script-tab-wrap` CSS-collapse bug (see
+  // specs/ux-shell.md's bug-fix note): `e2e/global-setup.ts`'s golden-path screenshots (and every
+  // test above, which reads Monaco's model text via `getCode()`) never observed that the editor's
+  // rendered pixels had collapsed to a sliver — a `getBoundingClientRect()`-style check on an
+  // ancestor wouldn't have caught it either, since `#bottom-dock`/`.dock-content` themselves always
+  // had a correct, non-zero height; only the DESCENDANT `.script-tab-wrap` collapsed. This uses
+  // `e2e/visual-assert.ts`'s real-screenshot helper instead, applied at the three points that bug
+  // report called out: default dock height, after a real drag on the resize handle (both directions
+  // — the bug was independent of dock height, so this must hold at both ends of the resizable
+  // range), and after switching to another dock tab and back (the mounted-but-hidden pattern, UX-103,
+  // that this bug's fix's `.script-tab-wrap` CSS chain and Monaco's `automaticLayout: true` both have
+  // to keep working through).
+  test("emitted multi-line code is genuinely VISIBLE (not just present in Monaco's model) at default dock height, after a resize in both directions, and after a tab-switch-away-and-back (UX-700, visual regression)", async ({
+    page
+  }) => {
+    const codeRegion = page.getByTestId("script.code");
+
+    // Default dock height (UX-102: 300px).
+    await assertRegionSpansMultipleLines(codeRegion);
+
+    const handle = page.getByTestId("dock.resize-handle");
+
+    // Shrink toward the dock's minimum (UX-102: 140px) — a large downward drag clamps there
+    // regardless of the exact starting height, same technique e2e/shell.spec.ts's own resize-clamp
+    // test uses for the left panel.
+    let box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 500, { steps: 10 });
+    await page.mouse.up();
+    await assertRegionSpansMultipleLines(codeRegion);
+
+    // Grow back past the default.
+    box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y - 350, { steps: 10 });
+    await page.mouse.up();
+    await assertRegionSpansMultipleLines(codeRegion);
+
+    // Tab-switch-away-and-back.
+    await page.getByTestId("dock.tab.graph").click();
+    await page.getByTestId("dock.tab.script").click();
+    await assertRegionSpansMultipleLines(codeRegion);
+  });
+});
+
+// UX-714's no-graph empty state — a separate describe block since it needs a document with no
+// `KHR_interactivity` graph at all, unlike every test above (this file's shared `beforeEach`
+// imports the real-graph fixture).
+test.describe("Script tab - no-graph empty state (UX-714)", () => {
+  test('shows an honest "no behavior graph" message, not a live-but-empty editor, when the document has no KHR_interactivity graph', async ({
+    page
+  }) => {
+    await page.goto("/");
+    await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_NO_GRAPH_GLB_PATH);
+    await expect(page.getByTestId("topbar.project-name")).toBeVisible();
+    await page.getByTestId("dock.tab.script").click();
+
+    await expect(page.getByTestId("script.empty-state")).toHaveText(
+      "No behavior graph in this asset — add nodes from the graph palette or ask Copilot."
+    );
+    // Neither the toolbar (Edit/Apply/badge) nor the (necessarily-still-DOM-present-but-hidden,
+    // see script-panel.tsx's own comment on why) Monaco container are shown.
+    await expect(page.getByTestId("script.toolbar")).toHaveCount(0);
+    await expect(page.getByTestId("script.code")).toBeHidden();
+
+    // The real-pixel check: an honest message renders visibly too, not just as inert DOM.
+    await assertRegionRendersContent(page.getByTestId("script.panel"));
   });
 });

@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH, FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL } from "./global-setup.js";
 import { buildInspectorFixtureBytes, INSPECTOR_FIXTURE_NAME } from "./inspector-fixture.js";
 import { buildAudioGraphInvalidFixtureBytes, AUDIO_GRAPH_INVALID_FIXTURE_NAME, AUDIO_GRAPH_CYCLE_NODE_LABELS } from "./audio-graph-invalid-fixture.js";
+import { assertRegionRendersContent } from "./visual-assert.js";
 
 /**
  * M7 audio (specs/engine-api.md AH-001/AH-002/AGH-001, specs/ux-audio-graph.md
@@ -65,6 +66,12 @@ test.describe("audio: Audio graph dock tab (specs/ux-audio-graph.md UX-6xx, AGH-
     await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(3);
     const gainNode = audioCanvas.locator('[data-testid^="gcanvas.node."]', { hasText: FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL });
     await expect(gainNode).toBeVisible();
+
+    // Real-pixel sanity check (audit prompted by the Script tab's `.script-tab-wrap` CSS-collapse
+    // bug, specs/ux-shell.md's bug-fix note): this tab is plain conditionally-mounted, not kept
+    // mounted-but-hidden like the Script/Behavior graph tabs (BottomDock.tsx), so it was not
+    // expected to share their hidden-mount sizing bug class — confirmed here rather than assumed.
+    await assertRegionRendersContent(audioCanvas, { minNonBackgroundFraction: 0.02 });
   });
 
   test("shows a lint banner naming the actual cycle path for an invalid graph, and dashes the offending edges (UX-602/UX-603)", async ({ page }) => {

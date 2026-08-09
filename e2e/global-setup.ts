@@ -33,6 +33,8 @@ const CHUNK_TYPE_JSON = 0x4e4f534a;
 
 export const FIXTURE_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "simple-scene.glb");
 export const FIXTURE_PLAY_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "play-scene.glb");
+/** specs/ux-script.md UX-714's no-graph empty state: a minimal, real, valid glTF with no `KHR_interactivity` extension at all (not even an empty `graphs: []`) — the "never added a graph" case, distinct from a graph existing at some other index. */
+export const FIXTURE_NO_GRAPH_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "no-graph-scene.glb");
 
 /** Front-on camera pose (see e2e/viewport.spec.ts): node 1 ("Widget") dead center, node 3 ("Widget_Detail") nowhere in frame. */
 export const FIXTURE_FRONT_CAMERA_POSE = { position: [0, 0, 3] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], target: [0, 0, 0] as [number, number, number] };
@@ -231,6 +233,16 @@ function buildFixtureJson(): Record<string, unknown> {
   return buildBaseSceneJson(EXISTING_GRAPH);
 }
 
+/** specs/ux-script.md UX-714: a minimal, real, valid single-node glTF with no `KHR_interactivity` extension — deliberately NOT `buildBaseSceneJson` (that function always writes a `KHR_interactivity` extension, since every other e2e suite needs one present); this is the one fixture that must NOT have one. */
+function buildNoGraphFixtureJson(): Record<string, unknown> {
+  return {
+    asset: { version: "2.0", generator: "gltf-studio e2e fixture (no-graph)" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: "Empty" }]
+  };
+}
+
 function writeGlb(json: Record<string, unknown>, path: string): void {
   const jsonText = JSON.stringify(json);
   const container: Container = {
@@ -248,4 +260,5 @@ export default function globalSetup(): void {
   mkdirSync(dirname(FIXTURE_GLB_PATH), { recursive: true });
   writeGlb(buildFixtureJson(), FIXTURE_GLB_PATH);
   writeGlb(buildBaseSceneJson(PLAY_GRAPH), FIXTURE_PLAY_GLB_PATH);
+  writeGlb(buildNoGraphFixtureJson(), FIXTURE_NO_GRAPH_GLB_PATH);
 }
