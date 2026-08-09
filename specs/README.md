@@ -65,6 +65,12 @@ site, so the citing IDs live in the array, not a `*.test.ts`-named file.
    changed vs the PR's base branch, but no spec file changed in the same diff. Skipped locally and
    on plain `push` builds (no base ref to diff against).
 
+   Run `node scripts/check-drift.mjs --simulate-pr[=<base>]` (default base `main`) to arm this
+   exact check locally, without `GITHUB_BASE_REF` set — it diffs `origin/<base>...HEAD` the same
+   way CI does. This is what `pnpm check:fast`/`pnpm check:ci` and the `pre-push` git hook use, so
+   contributors catch ownership-drift failures before ever opening a PR, instead of finding out
+   only on the PR's first CI run.
+
 **Orphan active requirements** (status `active`, cited by zero tests) are **warn-only** for now —
 printed in the report but do not fail the build. This will flip to a hard failure on a per-module
 basis once that module's implementation slice lands (see the `// ORPHAN_CHECK` flag in
