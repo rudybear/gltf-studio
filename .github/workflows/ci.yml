@@ -73,3 +73,13 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+      # e2e/golden-path.spec.ts's per-step screenshots (gitignored, see
+      # .gitignore) — uploaded unconditionally (not just on failure) since
+      # they document the full user journey for a human to skim, not only
+      # a failure trail.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: golden-path-screenshots
+          path: e2e/artifacts/golden-path/
+          retention-days: 30

@@ -15,6 +15,15 @@ e2e/fixtures/
 playwright-report/
 test-results/
 
+# e2e/golden-path.spec.ts's per-step screenshots — regenerated every run,
+# uploaded as a CI artifact (see .github/workflows/ci.yml's e2e job), never committed.
+e2e/artifacts/
+
 # packages/app/scripts/bundle-runtime-lib.mjs regenerates this self-contained
 # @gltfi/runtime-lib bundle on every predev/prebuild — never committed.
 packages/app/public/gltfi-runtime-lib.mjs*
+
+# packages/app/scripts/copy-sample.mjs copies samples/playground.glb here on
+# every predev/prebuild — the committed copy lives at samples/playground.glb
+# (source of truth: scripts/make-sample.mjs), never this one.
+packages/app/public/playground.glb

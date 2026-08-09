@@ -47,6 +47,25 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      testIgnore: "**/golden-path.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: {
+          args: process.env.CI ? ["--no-sandbox"] : []
+        }
+      }
+    },
+    // golden-path.spec.ts (the checkpoint's full-journey smoke test) runs as
+    // its own project, `dependencies: ["chromium"]` — Playwright always runs
+    // a dependency project to completion before a dependent one starts, so
+    // this is guaranteed to run LAST, after every other spec file, with no
+    // ordering trick needed inside the "chromium" project itself. It is a
+    // single `test()` (see that file's own doc comment), so no separate
+    // worker-count/serial-mode setting is needed here either.
+    {
+      name: "golden-path",
+      testMatch: "**/golden-path.spec.ts",
+      dependencies: ["chromium"],
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
