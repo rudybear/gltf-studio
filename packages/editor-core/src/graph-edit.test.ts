@@ -220,6 +220,30 @@ describe("GraphEdit.ensureType (DOC-042)", () => {
   });
 });
 
+describe("GraphEdit.replaceGraph (DOC-043)", () => {
+  it("replaces the whole graph root with a single replace patch and round-trips via the inverse", () => {
+    const doc = fixtureDocument();
+    const before = doc.json;
+    const newGraph = {
+      types: [{ signature: "float" }],
+      declarations: [{ op: "event/onTick" }],
+      variables: [],
+      events: [],
+      nodes: [{ declaration: 0 }]
+    };
+    const command = GraphEdit.replaceGraph(doc, 0, newGraph as unknown as Parameters<typeof GraphEdit.replaceGraph>[2]);
+    expect(command.label).toBe("Apply script");
+    expect(command.patches).toEqual([{ op: "replace", path: "/extensions/KHR_interactivity/graphs/0", value: newGraph }]);
+    const after = expectRoundTrip(before, command);
+    expect(graph0(after)).toEqual(newGraph);
+  });
+
+  it("throws when the target graph doesn't exist yet (same precondition as every other factory but ensureGraph)", () => {
+    const doc = fixtureDocument({ asset: { version: "2.0" } });
+    expect(() => GraphEdit.replaceGraph(doc, 0, { types: [], declarations: [], nodes: [] })).toThrow(/No KHR_interactivity graph/);
+  });
+});
+
 describe("GraphEdit.addPointerNode (UX-411/UX-412)", () => {
   it("adds a pointer/set node against an EXISTING graph, reusing its types/declarations, as one command", () => {
     const doc = fixtureDocument();

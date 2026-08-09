@@ -2,7 +2,7 @@
   "name": "@gltf-studio/app",
   "version": "0.0.1",
   "private": true,
-  "description": "Editor app shell (specs/ux-shell.md UX-1xx, specs/ux-scene-tree.md UX-2xx, specs/ux-viewport.md UX-3xx, specs/ux-data-tab.md UX-8xx): top bar, scene tree, real engine-three viewport (selection, hover, gizmo), inspector, bottom dock (Console + Data tab real; Behavior/Audio/Script graph tabs are M2 placeholders).",
+  "description": "Editor app shell (specs/ux-shell.md UX-1xx, specs/ux-scene-tree.md UX-2xx, specs/ux-viewport.md UX-3xx, specs/ux-data-tab.md UX-8xx): top bar, scene tree, real engine-three viewport (selection, hover, gizmo), inspector, bottom dock (Console, Data tab, Behavior graph (M4), and Script (M5) are real; Audio graph remains a placeholder).",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@gltf-studio/engine-api": "workspace:*",
     "@gltf-studio/engine-three": "workspace:*",
     "@gltf-studio/graph-canvas": "workspace:*",
+    "@gltf-studio/script-panel": "workspace:*",
     "@gltf-studio/storage": "workspace:*",
     "@gltfi/gltf": "0.0.1",
     "@xyflow/react": "^12.11.2",

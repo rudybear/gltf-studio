@@ -84,12 +84,19 @@ function buildFixtureJson(): Record<string, unknown> {
       // unconnected — nothing to run, this fixture only exercises the
       // EDITOR, not the runtime); node 1 is a math/add with two float
       // literals, also unconnected, giving the canvas real nodes/ports/
-      // literals to render and edit without needing a corpus asset.
+      // literals to render and edit without needing a corpus asset. The
+      // `counter` variable exists for e2e/script.spec.ts's (specs/ux-script.md
+      // UX-7xx) Script tab coverage — it gives a hand-typed `V.counter = ...`
+      // edit something real to reference; it adds no `nodes[]` entry (a
+      // graph-level `variables[]` array is a sibling of `nodes[]`, not
+      // itself one), so it changes nothing graph-canvas.spec.ts asserts
+      // (node count/indices/declarations) above.
       KHR_interactivity: {
         graphs: [
           {
             types: [{ signature: "float" }],
             declarations: [{ op: "event/onStart" }, { op: "math/add" }],
+            variables: [{ id: "counter", type: 0, value: [0] }],
             nodes: [
               { declaration: 0 },
               { declaration: 1, values: { a: { type: 0, value: [1] }, b: { type: 0, value: [2] } } }

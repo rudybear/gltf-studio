@@ -264,6 +264,32 @@ export const GraphEdit = {
   },
 
   /**
+   * DOC-043: replaces `extensions.KHR_interactivity.graphs[graphIndex]`
+   * wholesale with `newGraph`, as a single `replace` patch (the graph must
+   * already exist — same precondition as every other factory in this file
+   * except `ensureGraph`; use that first if it might not). The inverse is
+   * the exact prior graph value, so undo restores it byte-for-byte
+   * (DOC-008). Used by `specs/ux-script.md`'s `UX-711` Script-tab "Apply ->
+   * Graph" action to swap in a freshly `parseModule`d + `exportGraph`d
+   * script as one history entry, rather than diffing node-by-node against
+   * the prior graph.
+   */
+  replaceGraph(document: EditorDocument, graphIndex: number, newGraph: Graph): Command {
+    // Read-before-write via getGraph (not setPathFragment's own existing-value
+    // probe) so a missing graph fails fast with this file's usual "No
+    // KHR_interactivity graph at index N" message rather than setPathFragment's
+    // generic "create missing ancestors" add-path behavior.
+    getGraph(document.json, graphIndex);
+    const fragment = setPathFragment(document.json, graphPath(graphIndex), newGraph);
+    return {
+      id: makeCommandId("replace-graph"),
+      label: "Apply script",
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * `specs/ux-inspector.md`'s `UX-411`/`UX-412`: builds a `pointer/set` or
    * `pointer/interpolate` node targeting `pointerPath`, as ONE combined
    * command — scaffolding the graph (`ensureGraph`, DOC-041) and the value's
