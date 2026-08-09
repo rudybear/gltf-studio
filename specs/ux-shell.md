@@ -166,6 +166,23 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   `bundle-runtime-lib.mjs`'s `gltfi-runtime-lib.mjs`) so it's served as a static asset — never
   pulled into the main JS bundle — and resolves correctly under a non-root `base` (GitHub Pages)
   via `import.meta.env.BASE_URL` rather than a hardcoded `"/"`. See `e2e/golden-path.spec.ts`.
+- Follow-up (user-reported bug, "I can't select objects on the screen, only in the scene panel",
+  `Viewport.tsx`, `packages/engine-three/src/render-host.ts`): `specs/ux-viewport.md`'s `UX-302`/
+  `UX-303` (viewport click-to-select / empty-click-deselect) held under every existing e2e test yet
+  didn't hold for real users, because `e2e/viewport.spec.ts`'s clicks — while genuine CDP mouse
+  input at genuine screen coordinates — always pressed and released with zero intervening pointer
+  movement (`page.mouse.click()`), something no real mouse or trackpad ever actually does.
+  `OrbitControls` (the underlying camera control, `specs/render-host.md`) has no click-vs-drag
+  threshold of its own: it starts rotating the camera on the very first `pointermove` after
+  `pointerdown`, however small, so a real click's incidental few-pixel jitter had usually already
+  rotated the camera by the time `pick()` ran, desyncing the ray from the pixel the object actually
+  rendered at. Fixed by having `Viewport.tsx` disable `OrbitControls` (via the new
+  `ThreeRenderHost.setControlsEnabled`, `specs/render-host.md`'s own DECISION note) on `pointerdown`
+  and re-enable it only once movement crosses a small threshold (a real drag) — see that spec file
+  for the full mechanism. `e2e/viewport-real-click.spec.ts` (new) covers `UX-301`/`UX-302`/`UX-303`
+  with real mouse input against the actual DEFAULT camera (no `setCameraPose` test hook) on both the
+  single-file and packed-multi-file import paths, plus dedicated jitter/deliberate-drag regression
+  coverage for the mechanism itself — verified to fail on the pre-fix code and pass after.
 
 ## Open questions
 
