@@ -37,15 +37,20 @@ describe("contract-tests self-check", () => {
   });
 });
 
-// Instantiate each suite (no implementation backs these `makeX` functions —
-// they are never called, since it.todo bodies never run) purely so the full
-// todo inventory is visible in test output alongside this file's own
-// assertions.
+// Instantiate each still-`it.todo` suite (no implementation backs these
+// `makeX` functions — they are never called, since it.todo bodies never
+// run) purely so the full todo inventory is visible in test output
+// alongside this file's own assertions.
+//
+// `describeStorageProviderContract` is deliberately NOT instantiated here
+// (unlike its still-it.todo siblings below): as of M2 it runs real
+// assertions (see storage-provider.ts), so it needs a working
+// `StorageProvider` — it is exercised for real by
+// `@gltf-studio/storage`'s indexeddb-storage.test.ts and
+// filesystem-storage.test.ts instead, against the two real
+// implementations.
 describeRenderHostContract(() => {
   throw new Error("no RenderHost implementation yet (M0 scope)");
-});
-describeStorageProviderContract(() => {
-  throw new Error("no StorageProvider implementation yet (M0 scope)");
 });
 describePlayControllerContract(() => {
   throw new Error("no PlayController implementation yet (M0 scope)");

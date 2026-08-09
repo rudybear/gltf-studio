@@ -1,0 +1,30 @@
+{
+  "name": "@gltf-studio/storage",
+  "version": "0.0.1",
+  "private": true,
+  "description": "StorageProvider implementations (specs/storage-provider.md, SP-001..020): IndexedDB (default) and File System Access (offered when supported).",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@gltf-studio/engine-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@gltf-studio/contract-tests": "workspace:*",
+    "fake-indexeddb": "^6.0.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -44,3 +44,32 @@ jobs:
       - run: node scripts/check-drift.mjs
       - run: node scripts/gen-status.mjs --check
       - run: node --test scripts/drift.test.mjs
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+      # e2e targets the BUILT app (playwright.config.ts's webServer runs
+      # `vite preview`, not the dev server) — build first, same as the
+      # `build` job, since jobs don't share a filesystem across runners.
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

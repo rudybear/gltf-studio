@@ -19,7 +19,7 @@ Prefix: `SP`. Numbers below continue from the two IDs seeded in `specs/engine-ap
 ### Moved from specs/engine-api.md (verbatim, same IDs)
 
 - [SP-001] (active) All project persistence goes through `StorageProvider` (`listProjects/create/load/save`); concrete implementations at v1 are IndexedDB and File System Access, with an HTTP implementation planned later, and editor code must depend only on the interface, never on a concrete implementation.
-- [SP-004] (active) `StorageProvider.autosaveJournal(sinceRev, patches)` is patch-shaped (RFC 6902 `JsonPatchOp[]`), doubling as the future backend sync wire format; `loadJournal` returns the same patch-journal shape for crash recovery (crash recovery ≡ sync protocol).
+- [SP-004] (active) `StorageProvider.autosaveJournal(id, sinceRev, patches)` is patch-shaped (RFC 6902 `JsonPatchOp[]`), doubling as the future backend sync wire format; `loadJournal` returns the same patch-journal shape for crash recovery (crash recovery ≡ sync protocol). (`id` added at M2 — the signature as originally seeded from `specs/engine-api.md` omitted it, but a per-project append-only journal cannot be addressed without one; see `loadJournal(id)`, which always took it.)
 
 ### Project lifecycle semantics
 
@@ -44,7 +44,7 @@ Prefix: `SP`. Numbers below continue from the two IDs seeded in `specs/engine-ap
 
 ### Journal semantics
 
-- [SP-014] (active) `autosaveJournal(sinceRev, patches)` appends `patches` to an append-only journal scoped to the rev-window starting at `sinceRev`; it never removes or reorders previously appended entries.
+- [SP-014] (active) `autosaveJournal(id, sinceRev, patches)` appends `patches` to `id`'s append-only journal, scoped to the rev-window starting at `sinceRev`; it never removes or reorders previously appended entries.
 - [SP-015] (active) Journal replay is defined as: load the project's base `ProjectData` via `load(id)`, then apply `loadJournal(id)`'s `patches` to it in the order they were appended.
 - [SP-016] (active) A successful `save(id, data)` clears that project's journal — the newly saved container/sidecar becomes the new base, leaving no patches to replay from it.
 

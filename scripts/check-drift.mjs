@@ -88,30 +88,23 @@ export function parseSpecs(specsDir) {
 }
 
 /**
- * Scans every *.test.{ts,mjs,js} file under rootDir/packages for
- * requirement-ID-shaped tokens, in either a test title string or an
+ * Scans every *.test.{ts,mjs,js} file under rootDir/packages, plus every
+ * *.spec.ts file under rootDir/e2e (M2+: Playwright e2e specs, per
+ * docs/ux/README.md's "every UX-### requirement is expected to be
+ * warn-only orphaned ... until Playwright coverage lands at M2+" — that
+ * coverage has to actually get scanned for its citations to ever count),
+ * for requirement-ID-shaped tokens in either a test title string or an
  * `@spec ID` docblock (both are just text as far as this scan is
- * concerned; see specs/README.md). Deliberately scoped to packages/ rather
- * than the whole repo: scripts/*.test.mjs are this tooling's OWN self-tests
- * (e.g. scripts/drift.test.mjs), and their fixture strings intentionally
- * contain ID-shaped tokens (including deliberately-unknown/retired/
- * malformed ones) that must never be mistaken for real citations.
+ * concerned; see specs/README.md). Deliberately scoped to packages/+e2e/
+ * rather than the whole repo: scripts/*.test.mjs are this tooling's OWN
+ * self-tests (e.g. scripts/drift.test.mjs), and their fixture strings
+ * intentionally contain ID-shaped tokens (including deliberately-unknown/
+ * retired/malformed ones) that must never be mistaken for real citations.
  */
 export function scanTestCitations(rootDir) {
-  const scanRoot = existsSync(join(rootDir, "packages")) ? join(rootDir, "packages") : rootDir;
-  const testFiles = walk(scanRoot, (f) => {
-    if (/\.test\.(ts|mjs|js)$/.test(f)) return true;
-    // contract-tests' describe-factory modules (render-host.ts etc.) ARE the
-    // test-obligation source of truth: their `it.todo(obligation)` titles
-    // come from an exported `*ContractObligations` array, not a string
-    // literal at the it.todo() call site, so a *.test.* filename filter
-    // alone would miss them entirely. Every source file in that one package
-    // is treated as citation-bearing; nothing else gets this exception.
-    const rel = relative(scanRoot, f).split(sep).join("/");
-    return /^contract-tests\/src\/.*\.ts$/.test(rel);
-  });
   const citations = new Map(); // id -> Set<relative file path>
-  for (const file of testFiles) {
+
+  function collect(file) {
     const text = readFileSync(file, "utf8");
     const rel = relative(rootDir, file);
     ID_TOKEN_RE.lastIndex = 0;
@@ -122,6 +115,25 @@ export function scanTestCitations(rootDir) {
       citations.get(id).add(rel);
     }
   }
+
+  const packagesRoot = existsSync(join(rootDir, "packages")) ? join(rootDir, "packages") : rootDir;
+  const packageTestFiles = walk(packagesRoot, (f) => {
+    if (/\.test\.(ts|mjs|js)$/.test(f)) return true;
+    // contract-tests' describe-factory modules (render-host.ts etc.) ARE the
+    // test-obligation source of truth: their `it.todo(obligation)` titles
+    // come from an exported `*ContractObligations` array, not a string
+    // literal at the it.todo() call site, so a *.test.* filename filter
+    // alone would miss them entirely. Every source file in that one package
+    // is treated as citation-bearing; nothing else gets this exception.
+    const rel = relative(packagesRoot, f).split(sep).join("/");
+    return /^contract-tests\/src\/.*\.ts$/.test(rel);
+  });
+  for (const file of packageTestFiles) collect(file);
+
+  const e2eRoot = join(rootDir, "e2e");
+  const e2eSpecFiles = existsSync(e2eRoot) ? walk(e2eRoot, (f) => /\.spec\.ts$/.test(f)) : [];
+  for (const file of e2eSpecFiles) collect(file);
+
   return citations;
 }
 
