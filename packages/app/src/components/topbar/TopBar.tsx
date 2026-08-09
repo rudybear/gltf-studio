@@ -1,15 +1,15 @@
 import { useRef } from "react";
+import type { EngineKind } from "@gltf-studio/engine-api";
 import { useAppStore } from "../../store/app-store";
 import { useSystemPrefersDark } from "../../hooks/use-system-theme";
 import { HistoryDropdown } from "./HistoryDropdown";
 
 /**
  * specs/ux-shell.md UX-100 (top bar), UX-108 (history dropdown), UX-105
- * (theme toggle), UX-111 (testid overlay toggle). Export and the play bar
- * are stubs (disabled, with a tooltip) until later milestones (M3 export;
- * the play milestone for playbar) — UX-100/UX-106/UX-107's play-state
- * chrome has no state machine to drive yet, so it isn't rendered at all
- * rather than faked.
+ * (theme toggle), UX-111 (testid overlay toggle), UX-106/UX-113 (play-state
+ * chrome + real play-bar wiring against `PlayController` via the store's
+ * `startPlay`/`pausePlay`/`resumePlay`/`stopPlay`/`setPlayEngine` actions).
+ * Export is real as of M3.
  */
 export function TopBar(): JSX.Element {
   const projectName = useAppStore((s) => s.projectName);
@@ -27,6 +27,13 @@ export function TopBar(): JSX.Element {
   const toggleThemeOverride = useAppStore((s) => s.toggleThemeOverride);
   const testIdOverlay = useAppStore((s) => s.testIdOverlay);
   const toggleTestIdOverlay = useAppStore((s) => s.toggleTestIdOverlay);
+  const playState = useAppStore((s) => s.playState);
+  const playEngine = useAppStore((s) => s.playEngine);
+  const startPlay = useAppStore((s) => s.startPlay);
+  const pausePlay = useAppStore((s) => s.pausePlay);
+  const resumePlay = useAppStore((s) => s.resumePlay);
+  const stopPlay = useAppStore((s) => s.stopPlay);
+  const setPlayEngine = useAppStore((s) => s.setPlayEngine);
 
   const systemPrefersDark = useSystemPrefersDark();
   const effectiveDark = themeOverride ? themeOverride === "dark" : systemPrefersDark;
@@ -41,8 +48,10 @@ export function TopBar(): JSX.Element {
     await importGlb({ name: file.name, bytes });
   }
 
+  const topbarTintClass = playState === "playing" ? "topbar-playing" : playState === "paused" ? "topbar-paused" : "";
+
   return (
-    <div id="topbar" data-testid="topbar.panel">
+    <div id="topbar" className={topbarTintClass || undefined} data-testid="topbar.panel">
       <span className="app-name" data-testid="topbar.app-name">
         gltf-studio
       </span>
@@ -78,16 +87,46 @@ export function TopBar(): JSX.Element {
       </div>
       <div className="topbar-spacer" />
       <div className="playbar" data-testid="playbar.panel">
-        <button className="btn icon-only" data-testid="playbar.play" disabled title="Play mode arrives in a later milestone.">
+        <button
+          className="btn icon-only"
+          data-testid="playbar.play"
+          disabled={!hasDocument || playState === "playing"}
+          title={!hasDocument ? "Import a .glb first." : playState === "paused" ? "Resume" : "Play"}
+          onClick={() => {
+            if (playState === "paused") resumePlay();
+            else void startPlay();
+          }}
+        >
           ▶
         </button>
-        <button className="btn icon-only" data-testid="playbar.pause" disabled title="Play mode arrives in a later milestone.">
+        <button
+          className="btn icon-only"
+          data-testid="playbar.pause"
+          disabled={playState !== "playing"}
+          title="Pause"
+          onClick={pausePlay}
+        >
           ⏸
         </button>
-        <button className="btn icon-only" data-testid="playbar.stop" disabled title="Play mode arrives in a later milestone.">
+        <button
+          className="btn icon-only"
+          data-testid="playbar.stop"
+          disabled={playState === "stopped"}
+          title="Stop"
+          onClick={() => {
+            void stopPlay();
+          }}
+        >
           ⏹
         </button>
-        <select className="field" data-testid="playbar.engine-picker" disabled title="Play mode arrives in a later milestone.">
+        <select
+          className="field"
+          data-testid="playbar.engine-picker"
+          disabled={playState !== "stopped"}
+          value={playEngine}
+          title="Play engine"
+          onChange={(e) => setPlayEngine(e.target.value as EngineKind)}
+        >
           <option value="interpreter">interpreter</option>
           <option value="compiled">compiled</option>
         </select>

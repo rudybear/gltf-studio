@@ -16,7 +16,12 @@ export default tseslint.config(
     ignores: ["**/dist/**", "**/node_modules/**", "vendor/**"]
   },
   {
-    files: ["scripts/**/*.mjs"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }]
+    }
+  },
+  {
+    files: ["scripts/**/*.mjs", "packages/*/scripts/**/*.mjs"],
     languageOptions: {
       sourceType: "module",
       ecmaVersion: 2022,
@@ -31,12 +36,6 @@ export default tseslint.config(
       sourceType: "module",
       ecmaVersion: 2022,
       globals: globals.browser
-    },
-    rules: {
-      // JSX components are used as values by the JSX runtime, not "called";
-      // eslint's no-unused-vars doesn't see that usage in a few destructured-
-      // prop-only components.
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }]
     }
   }
 );

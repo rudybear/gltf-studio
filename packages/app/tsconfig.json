@@ -18,7 +18,8 @@
     { "path": "../graph-canvas" },
     { "path": "../audio-webaudio" },
     { "path": "../audio-graph" },
-    { "path": "../audio-canvas" }
+    { "path": "../audio-canvas" },
+    { "path": "../play" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

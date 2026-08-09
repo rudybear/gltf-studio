@@ -1,5 +1,5 @@
-// Generates the e2e fixture .glb once per Playwright run — a tiny synthetic
-// 4-node scene, built in-process via vendored @gltfi/gltf's real
+// Generates the e2e fixture .glb(s) once per Playwright run — tiny synthetic
+// 4-node scenes, built in-process via vendored @gltfi/gltf's real
 // `writeContainer` (never a corpus asset copied into this repo, per this
 // program's "no corpus copying" rule). Node 0 (root, a group) has children
 // 1 (a mesh node) and 2 (a light node); node 1 has child 3 (a nested mesh
@@ -13,6 +13,16 @@
 // is translated well outside the fixed front-camera pose e2e/viewport.spec.ts
 // uses, so a center-of-canvas click deterministically hits `Widget` (node 1)
 // alone.
+//
+// Two fixtures share this same base scene (`buildBaseSceneJson`), differing
+// only in their embedded `KHR_interactivity` graph: `simple-scene.glb`
+// (FIXTURE_GLB_PATH) carries an inert graph for editor-only coverage
+// (e2e/graph-canvas.spec.ts, e2e/script.spec.ts) — several of those specs
+// hardcode its exact node count/indices, so that graph must never change.
+// `play-scene.glb` (FIXTURE_PLAY_GLB_PATH) carries a second, independent,
+// actually-runnable graph (PLAY_GRAPH below) for the Play Mode e2e suite
+// (e2e/play.spec.ts), which needs a ticking counter and a click-triggered
+// pointer/set to observe the interpreter actually running.
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +32,7 @@ import { sineBeepWavBytes } from "./wav-fixture.js";
 const CHUNK_TYPE_JSON = 0x4e4f534a;
 
 export const FIXTURE_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "simple-scene.glb");
+export const FIXTURE_PLAY_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "play-scene.glb");
 
 /** Front-on camera pose (see e2e/viewport.spec.ts): node 1 ("Widget") dead center, node 3 ("Widget_Detail") nowhere in frame. */
 export const FIXTURE_FRONT_CAMERA_POSE = { position: [0, 0, 3] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], target: [0, 0, 0] as [number, number, number] };
@@ -42,7 +53,78 @@ function base64FromBytes(bytes: Uint8Array): string {
 // sineBeepWavBytes (KHR_audio_emitter's `audio[]` WAV data, M7) lives in
 // ./wav-fixture.ts, shared with inspector-fixture.ts.
 
-function buildFixtureJson(): Record<string, unknown> {
+// A small, real KHR_interactivity graph (specs/ux-graph-canvas.md) for
+// e2e/graph-canvas.spec.ts: node 0 is an event/onStart handler (flow
+// unconnected — nothing to run, this fixture only exercises the EDITOR, not
+// the runtime); node 1 is a math/add with two float literals, also
+// unconnected, giving the canvas real nodes/ports/literals to render and
+// edit without needing a corpus asset. The `counter` variable exists for
+// e2e/script.spec.ts's (specs/ux-script.md UX-7xx) Script tab coverage — it
+// gives a hand-typed `V.counter = ...` edit something real to reference; it
+// adds no `nodes[]` entry (a graph-level `variables[]` array is a sibling of
+// `nodes[]`, not itself one), so it changes nothing graph-canvas.spec.ts
+// asserts (node count/indices/declarations) above. DO NOT edit this graph —
+// see the file-level doc comment.
+const EXISTING_GRAPH = {
+  types: [{ signature: "float" }],
+  declarations: [{ op: "event/onStart" }, { op: "math/add" }],
+  variables: [{ id: "counter", type: 0, value: [0] }],
+  nodes: [
+    { declaration: 0 },
+    { declaration: 1, values: { a: { type: 0, value: [1] }, b: { type: 0, value: [2] } } }
+  ]
+};
+
+// A real, runnable KHR_interactivity graph for the Play Mode e2e suite
+// (e2e/play.spec.ts): variable `counter` (float, initial 0) increments by 1
+// on every event/onTick; clicking node 1 ("Widget") fires event/onSelect
+// (scoped via `nodeIndex` config), which sets `counter` to 100 and then
+// moves Widget's translation to [0.5, 0, 0] via pointer/set — enough
+// observable, distinct behavior for the suite to assert both the tick loop
+// and click-triggered handlers actually ran through the real interpreter.
+const PLAY_GRAPH = {
+  types: [{ signature: "float" }, { signature: "float3" }],
+  variables: [{ id: "counter", type: 0, value: [0] }],
+  declarations: [
+    { op: "event/onTick" }, // 0
+    { op: "variable/get" }, // 1
+    { op: "math/add" }, // 2
+    { op: "variable/set" }, // 3
+    { op: "event/onSelect" }, // 4
+    { op: "pointer/set" } // 5
+  ],
+  nodes: [
+    // 0: onTick -> fires node 3 (variable/set) once node 1/2's pure read+add are resolved on demand
+    { declaration: 0, flows: { out: { node: 3, socket: "in" } } },
+    // 1: variable/get(counter) -- pure, no flow needed
+    { declaration: 1, configuration: { variable: { value: [0] } } },
+    // 2: math/add(node1.value, 1) -- pure, no flow needed
+    { declaration: 2, values: { a: { node: 1, socket: "value" }, b: { type: 0, value: [1] } } },
+    // 3: variable/set(counter <- node2.value), triggered by onTick
+    { declaration: 3, configuration: { variables: { value: [0] } }, values: { "0": { node: 2, socket: "value" } } },
+    // 4: onSelect(nodeIndex: 1 i.e. "Widget") -> fires node 5
+    {
+      declaration: 4,
+      configuration: { nodeIndex: { value: [1] }, stopPropagation: { value: [false] } },
+      flows: { out: { node: 5, socket: "in" } }
+    },
+    // 5: variable/set(counter <- literal 100), triggered by onSelect -> fires node 6
+    {
+      declaration: 3,
+      configuration: { variables: { value: [0] } },
+      values: { "0": { type: 0, value: [100] } },
+      flows: { out: { node: 6, socket: "in" } }
+    },
+    // 6: pointer/set(/nodes/1/translation <- [0.5, 0, 0] as float3), triggered by node 5
+    {
+      declaration: 5,
+      configuration: { pointer: { value: ["/nodes/1/translation"] }, type: { value: [1] } },
+      values: { value: { type: 1, value: [0.5, 0, 0] } }
+    }
+  ]
+};
+
+function buildBaseSceneJson(interactivityGraph: unknown): Record<string, unknown> {
   const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
   const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
   // "Idle" animation keyframes: 2 keyframes, node 1's rotation from identity
@@ -97,31 +179,7 @@ function buildFixtureJson(): Record<string, unknown> {
     ],
     extensions: {
       KHR_lights_punctual: { lights: [{ type: "point" }] },
-      // A small, real KHR_interactivity graph (specs/ux-graph-canvas.md) for
-      // e2e/graph-canvas.spec.ts: node 0 is an event/onStart handler (flow
-      // unconnected — nothing to run, this fixture only exercises the
-      // EDITOR, not the runtime); node 1 is a math/add with two float
-      // literals, also unconnected, giving the canvas real nodes/ports/
-      // literals to render and edit without needing a corpus asset. The
-      // `counter` variable exists for e2e/script.spec.ts's (specs/ux-script.md
-      // UX-7xx) Script tab coverage — it gives a hand-typed `V.counter = ...`
-      // edit something real to reference; it adds no `nodes[]` entry (a
-      // graph-level `variables[]` array is a sibling of `nodes[]`, not
-      // itself one), so it changes nothing graph-canvas.spec.ts asserts
-      // (node count/indices/declarations) above.
-      KHR_interactivity: {
-        graphs: [
-          {
-            types: [{ signature: "float" }],
-            declarations: [{ op: "event/onStart" }, { op: "math/add" }],
-            variables: [{ id: "counter", type: 0, value: [0] }],
-            nodes: [
-              { declaration: 0 },
-              { declaration: 1, values: { a: { type: 0, value: [1] }, b: { type: 0, value: [2] } } }
-            ]
-          }
-        ]
-      },
+      KHR_interactivity: { graphs: [interactivityGraph] },
       // M7: a real KHR_audio_emitter (sineBeepWavBytes' bufferView-embedded
       // WAV, resolved by @gltf-studio/audio-webaudio's WebAudioHost) plus a
       // KHR_audio_graph bufferSource -> gain -> emitter chain for
@@ -169,8 +227,11 @@ function buildFixtureJson(): Record<string, unknown> {
   };
 }
 
-export default function globalSetup(): void {
-  const json = buildFixtureJson();
+function buildFixtureJson(): Record<string, unknown> {
+  return buildBaseSceneJson(EXISTING_GRAPH);
+}
+
+function writeGlb(json: Record<string, unknown>, path: string): void {
   const jsonText = JSON.stringify(json);
   const container: Container = {
     kind: "glb",
@@ -180,7 +241,11 @@ export default function globalSetup(): void {
     json
   };
   const bytes = writeContainer(container) as Uint8Array;
+  writeFileSync(path, bytes);
+}
 
+export default function globalSetup(): void {
   mkdirSync(dirname(FIXTURE_GLB_PATH), { recursive: true });
-  writeFileSync(FIXTURE_GLB_PATH, bytes);
+  writeGlb(buildFixtureJson(), FIXTURE_GLB_PATH);
+  writeGlb(buildBaseSceneJson(PLAY_GRAPH), FIXTURE_PLAY_GLB_PATH);
 }

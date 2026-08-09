@@ -3,6 +3,7 @@ import { WebAudioHost } from "@gltf-studio/audio-webaudio";
 import { useAppStore, PANEL_BOUNDS } from "./store/app-store";
 import { extractBinaryChunk } from "./lib/audio-container.js";
 import { TopBar } from "./components/topbar/TopBar";
+import { LockedBanner } from "./components/topbar/LockedBanner";
 import { LeftPanel } from "./components/LeftPanel";
 import { CenterColumn } from "./components/CenterColumn";
 import { RightPanel } from "./components/RightPanel";
@@ -108,6 +109,7 @@ export function App(): JSX.Element {
   return (
     <div id="app">
       <TopBar />
+      <LockedBanner />
       <div id="workspace">
         <LeftPanel />
         <ResizeHandle

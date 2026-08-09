@@ -52,9 +52,12 @@ describe("contract-tests self-check", () => {
 describeRenderHostContract(() => {
   throw new Error("no RenderHost implementation yet (M0 scope)");
 });
-describePlayControllerContract(() => {
-  throw new Error("no PlayController implementation yet (M0 scope)");
-});
+// `describePlayControllerContract` is also deliberately NOT instantiated
+// here (same rationale as `describeStorageProviderContract` above): as of
+// M6 it runs real assertions (see play-controller.ts), so it needs a
+// working `PlayController` — it is exercised for real by
+// `@gltf-studio/play`'s own contract.test.ts (Node, interpreter engine) and
+// browser-mode contract.test.ts (compiled engine) instead.
 describeAudioHostContract(() => {
   throw new Error("no AudioHost implementation yet (M0 scope)");
 });

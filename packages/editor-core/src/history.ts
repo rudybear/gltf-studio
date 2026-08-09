@@ -4,7 +4,7 @@
 // `applyCommand` itself, so undo/redo get purity, dirty-root tracking, and
 // the frozen-document check (DOC-031) for free rather than re-implementing
 // them.
-import { applyCommand, type EditorDocument } from "./document.js";
+import { applyCommand, freezeDocument, unfreezeDocument, type EditorDocument } from "./document.js";
 import type { Command, JsonPatchOp } from "./command.js";
 import { makeCommandId } from "./command.js";
 
@@ -33,6 +33,16 @@ export class HistoryStack {
 
   get document(): EditorDocument {
     return this.#document;
+  }
+
+  /** DOC-045: freezes the currently-held document for play mode (DOC-031). */
+  freeze(): void {
+    this.#document = freezeDocument(this.#document);
+  }
+
+  /** DOC-045: unfreezes the currently-held document after play mode ends. */
+  unfreeze(): void {
+    this.#document = unfreezeDocument(this.#document);
   }
 
   canUndo(): boolean {

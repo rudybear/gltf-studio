@@ -48,7 +48,8 @@ Prefix: `UX`. This file owns the `UX-3xx` block.
   the current selection's bounding box when a node is selected, and the whole loaded scene's
   bounding box when nothing is selected (never a no-op, never disabled) — `ThreeRenderHost.frameNode`
   (see `specs/render-host.md`'s M2 DECISION note) takes the node index or `null` accordingly.
-- OPEN(RH-snapshot-vs-restore-tbd, carried from `specs/render-host.md`): `UX-310`'s "reloads the
-  pre-play scene snapshot" language follows `PC-003`'s contract as written; `specs/render-host.md`'s
-  own open question about `snapshot()` (an image) vs. full scene-state restore is unresolved there
-  and is not re-litigated here.
+- RESOLVED(RH-snapshot-vs-restore-tbd, carried from `specs/render-host.md`) (by `specs/engine-api.md`'s
+  `PC-007`): `UX-310`'s "reloads the pre-play scene snapshot" means the `EditorDocument.json`
+  captured at the moment `start()` was called, restored via `renderHost.loadScene()` — not
+  `RenderHost.snapshot()`'s rendered-image Blob, which stays scoped to `RH-024`'s own use case.
+  Consistent with `PC-003`/`PC-007`.

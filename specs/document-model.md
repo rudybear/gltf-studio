@@ -79,6 +79,7 @@ Prefix: `DOC`.
 
 - [DOC-031] (active) `EditorDocument` is frozen for the duration of play mode: no `Command` may be applied to it (via `applyCommand` or `HistoryStack`) while `PlayController` is running. Play-mode state changes go exclusively through `PlayController`'s fan-out (`SceneAdapter.applyPointer`), never through `applyCommand`/`HistoryStack`.
 - [DOC-037] (active) Resolves the open question of whether `applyCommand`/`HistoryStack` throw, no-op, or queue when a command is attempted while `EditorDocument` is frozen (DOC-031), in favor of throwing: `applyCommand` throws a typed `DocumentFrozenError` (not a no-op, not a queued/deferred application) when called against a frozen document; `HistoryStack.push`/`undo`/`redo` propagate the same error rather than swallowing it. UI command dispatch is expected to prevent commands from reaching `applyCommand` while play is running, upstream of this throw.
+- [DOC-045] (active) `HistoryStack` exposes `freeze()`/`unfreeze()` methods that call `freezeDocument`/`unfreezeDocument` (`DOC-031`) on its currently-held `EditorDocument` and replace it in place, so an existing live `HistoryStack` instance (not just one freshly constructed around an already-frozen document) can be frozen for the duration of play mode and unfrozen on stop.
 
 ### Property-test obligations
 

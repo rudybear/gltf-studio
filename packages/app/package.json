@@ -6,7 +6,9 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/bundle-runtime-lib.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/bundle-runtime-lib.mjs",
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist *.tsbuildinfo"
@@ -19,6 +21,7 @@
     "@gltf-studio/engine-api": "workspace:*",
     "@gltf-studio/engine-three": "workspace:*",
     "@gltf-studio/graph-canvas": "workspace:*",
+    "@gltf-studio/play": "workspace:*",
     "@gltf-studio/script-panel": "workspace:*",
     "@gltf-studio/storage": "workspace:*",
     "@gltfi/gltf": "0.0.1",
@@ -29,9 +32,11 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@gltfi/runtime-lib": "0.0.1",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.5",
+    "esbuild": "^0.21.5",
     "vite": "^8.2.1"
   }
 }

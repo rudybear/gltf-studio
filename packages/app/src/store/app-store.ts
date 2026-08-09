@@ -11,10 +11,19 @@
 // or the sidecar.
 import { create } from "zustand";
 import { parseContainer } from "@gltfi/gltf";
-import { createDocument, GraphEdit, HistoryStack, save, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import {
+  createDocument,
+  DocumentFrozenError,
+  GraphEdit,
+  HistoryStack,
+  save,
+  type Command,
+  type EditorDocument
+} from "@gltf-studio/editor-core";
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
 import { IndexedDBStorage } from "@gltf-studio/storage";
-import type { AudioHost, GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
+import { createPlayController } from "@gltf-studio/play";
+import type { AudioHost, EngineKind, GizmoMode, PlayController, ProjectMeta, RenderHost, StorageProvider } from "@gltf-studio/engine-api";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 
 export type ThemeOverride = "light" | "dark" | null;
@@ -93,6 +102,13 @@ export interface AppState {
   canUndo: boolean;
   canRedo: boolean;
 
+  // -- play mode (DOC-031/DOC-045, specs/ux-shell.md UX-106/UX-113,
+  // specs/ux-viewport.md UX-309/UX-310) --
+  playState: "stopped" | "playing" | "paused";
+  /** Pending engine-picker selection; only meaningful/settable while `playState === "stopped"`. */
+  playEngine: EngineKind;
+  /** Registered by `Viewport.tsx` on mount so the store can build a `PlayController` without importing engine-three directly. */
+  renderHost: RenderHost | null;
   // -- audio (M7, specs/engine-api.md AH-001/AH-002): registration side only
   // — the CURRENT project's AudioHost instance (real @gltf-studio/audio-
   // webaudio `WebAudioHost` once a document with KHR_audio_emitter is
@@ -157,6 +173,20 @@ export interface AppState {
   undo(): void;
   redo(): void;
   historyEntries(): HistoryEntryView[];
+  /** Registers/clears the live `RenderHost` (see `renderHost` field). */
+  registerRenderHost(host: RenderHost | null): void;
+  /** Only meaningful while `playState === "stopped"`; updates the engine-picker's pending selection. */
+  setPlayEngine(engine: EngineKind): void;
+  /** UX-310: starts play mode using the current `playEngine`, freezing the document (DOC-031). */
+  startPlay(): Promise<void>;
+  /** UX-310: suspends the running simulation without discarding variable values. */
+  pausePlay(): void;
+  /** Resumes a paused simulation from the same point (UX-311). */
+  resumePlay(): void;
+  /** Advances the simulation by one fixed tick; only meaningful while paused. */
+  tickOncePlay(): void;
+  /** UX-310: ends play mode, restoring the pre-play scene snapshot (PC-003/PC-007) and unfreezing the document. */
+  stopPlay(): Promise<void>;
   selectNode(index: number | null): void;
   selectGraphNode(index: number | null): void;
   setSelectedGraphIndex(index: number): void;
@@ -210,6 +240,25 @@ export interface AppState {
 
 let toastSeq = 0;
 
+// Play mode's live `PlayController` instance and its diagnostic-handler
+// unsubscribe, kept as plain module-level bookkeeping (not part of
+// `AppState`/not reactive) — mirrors `toastSeq` above. Nothing outside this
+// file needs the controller instance itself; components read `playState`/
+// call the action methods, and `Viewport.tsx` reaches it only via
+// `getActivePlayController()` below (for routing clicks/hover during play).
+let activePlayController: PlayController | null = null;
+let activePlayDiagnosticsUnsub: (() => void) | null = null;
+
+/**
+ * PC-008 routing seam: `Viewport.tsx` calls this inside its click/hover
+ * handlers to reach the active `PlayController` without the controller
+ * instance itself being exposed as reactive `AppState` (see the module-level
+ * `activePlayController` above for why).
+ */
+export function getActivePlayController(): PlayController | null {
+  return activePlayController;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   storage: new IndexedDBStorage(),
   projectId: null,
@@ -221,6 +270,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   canUndo: false,
   canRedo: false,
   audioHost: undefined,
+
+  playState: "stopped",
+  playEngine: "interpreter",
+  renderHost: null,
 
   selectedNodeIndex: null,
   selectedGraphNodeIndex: null,
@@ -293,9 +346,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   dispatchCommand(command) {
-    const { history, storage, projectId, journalSinceRev, log } = get();
+    const { history, storage, projectId, journalSinceRev, log, pushToast, playState } = get();
     if (!history || !projectId) return;
-    history.push(command);
+    // DOC-031/DOC-037: UI command dispatch must prevent commands from
+    // reaching `applyCommand` while play is running, upstream of
+    // `HistoryStack.push`'s own `DocumentFrozenError` throw — this is that
+    // pre-check, not just a try/catch backstop.
+    if (playState !== "stopped") {
+      pushToast("Document locked while playing — Stop to edit.");
+      log("warn", "Command rejected: EditorDocument is frozen during play mode (DOC-031).");
+      return;
+    }
+    try {
+      history.push(command);
+    } catch (err) {
+      if (err instanceof DocumentFrozenError) {
+        pushToast("Document locked while playing — Stop to edit.");
+        return;
+      }
+      throw err; // anything else is a real bug, don't swallow it
+    }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
     // SP-004/SP-014: autosave journal wiring — every applied command's
     // forward patches are appended to the project's journal so a crash
@@ -306,16 +376,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   undo() {
-    const { history } = get();
+    const { history, playState, pushToast } = get();
     if (!history || !history.canUndo()) return;
-    history.undo();
+    if (playState !== "stopped") {
+      pushToast("Document locked while playing — Stop to edit.");
+      return;
+    }
+    try {
+      history.undo();
+    } catch (err) {
+      if (err instanceof DocumentFrozenError) {
+        pushToast("Document locked while playing — Stop to edit.");
+        return;
+      }
+      throw err;
+    }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
   },
 
   redo() {
-    const { history } = get();
+    const { history, playState, pushToast } = get();
     if (!history || !history.canRedo()) return;
-    history.redo();
+    if (playState !== "stopped") {
+      pushToast("Document locked while playing — Stop to edit.");
+      return;
+    }
+    try {
+      history.redo();
+    } catch (err) {
+      if (err instanceof DocumentFrozenError) {
+        pushToast("Document locked while playing — Stop to edit.");
+        return;
+      }
+      throw err;
+    }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
   },
 
@@ -328,6 +422,84 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!history) return [];
     const current = history.currentIndex();
     return history.entries().map((entry) => ({ ...entry, isCurrent: entry.index === current }));
+  },
+
+  registerRenderHost(host) {
+    set({ renderHost: host });
+  },
+
+  setPlayEngine(engine) {
+    if (get().playState !== "stopped") return;
+    set({ playEngine: engine });
+  },
+
+  async startPlay() {
+    const { renderHost, history, document, playEngine, pushToast, log } = get();
+    if (!renderHost || !history || !document || get().playState !== "stopped") return;
+
+    const controller = createPlayController({
+      renderHost,
+      getAudioHost: () => get().audioHost,
+      getDocumentJson: () => get().document!.json,
+      getBinary: () => {
+        const container = get().document!.container;
+        return container.kind === "glb" ? container.binaryChunk : undefined;
+      }
+    });
+
+    activePlayDiagnosticsUnsub = controller.onDiagnostic((d) => {
+      log(d.kind === "engine-error" ? "error" : "warn", `[play/${d.kind}]${d.pointer ? ` ${d.pointer}` : ""}: ${d.message}`);
+    });
+
+    try {
+      await controller.start({ engine: playEngine });
+    } catch (err) {
+      activePlayDiagnosticsUnsub?.();
+      activePlayDiagnosticsUnsub = null;
+      pushToast(`Play failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    activePlayController = controller;
+    history.freeze(); // DOC-031/DOC-045
+    set({ playState: "playing", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
+  },
+
+  pausePlay() {
+    if (get().playState !== "playing") return;
+    activePlayController?.pause();
+    set({ playState: "paused" });
+  },
+
+  resumePlay() {
+    if (get().playState !== "paused") return;
+    activePlayController?.resume();
+    set({ playState: "playing" });
+  },
+
+  tickOncePlay() {
+    activePlayController?.tickOnce();
+  },
+
+  async stopPlay() {
+    const { history } = get();
+    if (!activePlayController || !history) return;
+    await activePlayController.stop();
+    activePlayDiagnosticsUnsub?.();
+    activePlayDiagnosticsUnsub = null;
+    activePlayController = null;
+    history.unfreeze();
+    // Clear selection/hover on stop, mirroring startPlay()'s own reset: a selection made via the
+    // scene tree DURING play (allowed — it's not itself an edit, UX-113) is not a deliberate
+    // post-play editing choice, and resurrecting it here would otherwise let the viewport's gizmo
+    // silently reattach to that node the instant play ends (the gizmo-attach effect only checks
+    // `selectedNodeIndex`/`playState`, not how old the selection is) — right where `stop()`'s own
+    // `renderHost.loadScene()` restore (PC-007) just re-rendered that same node at its restored,
+    // on-screen position. A real pointer click landing there (e.g. a test or user re-confirming the
+    // restore by clicking the node again) can then be swallowed by TransformControls' own hit-testing
+    // as a spurious micro-drag, pushing an unwanted no-op SceneEdit.setTransform onto history instead
+    // of reaching the editor's own click-to-select handling.
+    set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
   },
 
   selectNode(index) {
