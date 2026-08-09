@@ -55,6 +55,9 @@ importers:
       '@gltf-studio/engine-api':
         specifier: workspace:*
         version: link:../engine-api
+      '@gltf-studio/engine-three':
+        specifier: workspace:*
+        version: link:../engine-three
       '@gltf-studio/storage':
         specifier: workspace:*
         version: link:../storage

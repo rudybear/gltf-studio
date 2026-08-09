@@ -13,7 +13,7 @@ import { create } from "zustand";
 import { parseContainer } from "@gltfi/gltf";
 import { createDocument, HistoryStack, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import { IndexedDBStorage } from "@gltf-studio/storage";
-import type { ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
+import type { GizmoMode, ProjectMeta, StorageProvider } from "@gltf-studio/engine-api";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
@@ -58,9 +58,21 @@ export interface AppState {
   history: HistoryStack | null;
   document: EditorDocument | null;
   journalSinceRev: number;
+  // `HistoryStack.canUndo()`/`canRedo()` read a mutable class instance, not
+  // reactive state on their own — mirrored into real store fields (updated
+  // wherever `history` mutates: dispatchCommand/undo/redo) so a component
+  // that doesn't otherwise re-render on that particular mutation (e.g.
+  // TopBar, which doesn't subscribe to `document`, and whose `projectDirty`
+  // may already be `true`) still sees the current value rather than a stale
+  // one from its last unrelated re-render.
+  canUndo: boolean;
+  canRedo: boolean;
 
   // -- selection (DOC-030: ephemeral only) --
   selectedNodeIndex: number | null;
+  // -- viewport hover + gizmo mode (DOC-030: ephemeral only; specs/ux-viewport.md UX-301/UX-304) --
+  hoveredNodeIndex: number | null;
+  gizmoMode: GizmoMode;
 
   // -- scene tree / asset browser ephemeral UI (UX-2xx) --
   collapsedNodes: Set<number>;
@@ -90,6 +102,8 @@ export interface AppState {
   redo(): void;
   historyEntries(): HistoryEntryView[];
   selectNode(index: number | null): void;
+  setHover(index: number | null): void;
+  setGizmoMode(mode: GizmoMode): void;
   toggleCollapsed(nodeIndex: number): void;
   toggleShowIndices(): void;
   setActiveAssetTab(tab: AssetTab): void;
@@ -118,8 +132,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   history: null,
   document: null,
   journalSinceRev: 0,
+  canUndo: false,
+  canRedo: false,
 
   selectedNodeIndex: null,
+  hoveredNodeIndex: null,
+  gizmoMode: "translate",
 
   collapsedNodes: new Set(),
   showIndices: false,
@@ -161,7 +179,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         history,
         document,
         journalSinceRev: document.rev,
+        canUndo: false,
+        canRedo: false,
         selectedNodeIndex: null,
+        hoveredNodeIndex: null,
         selectedAsset: null,
         dataPointer: "",
         collapsedNodes: new Set()
@@ -178,7 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { history, storage, projectId, journalSinceRev, log } = get();
     if (!history || !projectId) return;
     history.push(command);
-    set({ document: history.document, projectDirty: true });
+    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
     // SP-004/SP-014: autosave journal wiring — every applied command's
     // forward patches are appended to the project's journal so a crash
     // mid-session can replay back to the same state (SP-015).
@@ -191,23 +212,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { history } = get();
     if (!history || !history.canUndo()) return;
     history.undo();
-    set({ document: history.document, projectDirty: true });
+    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
   },
 
   redo() {
     const { history } = get();
     if (!history || !history.canRedo()) return;
     history.redo();
-    set({ document: history.document, projectDirty: true });
+    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
   },
 
   historyEntries() {
-    // HistoryStack does not expose its log directly (only canUndo/canRedo +
-    // the current document) — v1 has no UI path that pushes commands yet
-    // (UX-206: the add-menu is a stub), so there is nothing to enumerate.
-    // This returns an empty list honestly rather than fabricating entries;
-    // the dropdown renders "No history yet." for an empty list.
-    return [];
+    // DOC-039: HistoryStack.entries()/currentIndex() are real as of the M2
+    // viewport-integration PR (gizmo commits, SceneEdit.setTransform, are
+    // the first UI path that pushes a Command — UX-206's scene-tree
+    // add-menu remains a stub deferred to M8's structural scene editing).
+    const { history } = get();
+    if (!history) return [];
+    const current = history.currentIndex();
+    return history.entries().map((entry) => ({ ...entry, isCurrent: entry.index === current }));
   },
 
   selectNode(index) {
@@ -216,6 +239,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       // UX-202/UX-805: passive update — does not force-switch the dock tab.
       get().navigateData(`/nodes/${index}`);
     }
+  },
+
+  setHover(index) {
+    set({ hoveredNodeIndex: index });
+  },
+
+  setGizmoMode(mode) {
+    set({ gizmoMode: mode });
   },
 
   toggleCollapsed(nodeIndex) {

@@ -69,6 +69,9 @@ export class ThreeRenderHost implements RenderHost {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private highlightHelpers: THREE.BoxHelper[] = [];
+  private highlightedNodeIndices = new Set<number>();
+  private hoverHelpers: THREE.BoxHelper[] = [];
+  private lastHoverIndices: number[] = [];
 
   private gizmo: TransformControls | null = null;
   private gizmoNodeIndex: number | null = null;
@@ -81,6 +84,15 @@ export class ThreeRenderHost implements RenderHost {
     this.controls?.update();
     for (const helper of this.highlightHelpers) {
       helper.update();
+    }
+    for (const helper of this.hoverHelpers) {
+      helper.update();
+      // BoxHelper.update() rebuilds its LineSegments geometry from the
+      // tracked object's current bounding box every frame; a dashed
+      // LineDashedMaterial needs computeLineDistances() re-run against that
+      // fresh geometry too, or the dash pattern goes stale/wrong as soon as
+      // the object (or camera) moves.
+      helper.computeLineDistances();
     }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
@@ -179,6 +191,14 @@ export class ThreeRenderHost implements RenderHost {
       helper.dispose();
     }
     this.highlightHelpers = [];
+    this.highlightedNodeIndices = new Set();
+
+    for (const helper of this.hoverHelpers) {
+      this.scene!.remove(helper);
+      helper.dispose();
+    }
+    this.hoverHelpers = [];
+    this.lastHoverIndices = [];
 
     if (this.gizmo) {
       this.scene!.remove(this.gizmo.getHelper());
@@ -238,6 +258,13 @@ export class ThreeRenderHost implements RenderHost {
       helper.dispose();
     }
     this.highlightHelpers = [];
+    this.highlightedNodeIndices = new Set();
+    for (const helper of this.hoverHelpers) {
+      this.scene.remove(helper);
+      helper.dispose();
+    }
+    this.hoverHelpers = [];
+    this.lastHoverIndices = [];
     this.gizmo?.detach();
     this.gizmoNodeIndex = null;
 
@@ -392,6 +419,15 @@ export class ThreeRenderHost implements RenderHost {
     this.gizmoNodeIndex = nodeIndex;
   }
 
+  /** RH-025: removes any attached gizmo; a no-op when none is attached. */
+  detachGizmo(): void {
+    if (!this.gizmo) {
+      return;
+    }
+    this.gizmo.detach();
+    this.gizmoNodeIndex = null;
+  }
+
   onGizmoChange(handler: (event: GizmoChangeEvent) => void): () => void {
     this.gizmoChangeHandlers.add(handler);
     return () => {
@@ -439,17 +475,62 @@ export class ThreeRenderHost implements RenderHost {
       helper.dispose();
     }
     this.highlightHelpers = [];
+    this.highlightedNodeIndices = new Set(nodeIndices);
+    if (this.tables) {
+      for (const nodeIndex of nodeIndices) {
+        const object = this.tables.nodeByIndex[nodeIndex];
+        if (!object) {
+          continue;
+        }
+        const helper = new THREE.BoxHelper(object, 0xffaa00);
+        this.scene.add(helper);
+        this.highlightHelpers.push(helper);
+      }
+    }
+    // UX-301: hover is only shown for objects that are NOT the current
+    // selection — re-apply it now in case setHighlight just made the
+    // hovered node the selection (or vice versa).
+    this.applyHover(this.lastHoverIndices);
+  }
+
+  /**
+   * Not part of the RenderHost interface (see specs/render-host.md's M2
+   * DECISION note) — a dashed-outline visual for specs/ux-viewport.md's
+   * UX-301 (hover), kept distinct from setHighlight's solid one (RH-022's
+   * highlighted set is deliberately style-agnostic at the interface level).
+   * Indices already present in the current highlight set are skipped so a
+   * hovered-AND-selected object shows only the solid selection outline.
+   */
+  setHover(nodeIndices: number[]): void {
+    this.lastHoverIndices = nodeIndices;
+    this.applyHover(nodeIndices);
+  }
+
+  private applyHover(nodeIndices: number[]): void {
+    if (!this.scene) {
+      return;
+    }
+    for (const helper of this.hoverHelpers) {
+      this.scene.remove(helper);
+      helper.dispose();
+    }
+    this.hoverHelpers = [];
     if (!this.tables) {
       return;
     }
     for (const nodeIndex of nodeIndices) {
+      if (this.highlightedNodeIndices.has(nodeIndex)) {
+        continue;
+      }
       const object = this.tables.nodeByIndex[nodeIndex];
       if (!object) {
         continue;
       }
-      const helper = new THREE.BoxHelper(object, 0xffaa00);
+      const helper = new THREE.BoxHelper(object, 0x4d9dff);
+      helper.computeLineDistances();
+      helper.material = new THREE.LineDashedMaterial({ color: 0x4d9dff, dashSize: 0.08, gapSize: 0.06 });
       this.scene.add(helper);
-      this.highlightHelpers.push(helper);
+      this.hoverHelpers.push(helper);
     }
   }
 
@@ -475,12 +556,61 @@ export class ThreeRenderHost implements RenderHost {
   }
 
   // ---------------------------------------------------------------------
+  // Camera framing (not part of the RenderHost interface — see
+  // specs/render-host.md's M2 DECISION note). Backs specs/ux-viewport.md's
+  // UX-308 "Frame selected" toolbar control.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Test-only (not part of the RenderHost interface): true once a `loadScene`
+   * call has resolved and stayed current (RH-008's "last writer wins" — a
+   * superseded in-flight call never flips this). Callers that need to know
+   * whether e.g. `attachGizmo`/`pick` will see real geometry yet — without
+   * threading their own copy of `loadScene`'s promise around — can poll this
+   * instead of guessing from `mount()` having been called.
+   */
+  isReady(): boolean {
+    return this.tables !== null;
+  }
+
+  /** Frames `nodeIndex`'s bounding box, or the whole loaded scene when `nodeIndex` is null (UX-308, including its now-resolved no-selection case). */
+  frameNode(nodeIndex: number | null): void {
+    if (!this.camera || !this.modelRoot) {
+      return;
+    }
+    const target = nodeIndex !== null ? this.tables?.nodeByIndex[nodeIndex] : undefined;
+    frameCameraOnObject(this.camera, this.controls?.target, target ?? this.modelRoot);
+    this.controls?.update();
+  }
+
+  // ---------------------------------------------------------------------
   // Test-only introspection (not part of the RenderHost interface).
   // ---------------------------------------------------------------------
 
   /** three.js-specific GPU-resource counters, for leak-discipline tests (RH-008) and a future viewport HUD. */
   getRendererStats(): RendererStats | null {
     return this.renderer ? { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures } : null;
+  }
+
+  /**
+   * Test-only (see specs/render-host.md's M2 DECISION note): simulates a
+   * completed TransformControls drag gesture WITHOUT real pointer input —
+   * moves the currently-attached gizmo's object by `delta` (world-space
+   * translation) and re-fires the exact internal events a real drag would
+   * (`objectChange` then `dragging-changed` with `value: false`), so
+   * `onGizmoChange`'s real "drag"-then-"commit" emission (RH-003) runs
+   * unmodified. Returns false (does nothing) if no gizmo is attached.
+   */
+  simulateGizmoDrag(delta: [number, number, number]): boolean {
+    if (!this.gizmo?.object) {
+      return false;
+    }
+    this.gizmo.object.position.x += delta[0];
+    this.gizmo.object.position.y += delta[1];
+    this.gizmo.object.position.z += delta[2];
+    this.gizmo.dispatchEvent({ type: "objectChange" });
+    this.gizmo.dispatchEvent({ type: "dragging-changed", value: false });
+    return true;
   }
 }
 

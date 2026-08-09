@@ -28,6 +28,7 @@ export const renderHostContractObligations: string[] = [
   "getCameraPose/setCameraPose round-trip position and rotation (RH-016, RH-017)",
   "attachGizmo accepts a GizmoMode of translate, rotate, or scale (RH-018)",
   "attachGizmo while a gizmo is already attached replaces it without an explicit detach (RH-019)",
+  "detachGizmo removes any attached gizmo and is a no-op when none is attached (RH-025)",
   'attachGizmo + onGizmoChange emits phase "drag" while dragging and phase "commit" exactly once on release (RH-003)',
   "applyPointer writes the given pointer/value without requiring a reload (RH-020)",
   "applyPointer does not create a HistoryStack entry (RH-021)",
@@ -360,6 +361,16 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       host.attachGizmo(FIXTURE_HIT_NODE_INDEX, "translate");
       expect(() => host.attachGizmo(FIXTURE_DECOY_NODE_INDEX, "rotate")).not.toThrow();
       expect(() => host.attachGizmo(FIXTURE_HIT_NODE_INDEX, "scale")).not.toThrow();
+      teardown(host, container);
+    });
+
+    test("detachGizmo removes any attached gizmo and is a no-op when none is attached (RH-025)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await loadFixture(host);
+      expect(() => host.detachGizmo()).not.toThrow(); // no gizmo attached yet
+      host.attachGizmo(FIXTURE_HIT_NODE_INDEX, "translate");
+      expect(() => host.detachGizmo()).not.toThrow();
+      expect(() => host.detachGizmo()).not.toThrow(); // idempotent
       teardown(host, container);
     });
 

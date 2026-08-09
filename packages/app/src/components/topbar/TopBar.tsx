@@ -15,7 +15,8 @@ export function TopBar(): JSX.Element {
   const projectName = useAppStore((s) => s.projectName);
   const projectDirty = useAppStore((s) => s.projectDirty);
   const importGlb = useAppStore((s) => s.importGlb);
-  const history = useAppStore((s) => s.history);
+  const canUndo = useAppStore((s) => s.canUndo);
+  const canRedo = useAppStore((s) => s.canRedo);
   const undo = useAppStore((s) => s.undo);
   const redo = useAppStore((s) => s.redo);
   const historyDropdownOpen = useAppStore((s) => s.historyDropdownOpen);
@@ -37,9 +38,6 @@ export function TopBar(): JSX.Element {
     const bytes = new Uint8Array(await file.arrayBuffer());
     await importGlb({ name: file.name, bytes });
   }
-
-  const canUndo = history?.canUndo() ?? false;
-  const canRedo = history?.canRedo() ?? false;
 
   return (
     <div id="topbar" data-testid="topbar.panel">
