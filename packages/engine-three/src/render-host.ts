@@ -346,6 +346,26 @@ export class ThreeRenderHost implements RenderHost {
     return null;
   }
 
+  /**
+   * Not part of the RenderHost interface (see specs/render-host.md's M2
+   * DECISION note) — lets Viewport.tsx suppress OrbitControls entirely for
+   * the first few pixels of a pointer gesture. OrbitControls has no
+   * click-vs-drag threshold of its own: it starts rotating/panning the
+   * camera on the very first `pointermove` after `pointerdown`, however
+   * small. A real mouse or trackpad essentially never holds pixel-perfect
+   * still between press and release, so without this, the camera has
+   * already rotated a fraction of a degree away from the pose the user was
+   * looking at by the time their "click" reaches `pick()` — enough to miss
+   * whatever appeared to be right under the cursor (the actual cause of
+   * "clicking objects in the viewport doesn't select them"). A no-op when
+   * `mount()` hasn't run yet (no `controls` to toggle).
+   */
+  setControlsEnabled(enabled: boolean): void {
+    if (this.controls) {
+      this.controls.enabled = enabled;
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Camera pose (RH-016, RH-017)
   // ---------------------------------------------------------------------

@@ -88,6 +88,36 @@ export function Viewport(): JSX.Element {
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
 
+  // Click-vs-orbit-drag threshold (root cause of the "can't select objects
+  // in the viewport" bug): OrbitControls has NO minimum-drag distance of its
+  // own — it starts rotating (or, on the right button, panning) the camera
+  // from the very first `pointermove` after `pointerdown`, however small. A
+  // synthetic `page.mouse.click()` moves to the target and presses/releases
+  // with zero intervening movement, so e2e never saw this; a real mouse or
+  // trackpad essentially never holds pixel-perfect still between press and
+  // release, so without the guards below the camera has already rotated a
+  // few fractions of a degree away from the pose the user was looking at by
+  // the time `pick()` runs — enough to miss whatever appeared to be right
+  // under the cursor. Two cooperating fixes, both keyed off the same
+  // pointerdown position:
+  //  1. `onPointerDown` disables OrbitControls immediately; `onPointerMove`
+  //     re-enables it only once the gesture has moved past the threshold
+  //     (`thresholdCrossed`). Below the threshold OrbitControls never sees a
+  //     live pointermove at all, so the camera genuinely does not move —
+  //     small jitter no longer desyncs the click from what's on screen.
+  //  2. `wasDrag` (used by `onClick`/`onContextMenu`) still bails out of
+  //     selection/context-menu handling for a gesture that DID cross the
+  //     threshold — a deliberate orbit drag still fires a native "click" at
+  //     the drop point, which must not also change the selection there.
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+  const thresholdCrossed = useRef(false);
+  const CLICK_DRAG_THRESHOLD_PX = 5;
+  function wasDrag(e: { clientX: number; clientY: number }): boolean {
+    const down = pointerDownPos.current;
+    if (!down) return false;
+    return Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_DRAG_THRESHOLD_PX;
+  }
+
   const mountRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<ThreeRenderHost | null>(null);
   if (!hostRef.current) {
@@ -126,6 +156,31 @@ export function Viewport(): JSX.Element {
       host.dispose();
     };
   }, [registerRenderHost]);
+
+  // Click-vs-drag threshold cleanup (see `pointerDownPos`'s doc comment
+  // above): a real `addEventListener("pointerup", ...)` on `window`, NOT a
+  // JSX `onPointerUp` prop on the mount div — a JSX handler only fires when
+  // the pointerup's target is that div or a descendant, but a real drag
+  // gesture routinely ends with the pointer released somewhere else
+  // entirely (over the scene tree, outside the browser chrome's tracked
+  // area, etc.). Without this being global, a release outside the div would
+  // leave OrbitControls permanently disabled.
+  //
+  // Deliberately does NOT clear `pointerDownPos` — native event order is
+  // pointerup -> mouseup -> click, so this handler always runs BEFORE the
+  // "click" (or "contextmenu") event `wasDrag()` needs it for; clearing it
+  // here would make every drag look like a fresh, zero-distance click by
+  // the time `onClick` inspects it, defeating the "a real orbit drag must
+  // not also reselect/deselect at the drop point" half of the fix.
+  // `onClick`/`onContextMenu` clear it themselves once they've consumed it.
+  useEffect(() => {
+    function onWindowPointerUp(): void {
+      thresholdCrossed.current = false;
+      hostRef.current?.setControlsEnabled(true);
+    }
+    window.addEventListener("pointerup", onWindowPointerUp);
+    return () => window.removeEventListener("pointerup", onWindowPointerUp);
+  }, []);
 
   // Load / patch the scene as the store's document changes. `history`'s own
   // identity is stable for the life of one project — it only changes when a
@@ -287,8 +342,30 @@ export function Viewport(): JSX.Element {
     return [x, y];
   }
 
+  // Disabling OrbitControls here relies on browser event order: OrbitControls'
+  // own native listener is bound directly to the canvas (the actual pointerdown
+  // TARGET), so it always runs before this React handler, which is invoked
+  // during the bubble phase on this ancestor `#viewport-mount` div — by the
+  // time `setControlsEnabled(false)` below takes effect, OrbitControls has
+  // already recorded its rotate/pan start position but has not yet reacted to
+  // any pointermove (none has been dispatched yet; JS is single-threaded), so
+  // no rotation has happened. Its very next pointermove — however soon that
+  // fires — will see `enabled === false` and no-op.
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>): void {
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+    thresholdCrossed.current = false;
+    hostRef.current?.setControlsEnabled(false);
+  }
+
   function onClick(e: React.PointerEvent<HTMLDivElement>): void {
+    // Consume this gesture's pointerDownPos now, unconditionally: `wasDrag`
+    // needs it (native order is pointerdown -> ... -> pointerup -> click, so
+    // it's still the position from THIS gesture's press), but it must not
+    // leak into the next one.
+    const dragged = wasDrag(e);
+    pointerDownPos.current = null;
     if (!document) return;
+    if (dragged) return; // an orbit drag, not a click-to-select (see pointerDownPos's doc comment above).
     const [x, y] = ndcFromEvent(e);
     const result = hostRef.current?.pick(x, y) ?? null;
     if (playState !== "stopped") {
@@ -304,6 +381,16 @@ export function Viewport(): JSX.Element {
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>): void {
     if (!document) return;
+    // Mid-gesture (a button is down): once movement crosses the click/drag
+    // threshold, this IS a deliberate orbit drag — hand the pointer back to
+    // OrbitControls (disabled by `onPointerDown` above) so the rest of the
+    // drag orbits/pans normally. Below the threshold this intentionally does
+    // nothing, leaving OrbitControls disabled — see the fix's doc comment
+    // above `pointerDownPos`.
+    if (pointerDownPos.current && !thresholdCrossed.current && wasDrag(e)) {
+      thresholdCrossed.current = true;
+      hostRef.current?.setControlsEnabled(true);
+    }
     const [x, y] = ndcFromEvent(e);
     const result = hostRef.current?.pick(x, y) ?? null;
     if (playState !== "stopped") {
@@ -333,7 +420,12 @@ export function Viewport(): JSX.Element {
   // whichever object is actually under the cursor rather than falling back
   // to the current selection.
   function onContextMenu(e: React.MouseEvent<HTMLDivElement>): void {
+    // See onClick's identical pattern: consume + clear pointerDownPos now,
+    // unconditionally, so it can't leak into the next gesture.
+    const dragged = wasDrag(e);
+    pointerDownPos.current = null;
     if (!document || playState !== "stopped") return;
+    if (dragged) return; // an orbit pan (OrbitControls' default right-button action), not a context-menu request.
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
@@ -381,6 +473,7 @@ export function Viewport(): JSX.Element {
         data-testid="viewport.mount"
         ref={mountRef}
         className={hoveredNodeIndex !== null ? "hover-pickable" : undefined}
+        onPointerDown={onPointerDown}
         onClick={onClick}
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
