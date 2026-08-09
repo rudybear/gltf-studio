@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { WebAudioHost } from "@gltf-studio/audio-webaudio";
 import { useAppStore, PANEL_BOUNDS } from "./store/app-store";
-import { extractBinaryChunk } from "./lib/audio-container.js";
+import { attachAudioHost } from "./lib/audio-host-lifecycle.js";
 import { TopBar } from "./components/topbar/TopBar";
 import { LockedBanner } from "./components/topbar/LockedBanner";
 import { LeftPanel } from "./components/LeftPanel";
@@ -50,40 +50,51 @@ export interface GltfStudioAudioTestHook {
 export function App(): JSX.Element {
   const themeOverride = useAppStore((s) => s.themeOverride);
   const setPanelSize = useAppStore((s) => s.setPanelSize);
-  // Named `editorDocument` (not `document`) — this component also uses the
-  // real DOM `document` global below (`document.documentElement`'s
-  // theme-attribute effect, pre-existing).
-  const editorDocument = useAppStore((s) => s.document);
+  const history = useAppStore((s) => s.history);
   const registerAudioHost = useAppStore((s) => s.registerAudioHost);
 
-  // M7 (specs/engine-api.md AH-001/AH-002): a fresh WebAudioHost per
-  // document, registered on the store's `audioHost` field ("emitters host
-  // always" — loaded whether or not the document turns out to declare a
+  // M7 (specs/engine-api.md AH-001/AH-002; fixed per specs/ux-shell.md's
+  // M7 "audio-host-keying fix" follow-up): one WebAudioHost per
+  // `HistoryStack` instance -- i.e. per PROJECT, not per `EditorDocument` --
+  // registered on the store's `audioHost` field ("emitters host always" —
+  // loaded whether or not the document turns out to declare a
   // KHR_audio_emitter extension; WebAudioHost.loadEmitters is a safe no-op
   // when it doesn't, per AudioSystem.hasAudio's original gate, now just an
-  // early-return inside buildFromDocument). NOT gesture-gated here —
-  // `loadEmitters` itself never creates an AudioContext (AH-001 is
-  // `init()`'s obligation, called lazily on the inspector's first Audition
-  // click, see AudioSection.tsx). Mirrors Viewport.tsx's per-document
-  // RenderHost lifecycle (mount/loadScene effect) but for audio instead of
-  // rendering, and lives here (not Viewport.tsx) since it has nothing to do
-  // with the render canvas.
+  // early-return inside buildFromDocument). `attachAudioHost`
+  // (lib/audio-host-lifecycle.ts) does the initial load and re-loads on
+  // every subsequent `history.onApply` (DOC-040, real push/undo/redo only).
+  // Originally this effect was keyed on `editorDocument` (the store's
+  // `document` field) instead of `history`, which was a bug: `startPlay`/
+  // `stopPlay` (DOC-031/DOC-045) call `history.freeze()`/`unfreeze()`,
+  // which produce a NEW `EditorDocument` object (via `{...document, frozen:
+  // ...}`) with the same `json`/`container`/`rev` -- so entering play mode
+  // re-triggered this effect, disposing the live `WebAudioHost` (and
+  // losing any `AudioContext` a pre-play Audition gesture had already
+  // created on it, since AH-001 gesture-gates `init()` and a fresh host
+  // can't resume without a brand-new gesture) and silently replacing it
+  // with an idle one. `history`'s own identity is stable for the life of
+  // one project (only replaced by a brand-new `new HistoryStack(...)` when
+  // a project is imported, never by freeze/unfreeze), so keying on it
+  // instead makes play-mode start/stop invisible to this effect entirely --
+  // mirrors Viewport.tsx's own `history`/`onApply`-keyed RenderHost
+  // lifecycle. NOT gesture-gated here either way — `loadEmitters` itself
+  // never creates an AudioContext (AH-001 is `init()`'s obligation, called
+  // lazily on the inspector's first Audition click, see AudioSection.tsx).
   useEffect(() => {
-    if (!editorDocument) {
+    if (!history) {
       registerAudioHost(undefined);
       return;
     }
     const host = new WebAudioHost();
-    const binary = extractBinaryChunk(editorDocument.container);
-    void host.loadEmitters({ json: editorDocument.json, binary });
+    const teardown = attachAudioHost(history, host);
     registerAudioHost(host);
     window.__gltfStudioAudioTest = { diagnostics: () => host.getDiagnostics() };
     return () => {
       delete window.__gltfStudioAudioTest;
-      host.dispose();
+      teardown();
       registerAudioHost(undefined);
     };
-  }, [editorDocument, registerAudioHost]);
+  }, [history, registerAudioHost]);
 
   // UX-104/UX-105: no explicit override on first load (CSS's own
   // prefers-color-scheme media query handles that live); once the user
