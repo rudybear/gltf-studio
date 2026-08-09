@@ -55,6 +55,10 @@ Prefix: `SP`. Numbers below continue from the two IDs seeded in `specs/engine-ap
 - [SP-019] (active) A File-System-Access-backed provider's method rejects with a `StorageError` whose `kind` is `"permission-revoked"` when the underlying file handle's permission has been revoked since it was granted.
 - [SP-020] (active) `StorageError` is a distinct error type carrying a `kind` field drawn from the fixed `StorageErrorKind` enum, so callers can branch on error kind rather than string-matching messages.
 
+## Implementation notes
+
+- (specs/ux-shell.md UX-117) `packages/storage/src/directory-resolve.ts`'s `resolveUrisFromDirectory`/`listFilesRecursive` are NOT part of the `StorageProvider` interface itself — they're a standalone helper operating on the same `DirectoryHandleLike` (`fs-handle-types.ts`) shape `FileSystemAccessStorage` (SP-013's `capabilities.fileHandles: true` implementation) already accepts, reused by `packages/app`'s missing-files dialog to resolve a `.gltf` import's unresolved external references against a `window.showDirectoryPicker()`-granted directory. Added here (rather than a new spec file) since it lives in this package and shares its `DirectoryHandleLike` structural typing/test-shim conventions (`fs-test-shim.ts`'s `MemoryDirectoryHandle`, reused directly by `directory-resolve.test.ts`) — it does not change `StorageProvider`'s own interface or any `SP-###` requirement above.
+
 ## Open questions
 
 - OPEN: `listProjects()`'s result ordering (e.g. by `updatedAt`, `createdAt`, `name`, or raw insertion order) is not specified by the plan. SP-005/SP-006 pin down id uniqueness/stability but not list order.
