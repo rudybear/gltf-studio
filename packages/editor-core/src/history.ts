@@ -5,7 +5,7 @@
 // the frozen-document check (DOC-031) for free rather than re-implementing
 // them.
 import { applyCommand, type EditorDocument } from "./document.js";
-import type { Command } from "./command.js";
+import type { Command, JsonPatchOp } from "./command.js";
 import { makeCommandId } from "./command.js";
 
 /** One undo/redo-log slot: 1+ commands coalesced/transacted into a single step. */
@@ -25,6 +25,7 @@ export class HistoryStack {
   #redoLog: HistoryEntry[] = [];
   #transactDepth = 0;
   #transactBuffer: Command[] | null = null;
+  #applyHandlers = new Set<(patches: JsonPatchOp[]) => void>();
 
   constructor(initialDocument: EditorDocument) {
     this.#document = initialDocument;
@@ -55,6 +56,7 @@ export class HistoryStack {
    */
   push(command: Command): void {
     this.#document = applyCommand(this.#document, command);
+    this.#notifyApply(command.patches);
 
     if (this.#transactDepth > 0) {
       this.#transactBuffer!.push(command);
@@ -81,6 +83,7 @@ export class HistoryStack {
     const entry = this.#undoLog.pop()!;
     const undoCommand = entryToCommand(entry, "undo");
     this.#document = applyCommand(this.#document, undoCommand);
+    this.#notifyApply(undoCommand.patches);
     this.#redoLog.push(entry);
   }
 
@@ -90,7 +93,46 @@ export class HistoryStack {
     const entry = this.#redoLog.pop()!;
     const redoCommand = entryToCommand(entry, "redo");
     this.#document = applyCommand(this.#document, redoCommand);
+    this.#notifyApply(redoCommand.patches);
     this.#undoLog.push(entry);
+  }
+
+  /**
+   * DOC-039: every undo-log and redo-log entry (one per coalesced/transacted
+   * push), in chronological push order — independent of how many of them
+   * have since been undone — each exposing a representative `label` (its
+   * first command's `Command.label`) and its zero-based `index` in that
+   * order.
+   */
+  entries(): ReadonlyArray<{ label: string; index: number }> {
+    const chronological = [...this.#undoLog, ...this.#redoLog.slice().reverse()];
+    return chronological.map((entry, index) => ({ label: entry.commands[0].label, index }));
+  }
+
+  /** DOC-039: the index (within `entries()`) of the most recently applied entry, or -1 if none has been applied yet. */
+  currentIndex(): number {
+    return this.#undoLog.length - 1;
+  }
+
+  /**
+   * DOC-040: registers a callback invoked, after `push`/`undo`/`redo` mutates
+   * `document`, with exactly the forward-direction `JsonPatchOp[]` just
+   * applied to reach the new `document.json` (the command's `patches` for
+   * `push`/`redo`, its `inverse` for `undo`) — e.g. a `RenderHost` sync layer
+   * can apply the same delta via `patchScene` without recomputing a diff.
+   * Returns an unsubscribe function.
+   */
+  onApply(handler: (patches: JsonPatchOp[]) => void): () => void {
+    this.#applyHandlers.add(handler);
+    return () => {
+      this.#applyHandlers.delete(handler);
+    };
+  }
+
+  #notifyApply(patches: JsonPatchOp[]): void {
+    for (const handler of this.#applyHandlers) {
+      handler(patches);
+    }
   }
 
   /**

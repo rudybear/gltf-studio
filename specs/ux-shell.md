@@ -66,6 +66,12 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
 
 ## Open questions
 
+- OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one
+  marked, but says nothing about clicking a non-current entry — whether that should jump (undo/redo
+  to that point, the common DCC-app convention) or is inert. M2's `packages/app` implementation
+  (`HistoryDropdown`, real as of the viewport-integration PR) renders the list read-only pending
+  this decision — entries are not clickable — rather than guessing at jump semantics `UX-108` does
+  not commit to.
 - OPEN(UX-theme-reset-tbd): once an explicit theme override (`UX-105`) is set, there is no
   specified way to return to following `prefers-color-scheme` again short of toggling back and
   forth manually; whether a "follow system" third state is needed is deferred.

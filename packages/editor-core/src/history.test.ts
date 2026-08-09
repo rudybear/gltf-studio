@@ -168,4 +168,62 @@ describe("HistoryStack", () => {
     expect(nodeName(stack, 0)).toBe("Alpha");
     expect(stack.canUndo()).toBe(false);
   });
+
+  describe("entries()/currentIndex() (DOC-039)", () => {
+    it("lists pushed entries in order with the current index at the top", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      expect(stack.entries()).toEqual([]);
+      expect(stack.currentIndex()).toBe(-1);
+
+      stack.push(setName(0, "A1", "Alpha"));
+      stack.push(setName(1, "B1", "Beta"));
+      expect(stack.entries().map((e) => e.label)).toEqual(["Set name 0", "Set name 1"]);
+      expect(stack.entries().map((e) => e.index)).toEqual([0, 1]);
+      expect(stack.currentIndex()).toBe(1);
+    });
+
+    it("undo moves currentIndex back without shrinking the entry list; a later push truncates it (DOC-017)", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      stack.push(setName(0, "A1", "Alpha"));
+      stack.push(setName(1, "B1", "Beta"));
+      stack.undo();
+      expect(stack.entries()).toHaveLength(2); // the undone entry is still listed...
+      expect(stack.currentIndex()).toBe(0); // ...just no longer current
+
+      stack.push(setName(1, "B2", "Beta")); // discards the redo-log entry (DOC-017)
+      expect(stack.entries()).toHaveLength(2);
+      expect(stack.entries().map((e) => e.label)).toEqual(["Set name 0", "Set name 1"]);
+      expect(stack.currentIndex()).toBe(1);
+    });
+
+    it("a coalesced group of pushes is one entry (DOC-015)", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      stack.push(setName(0, "A1", "Alpha", "rename-0"));
+      stack.push(setName(0, "A2", "A1", "rename-0"));
+      expect(stack.entries()).toHaveLength(1);
+      expect(stack.currentIndex()).toBe(0);
+    });
+  });
+
+  describe("onApply() (DOC-040)", () => {
+    it("fires with the forward patches for push, the inverse for undo, and the patches again for redo", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      const seen: unknown[] = [];
+      const unsubscribe = stack.onApply((patches) => seen.push(patches));
+
+      const command = setName(0, "Zed", "Alpha");
+      stack.push(command);
+      expect(seen).toEqual([command.patches]);
+
+      stack.undo();
+      expect(seen).toEqual([command.patches, command.inverse]);
+
+      stack.redo();
+      expect(seen).toEqual([command.patches, command.inverse, command.patches]);
+
+      unsubscribe();
+      stack.push(setName(1, "B1", "Beta"));
+      expect(seen).toHaveLength(3); // no further notifications after unsubscribe
+    });
+  });
 });

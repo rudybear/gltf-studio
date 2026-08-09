@@ -74,6 +74,10 @@ export interface RenderHost {
 
   /** RH-018/RH-019: attaches/replaces a gizmo of the given mode on the node. */
   attachGizmo(nodeIndex: number, mode: GizmoMode): void;
+
+  /** RH-025: removes any currently-attached gizmo; a no-op (not a throw) when none is attached. */
+  detachGizmo(): void;
+
   onGizmoChange(handler: (event: GizmoChangeEvent) => void): () => void;
 
   // RESOLVED(RH-pointer-value-tbd) at the engine-api (interface) layer:

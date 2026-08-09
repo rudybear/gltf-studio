@@ -44,9 +44,10 @@ Prefix: `UX`. This file owns the `UX-3xx` block.
 
 ## Open questions
 
-- OPEN(UX-frame-empty-tbd): `UX-308`'s behavior when no node is currently selected (frame the
-  whole scene? no-op? disabled control?) is not specified by the approved mockup, which always
-  shows the same toast regardless of selection state.
+- RESOLVED(UX-frame-empty-tbd) (by `packages/app`, M2): `UX-308`'s "Frame selected" control frames
+  the current selection's bounding box when a node is selected, and the whole loaded scene's
+  bounding box when nothing is selected (never a no-op, never disabled) — `ThreeRenderHost.frameNode`
+  (see `specs/render-host.md`'s M2 DECISION note) takes the node index or `null` accordingly.
 - OPEN(RH-snapshot-vs-restore-tbd, carried from `specs/render-host.md`): `UX-310`'s "reloads the
   pre-play scene snapshot" language follows `PC-003`'s contract as written; `specs/render-host.md`'s
   own open question about `snapshot()` (an image) vs. full scene-state restore is unresolved there

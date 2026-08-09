@@ -2,7 +2,7 @@
   "name": "@gltf-studio/app",
   "version": "0.0.1",
   "private": true,
-  "description": "Editor app shell (specs/ux-shell.md UX-1xx, specs/ux-scene-tree.md UX-2xx, specs/ux-data-tab.md UX-8xx): top bar, scene tree, viewport placeholder, inspector, bottom dock (Console + Data tab real; Behavior/Audio/Script graph tabs are M2 placeholders).",
+  "description": "Editor app shell (specs/ux-shell.md UX-1xx, specs/ux-scene-tree.md UX-2xx, specs/ux-viewport.md UX-3xx, specs/ux-data-tab.md UX-8xx): top bar, scene tree, real engine-three viewport (selection, hover, gizmo), inspector, bottom dock (Console + Data tab real; Behavior/Audio/Script graph tabs are M2 placeholders).",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
   "dependencies": {
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",
+    "@gltf-studio/engine-three": "workspace:*",
     "@gltf-studio/storage": "workspace:*",
     "@gltfi/gltf": "0.0.1",
     "react": "^18.3.1",
