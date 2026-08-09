@@ -15,9 +15,11 @@ import { Placeholder } from "./Placeholder";
  * other way to read `extensions.KHR_interactivity` out of the live document
  * (the Data tab's breadcrumb navigation is scoped to DOC-038's canonical
  * splice roots, not a general-purpose pointer inspector). Attached/detached
- * alongside this panel's own mount — switching dock tabs unmounts it, which
- * is itself part of what e2e/graph-canvas.spec.ts's "survives tab-switch
- * re-render" case exercises.
+ * alongside this panel's own mount — BottomDock.tsx keeps this component
+ * mounted (merely hidden via CSS) across dock-tab switches per UX-103, so in
+ * practice this only unmounts when the whole app does; still installed via
+ * an effect (not eagerly) so it never outlives an unmount some future
+ * BottomDock change might reintroduce.
  */
 export interface GltfStudioGraphTestHook {
   getDocumentJson(): unknown;

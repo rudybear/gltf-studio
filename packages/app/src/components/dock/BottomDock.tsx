@@ -29,7 +29,16 @@ export function BottomDock(): JSX.Element {
         ))}
       </div>
       <div className="dock-content">
-        {active === "graph" && <BehaviorGraphPanel />}
+        {/* UX-103: switching tabs must not reset the tab being left's own state (e.g.
+            "graph canvas scroll position" is UX-103's own example) — the behavior-graph
+            canvas has real local view state (React Flow pan/zoom, palette search/collapse)
+            that a conditional-mount/unmount would discard on every tab switch, so it's kept
+            mounted and merely hidden instead. The other tabs are stateless placeholders or
+            keep their state in the store (Console/Data), so a plain conditional mount is
+            still correct for them. */}
+        <div style={{ display: active === "graph" ? "contents" : "none" }}>
+          <BehaviorGraphPanel />
+        </div>
         {active === "audio-graph" && <Placeholder testId="audio-graph.panel" text="Audio graph canvas arrives in a later milestone." />}
         {active === "script" && <Placeholder testId="script.panel" text="Script view arrives in a later milestone." />}
         {active === "console" && <ConsolePanel />}
