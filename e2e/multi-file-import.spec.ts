@@ -87,8 +87,12 @@ test.describe("multi-file .gltf import (UX-115)", () => {
     await expect.poll(() => audioDiagnostics(page)).toBe("audio idle"); // AH-001: no AudioContext before the gesture below.
     await page.getByTestId("inspector.audio.audition").click();
     await expect.poll(() => audioDiagnostics(page)).toContain("running");
+    // decodeAudioData is async and can lag slightly behind the context
+    // flipping to "running" (especially under concurrent e2e workers each
+    // driving real Web Audio/WebGL work) -- poll rather than a single
+    // synchronous read right after "running" appears.
+    await expect.poll(() => audioDiagnostics(page)).toContain("1 buffer");
     const diagnostics = await audioDiagnostics(page);
-    expect(diagnostics).toContain("1 buffer");
     expect(diagnostics).toContain("1 emitter");
   });
 
