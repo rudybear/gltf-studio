@@ -45,3 +45,24 @@ anything else), or drag/pick it through the top bar's **Import** control.
 7. **Export**: `Export .glb` writes the current document back out, byte-preserving wherever it can.
 
 See `e2e/golden-path.spec.ts` for a scripted walk through this exact journey.
+
+# samples/r4-racer.glb
+
+A complete top-down racing game (26 scene nodes, a 366-node `KHR_interactivity` behavior graph,
+15 variables) whose entire logic — steering, lap-checkpoint gating with anti-cheat, boost,
+off-track slowdown, a 12-step finish celebration, and an AI rival — lives inside this one `.glb`.
+Unlike `playground.glb`, this is **not built by this repo**: it's a vendored, unmodified copy of
+`dist/r4.glb` from the sibling
+[`gltf-interactivity-game`](https://github.com/rudybear/gltf-interactivity-game) repo's own
+build pipeline (`pnpm release`, byte-reproducible there from `src/game.template.ts` — see that
+repo's README for the full authoring/compile/splice story). Do not hand-edit this file; to pick
+up a change, re-run that pipeline and re-copy `dist/r4.glb` here.
+
+Open it via the app's empty-project starter gallery's "R4 Racer" card (`viewport.gallery.card.racer`,
+specs/ux-shell.md UX-119), which fetches and imports it exactly like `playground.glb`'s card does.
+The game is authored entirely against `onSelect`/`onHoverIn`/`onHoverOut` on three on-screen pads
+(no keyboard input) — in the editor, enter play mode and click the steer/boost pads in the
+viewport the same way a player would.
+
+See `e2e/racer.spec.ts` for scripted coverage of this asset (gallery card, scene tree, graph
+canvas at its real 366-node scale, script-tab decompile, and play-mode pad interaction).

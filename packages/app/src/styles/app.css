@@ -459,16 +459,81 @@ input.field {
   height: 100%;
 }
 .viewport-empty-state {
+  /* An absolutely-positioned overlay, like `.vp-toolbar`/`.play-overlay`/
+     `.preview-strip` elsewhere in this same stylesheet -- NOT a normal flex
+     child of #viewport-mount. #viewport-mount ALWAYS has a real <canvas>
+     mounted as a sibling, even in this empty-project state (RenderHost
+     mounts unconditionally on Viewport.tsx's own mount, independent of
+     whether a document is loaded), and that canvas is a replaced element
+     with an intrinsic size equal to its width/height attributes -- per the
+     flexbox spec, a replaced flex item's *automatic minimum size* is that
+     intrinsic size, not zero, so as a flex sibling it refuses to shrink
+     below its own resolution regardless of `flex-shrink`. Two competing
+     "must not shrink" flex items (this element sized for its two-card
+     gallery, the canvas sized to its full resolution) simply overflow
+     #viewport-mount's shared row and spill out symmetrically past both
+     edges once centered -- observed in practice, not a hypothetical.
+     Taking this element out of flex flow entirely sidesteps that
+     competition altogether; it centers itself independently via its own
+     `inset: 0` + flex centering below. */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.viewport-empty-state-inner {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  width: min(480px, 92vw);
 }
 .viewport-placeholder-note {
   color: var(--text-dim);
   font-style: italic;
   text-align: center;
   padding: 16px 16px 0;
+}
+/* specs/ux-shell.md UX-119: the empty-project starter gallery. */
+.sample-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.sample-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 180px;
+  padding: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.sample-card-preview {
+  border-radius: 4px;
+  overflow: hidden;
+  line-height: 0;
+}
+.sample-card-title {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-0);
+}
+.sample-card-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  min-height: 44px;
 }
 .vp-toolbar,
 .vp-toolbar-right {

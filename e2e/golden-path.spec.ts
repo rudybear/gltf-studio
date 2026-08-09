@@ -29,8 +29,9 @@ import { validateGraph, type VGraph } from "@gltfi/verify";
  * `buildSceneJson`, and — since every node there is a direct, non-nested
  * child of Root — line up 1:1 with scene-tree row index.
  *
- * cites: specs/ux-shell.md UX-114 (the "Load sample scene" button this
- * spec's first step exercises).
+ * cites: specs/ux-shell.md UX-119 (the starter-gallery "Playground" card
+ * this spec's first step exercises — supersedes the single-button
+ * predecessor requirement, now retired).
  */
 
 const ARTIFACTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "artifacts", "golden-path");
@@ -120,10 +121,11 @@ test("golden path: sample scene through every shipped feature", async ({ page })
   test.slow();
   test.setTimeout(300_000);
 
-  await test.step("load sample scene from the empty-project state (UX-114)", async () => {
+  await test.step("load Playground from the empty-project starter gallery (UX-119)", async () => {
     await page.goto("/");
-    await expect(page.getByTestId("viewport.load-sample")).toBeVisible();
-    await page.getByTestId("viewport.load-sample").click();
+    await expect(page.getByTestId("viewport.gallery")).toBeVisible();
+    await expect(page.getByTestId("viewport.gallery.card.racer")).toBeVisible();
+    await page.getByTestId("viewport.gallery.card.playground.load").click();
     await expect(page.getByTestId("topbar.project-name")).toHaveText("playground");
     await snap(page, "load-sample");
   });
