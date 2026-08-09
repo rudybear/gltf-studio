@@ -7,6 +7,7 @@ import { RightPanel } from "./components/RightPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { TestIdOverlay } from "./components/TestIdOverlay";
 import { ToastLayer } from "./components/ToastLayer";
+import { PointerPickerDialog } from "./components/pointer-picker/PointerPickerDialog";
 
 /**
  * Test-only seam (no UX-### requirement covers it — same rationale as
@@ -86,6 +87,7 @@ export function App(): JSX.Element {
       </div>
       <TestIdOverlay />
       <ToastLayer />
+      <PointerPickerDialog />
     </div>
   );
 }

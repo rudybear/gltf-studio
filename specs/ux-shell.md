@@ -26,6 +26,13 @@ M3 (`editor-core`'s byte-preserving `save()`, `specs/document-model.md`'s DOC-02
 browser download). See `e2e/shell.spec.ts`, `e2e/import.spec.ts`, and (M3) `e2e/export.spec.ts` for
 the Playwright coverage citing these IDs.
 
+M4 adds the pointer-picker dialog (`specs/ux-pointer-picker.md`'s `UX-9xx`, mounted once at
+`App.tsx`'s top level like `ToastLayer`/`TestIdOverlay`, driven by the store's
+`pointerPickerRequest`) and the scene-tree-row/Animations-tab-clip HTML5 drag SOURCES
+`specs/ux-scene-tree.md`'s `UX-209` and `specs/ux-graph-canvas.md`'s `UX-508` need (the drop TARGET
+and drop-menu live in `packages/graph-canvas`, which owns that gesture's other end) — both real as
+of that milestone, alongside `specs/ux-graph-canvas.md`'s `UX-509` Data-tab jump.
+
 Prefix: `UX`. This file owns the `UX-1xx` block (`UX-100`..`UX-1xx`); each other `ux-*.md` file
 owns its own hundred-block (`UX-200` scene tree, `UX-300` viewport, `UX-400` inspector, `UX-500`
 graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900` pointer picker,

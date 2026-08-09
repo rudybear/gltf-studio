@@ -1,3 +1,4 @@
+import { ANIM_CLIP_DRAG_MIME } from "@gltf-studio/graph-canvas";
 import { useAppStore } from "../../store/app-store";
 import type { AssetTab } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
@@ -72,6 +73,18 @@ export function AssetBrowser(): JSX.Element {
                 className={`asset-item${selectedAsset?.tab === activeAssetTab && selectedAsset.index === i ? " selected" : ""}${flashed ? " flash-highlight" : ""}`}
                 data-testid={`asset-browser.${activeAssetTab}.${i}`}
                 onClick={() => selectAsset(activeAssetTab, i, `/${activeAssetTab}/${i}`)}
+                draggable={activeAssetTab === "animations"}
+                onDragStart={
+                  activeAssetTab === "animations"
+                    ? (e) => {
+                        // specs/ux-graph-canvas.md UX-508: dragged onto the
+                        // canvas, opens a drop-menu offering animation/start|stop.
+                        e.dataTransfer.setData(ANIM_CLIP_DRAG_MIME, String(i));
+                        e.dataTransfer.setData("text/plain", String(i));
+                        e.dataTransfer.effectAllowed = "copy";
+                      }
+                    : undefined
+                }
               >
                 <NodeIcon type={activeAssetTab === "materials" ? "group" : "mesh"} />
                 <span>

@@ -25,7 +25,13 @@ const PATHS: Record<NodeIconType, JSX.Element> = {
       <path d="M10.6 5.6a4 4 0 0 1 0 4.8M12.7 4a6.5 6.5 0 0 1 0 8" />
     </>
   ),
-  group: <path d="M1.3 4.3h4l1.2 1.5h8.2v6.9h-13.4Z" />
+  group: <path d="M1.3 4.3h4l1.2 1.5h8.2v6.9h-13.4Z" />,
+  clip: (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M6.4 5.2 11 8l-4.6 2.8Z" />
+    </>
+  )
 };
 
 export function NodeIcon({ type }: { type: NodeIconType }): JSX.Element {

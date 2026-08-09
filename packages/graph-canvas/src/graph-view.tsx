@@ -31,8 +31,22 @@ import { LayoutEngine, type LayoutEngineMode } from "./layout-engine.js";
 import { validateConnection } from "./validate-connection.js";
 import type { GraphDiagnostic } from "./validation.js";
 import { OP_DRAG_MIME } from "./palette-panel.js";
+import { DropMenu, type DropKind } from "./drop-menu.js";
 
 const nodeTypes = { op: OpNode };
+
+/**
+ * specs/ux-scene-tree.md UX-209 / specs/ux-graph-canvas.md UX-508: the
+ * `dataTransfer` MIME types a scene-tree row / Animations-tab clip row drag
+ * carries (mirroring docs/ux/mockups/mockup-v5.html's own
+ * `application/x-scenenode`/`application/x-animclip`) — exported so the
+ * app package's SceneTree/AssetBrowser drag SOURCES use the exact same
+ * strings this canvas's drop TARGET checks for.
+ */
+export const SCENE_NODE_DRAG_MIME = "application/x-scenenode";
+export const ANIM_CLIP_DRAG_MIME = "application/x-animclip";
+
+type PendingExternalDrop = { kind: DropKind; refId: number; flowPosition: { x: number; y: number }; screenPosition: { x: number; y: number } };
 
 export interface GraphCanvasTestHook {
   setViewport(viewport: { x: number; y: number; zoom: number }): void;
@@ -50,6 +64,17 @@ export interface GraphCanvasTestHook {
    * still runs; only the physical pointer input is synthesized.
    */
   simulateConnect(connection: { source: string; sourceHandle: string; target: string; targetHandle: string }): void;
+  /**
+   * specs/ux-graph-canvas.md UX-508: opens the SAME drop-menu a real HTML5
+   * drag-drop of a scene-tree row / Animations-tab clip triggers, at a fixed
+   * canvas position — same rationale as `simulateConnect` above: raw
+   * `DragEvent`/`DataTransfer` synthesis over Playwright's CDP bridge is the
+   * flaky part, not anything this app's own code does with it. The
+   * subsequent drop-menu OPTION CLICK stays a real Playwright click against
+   * the real rendered `gcanvas.drop-menu.*` button — only the drag gesture
+   * itself is synthesized.
+   */
+  simulateExternalDrop(kind: DropKind, refId: number, flowPosition: { x: number; y: number }): void;
 }
 
 declare global {
@@ -84,12 +109,14 @@ export type GraphViewProps = {
   onRemoveNodes: (nodeIndices: number[]) => void;
   onMoveNode: (nodeIndex: number, x: number, y: number) => void;
   onDropOp: (op: string, position: { x: number; y: number }) => void;
+  /** UX-508: a drop-menu option was chosen for an externally-dragged scene node/animation clip. */
+  onCreateFromDrop: (kind: DropKind, refId: number, optionKey: string, position: { x: number; y: number }) => void;
   onRendered?: (info: { nodeCount: number; layout: LayoutEngineMode }) => void;
 };
 
 function GraphViewInner(props: GraphViewProps) {
   const { graph, selectedNodeIndex, onSelectNode, diagnosticsByNode, onLiteralCommit, onPointerTextClick, onPointerIconClick } = props;
-  const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onRendered } = props;
+  const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered } = props;
 
   const engineRef = useRef<LayoutEngine | null>(null);
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
@@ -97,6 +124,7 @@ function GraphViewInner(props: GraphViewProps) {
   const [layoutMode, setLayoutMode] = useState<LayoutEngineMode>("elk");
   const [nodes, setNodes, onNodesChange] = useNodesState<OpNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [pendingDrop, setPendingDrop] = useState<PendingExternalDrop | null>(null);
   const reactFlow = useReactFlow();
   // Always-current handler ref so the test-hook effect below (installed
   // once) never closes over a stale `handleConnect` from an earlier render.
@@ -241,7 +269,11 @@ function GraphViewInner(props: GraphViewProps) {
   useEffect(() => {
     window.__gltfStudioGraphCanvasTest = {
       setViewport: (v) => reactFlow.setViewport(v),
-      simulateConnect: (connection) => handleConnectRef.current(connection)
+      simulateConnect: (connection) => handleConnectRef.current(connection),
+      simulateExternalDrop: (kind, refId, flowPosition) => {
+        const screen = reactFlow.flowToScreenPosition(flowPosition);
+        setPendingDrop({ kind, refId, flowPosition, screenPosition: screen });
+      }
     };
     return () => {
       delete window.__gltfStudioGraphCanvasTest;
@@ -275,18 +307,38 @@ function GraphViewInner(props: GraphViewProps) {
 
   const handleDrop: React.DragEventHandler = (event) => {
     event.preventDefault();
-    const op = event.dataTransfer.getData(OP_DRAG_MIME);
-    if (!op) return;
     const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    onDropOp(op, { x: Math.round(position.x), y: Math.round(position.y) });
+    const flowPosition = { x: Math.round(position.x), y: Math.round(position.y) };
+
+    const op = event.dataTransfer.getData(OP_DRAG_MIME);
+    if (op) {
+      onDropOp(op, flowPosition);
+      return;
+    }
+    const sceneNode = event.dataTransfer.getData(SCENE_NODE_DRAG_MIME);
+    if (sceneNode) {
+      setPendingDrop({ kind: "node", refId: Number(sceneNode), flowPosition, screenPosition: { x: event.clientX, y: event.clientY } });
+      return;
+    }
+    const animClip = event.dataTransfer.getData(ANIM_CLIP_DRAG_MIME);
+    if (animClip) {
+      setPendingDrop({ kind: "anim", refId: Number(animClip), flowPosition, screenPosition: { x: event.clientX, y: event.clientY } });
+    }
   };
 
   const handleDragOver: React.DragEventHandler = (event) => {
-    if (event.dataTransfer.types.includes(OP_DRAG_MIME)) {
+    const types = event.dataTransfer.types;
+    if (types.includes(OP_DRAG_MIME) || types.includes(SCENE_NODE_DRAG_MIME) || types.includes(ANIM_CLIP_DRAG_MIME)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
     }
   };
+
+  function handleDropMenuChoose(optionKey: string) {
+    if (!pendingDrop) return;
+    onCreateFromDrop(pendingDrop.kind, pendingDrop.refId, optionKey, pendingDrop.flowPosition);
+    setPendingDrop(null);
+  }
 
   if (layoutError && !elkPositions) {
     return <div className="gcanvas-layout-pending gcanvas-layout-error">Layout failed: {layoutError}</div>;
@@ -335,6 +387,14 @@ function GraphViewInner(props: GraphViewProps) {
         {/* No <Controls/>: same hazard, and it adds nothing pointer-events:none
             couldn't already give via the mouse wheel (zoom) and pane drag (pan). */}
       </ReactFlow>
+      {pendingDrop ? (
+        <DropMenu
+          kind={pendingDrop.kind}
+          screenPosition={pendingDrop.screenPosition}
+          onChoose={handleDropMenuChoose}
+          onDismiss={() => setPendingDrop(null)}
+        />
+      ) : null}
     </div>
   );
 }

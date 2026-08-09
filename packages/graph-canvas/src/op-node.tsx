@@ -185,19 +185,26 @@ export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
           {node.subtitle}
         </div>
       ) : null}
-      {node.subtitle && isPointer ? (
+      {isPointer ? (
+        // M4: unconditional (not gated on `node.subtitle`) — a pointer/*
+        // node added blank (e.g. from the palette, which has no path to
+        // prefill, unlike the Inspector `◈`/scene-tree drag-drop paths) must
+        // still expose the `✎` icon, its only route to ever getting a
+        // pointer configured (UX-505's two-click-target contract still
+        // holds either way: the placeholder text is a no-op click target
+        // when there's nothing to jump to yet, distinct from the icon).
         <div className="gcanvas-op-pointer-row" style={{ height: NODE_METRICS.subtitleHeight }}>
           <button
             type="button"
             className="gcanvas-pointer-text"
-            title={node.subtitle}
+            title={node.subtitle ?? "No pointer set yet"}
             data-testid={`gcanvas.pointer-text.${node.index}`}
             onClick={(e) => {
               e.stopPropagation();
-              onPointerTextClick(node.index);
+              if (node.subtitle) onPointerTextClick(node.index);
             }}
           >
-            {node.subtitle}
+            {node.subtitle ?? "(no pointer set)"}
           </button>
           <button
             type="button"

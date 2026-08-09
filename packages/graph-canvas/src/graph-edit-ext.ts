@@ -72,3 +72,28 @@ export function setLiteralValue(
     inverse: combined.inverse
   };
 }
+
+/**
+ * specs/ux-pointer-picker.md's `UX-906`: retargets an EXISTING `pointer/get|
+ * set|interpolate` node's `configuration.pointer`/`configuration.type` in
+ * one combined command, ensuring the new signature's `types[]` entry first
+ * (`ensureTypeIndex`) — the pointer-picker dialog's "Use pointer" action
+ * (`specs/ux-graph-canvas.md`'s `UX-509`'s `✎` icon flow) calls this rather
+ * than `GraphEdit.addPointerNode` (which only ever APPENDS a brand new node).
+ */
+export function setPointerConfig(document: EditorDocument, graphIndex: number, nodeIndex: number, pointerPath: string, signature: ValueType): Command {
+  const { command: ensureCmd, index: typeIndex } = ensureTypeIndex(document, graphIndex, signature);
+  const jsonAfterEnsure = ensureCmd.patches.length > 0 ? applyPatches(document.json, ensureCmd.patches) : document.json;
+  const docAfterEnsure: EditorDocument = { ...document, json: jsonAfterEnsure };
+  const pointerCmd = GraphEdit.setNodeConfig(docAfterEnsure, graphIndex, nodeIndex, "pointer", [pointerPath]);
+  const jsonAfterPointer = applyPatches(jsonAfterEnsure, pointerCmd.patches);
+  const typeCmd = GraphEdit.setNodeConfig({ ...document, json: jsonAfterPointer }, graphIndex, nodeIndex, "type", [typeIndex]);
+
+  const combined = combineCommandParts([ensureCmd, pointerCmd, typeCmd]);
+  return {
+    id: makeCommandId("set-pointer-config"),
+    label: `Retarget pointer node ${nodeIndex} -> ${pointerPath}`,
+    patches: combined.patches,
+    inverse: combined.inverse
+  };
+}

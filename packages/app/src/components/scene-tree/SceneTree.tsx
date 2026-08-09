@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SCENE_NODE_DRAG_MIME } from "@gltf-studio/graph-canvas";
 import { useAppStore } from "../../store/app-store";
 import { flattenSceneTree, visibleRows, type GltfJsonShape } from "../../lib/gltf-scene";
 import { NodeIcon } from "./NodeIcon";
@@ -67,6 +68,16 @@ export function SceneTree(): JSX.Element {
               style={{ paddingLeft: 6 + row.depth * 16, display: hiddenNodes.has(row.nodeIndex) ? "none" : undefined }}
               data-testid={`scene-tree.row.${i}`}
               onClick={() => selectNode(row.nodeIndex)}
+              draggable
+              onDragStart={(e) => {
+                // specs/ux-scene-tree.md UX-209 / specs/ux-graph-canvas.md
+                // UX-508: dragged onto the behavior-graph canvas, this opens
+                // a drop-menu scoped to this node (pointer/get|set|
+                // interpolate, event/onSelect).
+                e.dataTransfer.setData(SCENE_NODE_DRAG_MIME, String(row.nodeIndex));
+                e.dataTransfer.setData("text/plain", String(row.nodeIndex));
+                e.dataTransfer.effectAllowed = "copy";
+              }}
             >
               {row.hasChildren ? (
                 <button

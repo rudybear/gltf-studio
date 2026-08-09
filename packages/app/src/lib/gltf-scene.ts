@@ -1,7 +1,12 @@
 // Derives the scene-tree hierarchy (specs/ux-scene-tree.md UX-200..204) from
 // an EditorDocument's raw glTF `json` — no separate hand-authored copy of
 // the hierarchy, so it can't drift from the document.
-export type NodeIconType = "mesh" | "light" | "camera" | "audio-emitter" | "group";
+// "clip" is not produced by `flattenSceneTree`/`iconForNode` (there's no
+// scene-tree row for an animation clip) — it's here only so
+// PointerPickerDialog's content tree (specs/ux-pointer-picker.md's UX-901
+// Animations section) can reuse the same `NodeIcon` component/icon set as
+// the Nodes/Materials sections instead of hand-rolling a fourth icon set.
+export type NodeIconType = "mesh" | "light" | "camera" | "audio-emitter" | "group" | "clip";
 
 export interface GltfNodeJson {
   name?: string;
