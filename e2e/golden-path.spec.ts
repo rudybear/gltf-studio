@@ -266,6 +266,14 @@ test("golden path: sample scene through every shipped feature", async ({ page })
     await snap(page, "script-undo");
   });
 
+  await test.step("audition (edit mode): AH-001's user gesture happens here, BEFORE play mode — regression coverage for the audio-host-keying bug (fixed: WebAudioHost now survives HistoryStack.freeze()/unfreeze(), specs/ux-shell.md M7 follow-up)", async () => {
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.SPEAKER}`).click();
+    await expect(page.getByTestId("inspector.audio.audition")).toBeEnabled();
+    await page.getByTestId("inspector.audio.audition").click();
+    await expect.poll(() => audioDiagnostics(page)).toContain("running");
+    await snap(page, "audition-edit-mode");
+  });
+
   await test.step("play (interpreter): onTick rotation observable, onSelect click triggers audio + translation interpolation, pause/stop restores state", async () => {
     test.slow();
     await clickButtonSphereInViewport(page); // re-select ButtonSphere
@@ -277,17 +285,13 @@ test("golden path: sample scene through every shipped feature", async ({ page })
     await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
     await snap(page, "play-interpreter-started");
 
-    // AH-001's audio gesture happens HERE, inside play mode, not before: `history.freeze()`
-    // (DOC-031/DOC-045, run by startPlay() just above) swaps in a new frozen `EditorDocument`
-    // object, and App.tsx's WebAudioHost-construction effect is keyed on that object's identity
-    // -- an Audition click before entering play would create an AudioContext on a host that
-    // play mode immediately tears down and replaces with a fresh (idle) one. Selecting a
-    // scene-tree row while playing is allowed (UX-113 only disables EDIT affordances); the
-    // Audition control isn't one (it never mutates the document).
-    await page.getByTestId(`scene-tree.row.${SCENE_NODE.SPEAKER}`).click();
-    await page.getByTestId("inspector.audio.audition").click();
+    // Regression coverage for the audio-host-keying bug: the Audition
+    // gesture happened in the PRECEDING step, in edit mode, before
+    // `history.freeze()` (DOC-031/DOC-045, run by startPlay() just above).
+    // The WebAudioHost instance (and its now-running AudioContext) must
+    // survive that freeze intact -- no new gesture here.
     await expect.poll(() => audioDiagnostics(page)).toContain("running");
-    await snap(page, "play-interpreter-audition");
+    await snap(page, "play-interpreter-audio-survived");
 
     // onTick continuously rewrites /nodes/2/rotation via the `angle` variable -- observable live in the overlay.
     const angleRow = page.getByTestId("viewport.play-overlay.variable.angle");
