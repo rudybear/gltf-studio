@@ -12,13 +12,13 @@ import {
   storageProviderContractObligations
 } from "./index.js";
 
-// M0 gate: no implementation of RenderHost/StorageProvider/PlayController/
-// AudioHost/AgentService exists yet, so this file does not (and cannot) assert real
-// contract behavior. It instead asserts the todo inventory itself is real:
-// each describe-factory exists and names at least one obligation. CI stays
-// green (it.todo entries are reported as todo, not failed) while the
-// contract obligations are visibly enumerated — see the suites instantiated
-// below, which show up as skipped/todo tests in `vitest run` output.
+// M0 gate: no implementation of RenderHost/AudioHost exists yet, so this
+// file does not (and cannot) assert real contract behavior for those two.
+// It instead asserts the todo inventory itself is real: each describe-
+// factory exists and names at least one obligation. CI stays green
+// (it.todo entries are reported as todo, not failed) while the contract
+// obligations are visibly enumerated — see the suites instantiated below,
+// which show up as skipped/todo tests in `vitest run` output.
 describe("contract-tests self-check", () => {
   it("exports a non-empty obligation list per contract", () => {
     expect(renderHostContractObligations.length).toBeGreaterThan(0);
@@ -61,6 +61,9 @@ describeRenderHostContract(() => {
 describeAudioHostContract(() => {
   throw new Error("no AudioHost implementation yet (M0 scope)");
 });
-describeAgentServiceContract(() => {
-  throw new Error("no AgentService implementation yet (M0 scope)");
-});
+// `describeAgentServiceContract` is ALSO deliberately NOT instantiated here
+// (same rationale again): as of the M8-copilot phase-1 PR it runs real
+// assertions against a real `AgentServiceHarness` (see agent-service.ts),
+// so it needs a working `AgentService` implementation — it is exercised
+// for real by `@gltf-studio/agent-mock`'s own contract.test.ts instead,
+// against `MockAgentProvider`.
