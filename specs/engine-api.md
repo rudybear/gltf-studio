@@ -17,6 +17,13 @@ this file's requirements, but is noted here so the ownership-drift check's file-
 package-wide) globs on these two files stay accountable to a real cross-reference rather than a
 silent touch.
 
+At M2, `self-check.test.ts` stopped instantiating `describeStorageProviderContract` (it now runs
+real assertions — see `specs/storage-provider.md` — rather than an inventory of `it.todo`s, so it
+needs a real `StorageProvider` instead of the placeholder "no implementation yet" factory every
+other still-`it.todo` contract here still uses); it is exercised for real instead by
+`@gltf-studio/storage`'s own tests. Same rationale as the barrel-file note above: not itself a
+change to this file's requirements, noted here for the same file-level-glob accountability reason.
+
 This file was originally a **seed**, not a full spec: it transcribed ~10 requirements directly
 from the program plan's Phase A prose to give the drift-checking tooling something real to check
 from commit one. The `RH` (RenderHost) and `SP` (StorageProvider) requirements that were seeded

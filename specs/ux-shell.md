@@ -16,6 +16,14 @@ catch-all for any editor UI code not owned by a canvas-specific package (`ux-gra
 own files below but are governed, for drift-check purposes, only indirectly via this catch-all
 until each surface earns a dedicated package.
 
+`packages/app` is scaffolded at M2: a Vite + React + zustand shell implementing UX-100..105/
+UX-108..111 for real (UX-106/107's play-state chrome has no play-mode state machine to drive yet,
+so it isn't rendered rather than faked), plus the scene-tree/asset-browser surfaces from
+`specs/ux-scene-tree.md` and the Data (glTF) tab from `specs/ux-data-tab.md` (both real — cheap
+once `editor-core`'s document layer exists). Behavior graph/audio graph/script/Copilot render as
+placeholders; Export and the play bar are disabled-with-tooltip stubs. See `e2e/shell.spec.ts` and
+`e2e/import.spec.ts` for the Playwright coverage citing these IDs.
+
 Prefix: `UX`. This file owns the `UX-1xx` block (`UX-100`..`UX-1xx`); each other `ux-*.md` file
 owns its own hundred-block (`UX-200` scene tree, `UX-300` viewport, `UX-400` inspector, `UX-500`
 graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900` pointer picker,
