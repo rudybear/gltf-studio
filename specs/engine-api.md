@@ -24,6 +24,15 @@ other still-`it.todo` contract here still uses); it is exercised for real instea
 `@gltf-studio/storage`'s own tests. Same rationale as the barrel-file note above: not itself a
 change to this file's requirements, noted here for the same file-level-glob accountability reason.
 
+As of the M8-copilot phase-1 PR, `self-check.test.ts` similarly stopped instantiating
+`describeAgentServiceContract` as a throwing M0 stub (`throw new Error("no AgentService
+implementation yet ...")`) alongside `describeRenderHostContract`/`describeAudioHostContract` — it
+now runs real assertions against a real `AgentServiceHarness` (see `specs/agent-service.md`), and is
+exercised for real instead by `@gltf-studio/agent-mock`'s own `contract.test.ts`, against
+`MockAgentProvider`. `RenderHost`/`AudioHost` remain unimplemented-here stubs in that same file,
+unaffected by this change. Same rationale as the two notes above: not itself a change to this file's
+requirements, noted here for the same file-level-glob accountability reason.
+
 This file was originally a **seed**, not a full spec: it transcribed ~10 requirements directly
 from the program plan's Phase A prose to give the drift-checking tooling something real to check
 from commit one. The `RH` (RenderHost) and `SP` (StorageProvider) requirements that were seeded
