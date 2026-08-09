@@ -1,11 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine-three";
 import type { CameraPose, GizmoMode } from "@gltf-studio/engine-api";
-import { SceneEdit, type TransformFields } from "@gltf-studio/editor-core";
+import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-studio/editor-core";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
+import { extractBinaryChunk } from "../../lib/audio-container.js";
 import { PlayOverlay } from "./PlayOverlay";
 import { ContextMenu } from "../ContextMenu";
+
+/**
+ * RenderHost.loadScene's `{ json, binary }` input shape (engine-three's
+ * `scene-input.ts`) — NOT bare `history.document.json` alone. A document's
+ * `json` almost always has at least one buffer with no `uri` at all (the
+ * normal glTF/GLB convention for the implicit GLB binary chunk, per
+ * `EditorDocument.container`'s `kind: "glb"` shape); passing json alone
+ * silently drops that binary and GLTFLoader ends up with no bytes for any
+ * accessor that depends on it — the scene tree still populates (it's built
+ * from `json` alone) but nothing renders. This bit every GLB whose buffer
+ * wasn't already a base64 `data:` URI (which is why the M2 e2e fixtures,
+ * all built with embedded data-URI buffers, never caught it) — including a
+ * freshly `packMultiFileGltf`-packed multi-file `.gltf` import, which always
+ * produces a real embedded BIN chunk, never a data URI.
+ */
+function sceneSourceOf(document: EditorDocument): { json: unknown; binary: ArrayBuffer | null } {
+  return { json: document.json, binary: extractBinaryChunk(document.container) };
+}
 
 /** specs/ux-viewport.md UX-304: exactly W/E/R, mutually exclusive, one-to-one with RH-018's GizmoMode. */
 const GIZMO_MODES: ReadonlyArray<{ mode: GizmoMode; label: string; title: string }> = [
@@ -119,13 +138,13 @@ export function Viewport(): JSX.Element {
     if (!history) return;
     setSceneReady(false);
     let cancelled = false;
-    void host.loadScene(history.document.json).then(() => {
+    void host.loadScene(sceneSourceOf(history.document)).then(() => {
       if (!cancelled) setSceneReady(true);
     });
     const unsubscribe = history.onApply((patches) => {
       const outcome = host.patchScene(patches);
       if (outcome === "needs-reload") {
-        void host.loadScene(history.document.json);
+        void host.loadScene(sceneSourceOf(history.document));
       }
     });
     return () => {

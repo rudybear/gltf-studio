@@ -37,6 +37,8 @@ import type {
   StorageProvider
 } from "@gltf-studio/engine-api";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
+import { packMultiFileGltf, type PackFileMap } from "../lib/pack-gltf.js";
+import { extractBinaryChunk } from "../lib/audio-container.js";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
@@ -245,6 +247,20 @@ export interface AppState {
    */
   registerAudioHost(host: AudioHost | undefined): void;
   importGlb(file: { name: string; bytes: Uint8Array }): Promise<void>;
+  /**
+   * Entry point for TopBar's (now multi-select/drag-drop-capable) import
+   * control. A single `.glb` (or any lone file) goes straight through
+   * `importGlb` unchanged. A `.gltf` among the selected/dropped files is
+   * packed into one self-contained GLB first (`packMultiFileGltf`, resolving
+   * `buffers[].uri`/`images[].uri`/`KHR_audio_emitter.audio[].uri` against
+   * the OTHER selected files) before handing off to `importGlb` — so the
+   * document editor-core ends up with is always a self-contained container,
+   * never one with dangling external references. Any unresolved reference
+   * fails the whole import with a toast naming every missing filename
+   * (never a silent empty viewport) and leaves the current document
+   * untouched.
+   */
+  importFiles(files: Array<{ name: string; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>): Promise<void>;
   dispatchCommand(command: Command): void;
   undo(): void;
   redo(): void;
@@ -377,6 +393,20 @@ function syncAgentProviderDocument(document: EditorDocument): MockAgentProvider 
   if (agentProvider) agentProvider.setDocument(document);
   else agentProvider = new MockAgentProvider(document);
   return agentProvider;
+}
+
+/**
+ * `RenderHost.loadScene`'s `{ json, binary }` input shape — every direct
+ * `renderHost.loadScene(...)` call in this store must use this, never bare
+ * `document.json`/a bare patched-json copy, or a document whose buffer(s)
+ * aren't `data:`-URI-embedded (the normal glTF/GLB convention, and always
+ * true of a `packMultiFileGltf`-packed import) silently renders with no
+ * mesh data at all. `jsonOverride` lets a scratch/patched copy (e.g.
+ * `startTryInPlay`'s Copilot-preview JSON) reuse the SAME document's binary
+ * — proposal patches only ever touch JSON pointers, never raw buffer bytes.
+ */
+function sceneSourceOf(document: EditorDocument, jsonOverride?: unknown): { json: unknown; binary: ArrayBuffer | null } {
+  return { json: jsonOverride ?? document.json, binary: extractBinaryChunk(document.container) };
 }
 
 let localIdSeq = 0;
@@ -515,6 +545,44 @@ export const useAppStore = create<AppState>((set, get) => ({
       log("error", `Import failed: ${message}`);
       pushToast(`Import failed: ${message}`);
     }
+  },
+
+  async importFiles(files) {
+    const { importGlb, log, pushToast } = get();
+    if (files.length === 0) return;
+
+    const gltfFile = files.find((f) => /\.gltf$/i.test(f.name));
+    if (!gltfFile) {
+      // No .gltf among the selection: a single-file .glb (or any other
+      // single file) import, same behavior as before multi-select existed.
+      // If several non-.gltf files were somehow selected together, the
+      // first .glb (or otherwise just the first file) wins — there's no
+      // multi-file shape to resolve without a .gltf driving it.
+      const file = files.find((f) => /\.glb$/i.test(f.name)) ?? files[0];
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await importGlb({ name: file.name, bytes });
+      return;
+    }
+
+    let gltfJson: unknown;
+    try {
+      gltfJson = JSON.parse(await gltfFile.text());
+    } catch {
+      log("error", `Import failed: "${gltfFile.name}" is not valid JSON.`);
+      pushToast(`Import failed: "${gltfFile.name}" is not valid JSON.`);
+      return;
+    }
+
+    const fileMap: PackFileMap = new Map(files.map((f) => [f.name, f]));
+    const result = await packMultiFileGltf(gltfJson, fileMap);
+    if (!result.ok) {
+      const list = result.missing.join(", ");
+      log("error", `Import failed: missing external file(s) referenced by "${gltfFile.name}": ${list}`);
+      pushToast(`Import failed: select ${list} together with ${gltfFile.name}.`);
+      return;
+    }
+
+    await importGlb({ name: gltfFile.name, bytes: result.bytes });
   },
 
   dispatchCommand(command) {
@@ -988,16 +1056,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     const flattenedPatches = entry.proposal.commands.flatMap((command) => command.patches);
     const scratchJson = applyPatches(history.document.json, flattenedPatches);
 
-    await renderHost.loadScene(scratchJson);
+    await renderHost.loadScene(sceneSourceOf(history.document, scratchJson));
 
     const controller = createPlayController({
       renderHost,
       getAudioHost: () => get().audioHost,
       getDocumentJson: () => scratchJson, // a closed-over constant, NOT get().document!.json (history/document are never touched by this flow)
-      getBinary: () => {
-        const container = history.document.container;
-        return container.kind === "glb" ? container.binaryChunk : undefined;
-      }
+      getBinary: () => extractBinaryChunk(history.document.container) ?? undefined
     });
 
     tryInPlayDiagnosticsUnsub = controller.onDiagnostic((d) => {
@@ -1012,7 +1077,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       pushToast(`Try in play failed to start: ${err instanceof Error ? err.message : String(err)}`);
       // loadScene(scratchJson) already ran above -- restore the real
       // committed scene rather than leaving the viewport stuck on scratch.
-      await renderHost.loadScene(history.document.json);
+      await renderHost.loadScene(sceneSourceOf(history.document));
       return;
     }
 
@@ -1033,7 +1098,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // the viewport would stay showing the discarded scratch state forever.
     // `history`/`document`/`rev` were never touched anywhere in this flow.
     if (history && renderHost) {
-      await renderHost.loadScene(history.document.json);
+      await renderHost.loadScene(sceneSourceOf(history.document));
     }
     set({ tryInPlayController: null, tryInPlayEntryId: null });
   },

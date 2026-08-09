@@ -277,7 +277,7 @@ describe("PlayController end-to-end against a real interpreter engine (PC-001/PC
 });
 
 describe("PlayController stop() (PC-003/PC-006/PC-007)", () => {
-  it("restores via renderHost.loadScene(capturedDocumentJson) captured at start(), not whatever getDocumentJson returns later", async () => {
+  it("restores via renderHost.loadScene({json, binary}) captured at start(), not whatever getDocumentJson returns later", async () => {
     const loadSceneCalls: unknown[] = [];
     const startJson = tickCounterGltfJson();
     let currentJson: unknown = startJson;
@@ -295,7 +295,30 @@ describe("PlayController stop() (PC-003/PC-006/PC-007)", () => {
     currentJson = { asset: { version: "2.0" } }; // simulate the getter now returning something different
     await controller.stop();
 
-    expect(loadSceneCalls).toEqual([startJson]);
+    expect(loadSceneCalls).toEqual([{ json: startJson, binary: undefined }]);
+  });
+
+  it("restores with the binary captured from getBinary() at start(), not a later value", async () => {
+    const loadSceneCalls: unknown[] = [];
+    const startBinary = new Uint8Array([1, 2, 3]).buffer;
+    let currentBinary: ArrayBuffer | Uint8Array | undefined = startBinary;
+    const controller = createPlayController({
+      renderHost: makeFakeRenderHost({
+        loadScene: async (json) => {
+          loadSceneCalls.push(json);
+        }
+      }),
+      getDocumentJson: () => tickCounterGltfJson(),
+      getBinary: () => currentBinary,
+      scheduler: makeManualScheduler()
+    });
+
+    await controller.start({ engine: "interpreter" });
+    currentBinary = new Uint8Array([9, 9, 9]).buffer; // simulate the getter now returning something different
+    await controller.stop();
+
+    expect(loadSceneCalls).toHaveLength(1);
+    expect((loadSceneCalls[0] as { binary: unknown }).binary).toBe(startBinary);
   });
 
   it("is idempotent: a second stop() does not re-invoke loadScene", async () => {

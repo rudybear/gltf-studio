@@ -78,6 +78,14 @@ export class PlayControllerImpl implements PlayController {
   #state: PlayState = "stopped";
   #host: EngineHost | null = null;
   #capturedDocumentJson: unknown = undefined;
+  // Captured alongside `#capturedDocumentJson` at `start()` and replayed by
+  // `stop()`'s restore (PC-007): a document whose buffer(s) aren't
+  // `data:`-URI-embedded (the normal glTF/GLB shape — an implicit GLB binary
+  // chunk, or a `packMultiFileGltf`-packed multi-file `.gltf` import) needs
+  // this bytes-alongside-json shape or `RenderHost.loadScene` silently ends
+  // up with no bytes for any accessor that depends on it (scene tree/JSON
+  // are unaffected either way — this is a render-only gap).
+  #capturedBinary: ArrayBuffer | Uint8Array | undefined = undefined;
   #frameHandle: number | null = null;
   #lastFrameTime: number | null = null;
 
@@ -109,6 +117,7 @@ export class PlayControllerImpl implements PlayController {
 
     this.#host = host;
     this.#capturedDocumentJson = documentJson;
+    this.#capturedBinary = binary;
     this.#state = "playing";
     this.#lastFrameTime = null;
     this.#scheduleNextFrame();
@@ -190,13 +199,16 @@ export class PlayControllerImpl implements PlayController {
       this.#frameHandle = null;
     }
     const documentJson = this.#capturedDocumentJson;
+    const binary = this.#capturedBinary;
     this.#host = null;
     this.#state = "stopped";
 
-    // Restores via the JSON captured at start() (PC-007) — NOT
-    // renderHost.snapshot(). If loadScene rejects, this promise rejects too;
-    // state has already moved to "stopped" regardless.
-    await this.#deps.renderHost.loadScene(documentJson);
+    // Restores via the JSON (+ binary, so a real embedded/consolidated
+    // buffer actually renders again — not just a data-URI-only document)
+    // captured at start() (PC-007) — NOT renderHost.snapshot(). If loadScene
+    // rejects, this promise rejects too; state has already moved to
+    // "stopped" regardless.
+    await this.#deps.renderHost.loadScene({ json: documentJson, binary });
   }
 
   inspect(): PlayInspection {
