@@ -17,6 +17,7 @@
   "packages/contract-tests/src/index.ts": "specs/engine-api.md",
   "packages/contract-tests/src/self-check.test.ts": "specs/engine-api.md",
   "packages/play/**": "specs/engine-api.md",
+  "packages/agent-mock/**": "specs/agent-service.md",
   "packages/editor-core/**": "specs/document-model.md",
   "packages/engine-three/**": "specs/render-host.md",
   "packages/storage/**": "specs/storage-provider.md",

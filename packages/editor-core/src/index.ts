@@ -6,6 +6,7 @@ export * from "./graph-edit.js";
 export * from "./history.js";
 export * from "./json-pointer.js";
 export * from "./patch.js";
+export * from "./primitives.js";
 export * from "./save.js";
 export * from "./scene-edit.js";
 export * from "./splice-root.js";

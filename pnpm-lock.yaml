@@ -51,8 +51,36 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)
 
+  packages/agent-mock:
+    dependencies:
+      '@gltf-studio/editor-core':
+        specifier: workspace:*
+        version: link:../editor-core
+      '@gltf-studio/engine-api':
+        specifier: workspace:*
+        version: link:../engine-api
+      '@gltfi/ir':
+        specifier: file:../../vendor/gltfi-ir-0.0.1.tgz
+        version: file:vendor/gltfi-ir-0.0.1.tgz
+      '@gltfi/verify':
+        specifier: file:../../vendor/gltfi-verify-0.0.1.tgz
+        version: file:vendor/gltfi-verify-0.0.1.tgz
+    devDependencies:
+      '@gltf-studio/contract-tests':
+        specifier: workspace:*
+        version: link:../contract-tests
+      '@gltfi/gltf':
+        specifier: file:../../vendor/gltfi-gltf-0.0.1.tgz
+        version: file:vendor/gltfi-gltf-0.0.1.tgz
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)
+
   packages/app:
     dependencies:
+      '@gltf-studio/agent-mock':
+        specifier: workspace:*
+        version: link:../agent-mock
       '@gltf-studio/audio-canvas':
         specifier: workspace:*
         version: link:../audio-canvas

@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import { parseContainer } from "@gltfi/gltf";
 import {
+  applyPatches,
   createDocument,
   DocumentFrozenError,
   GraphEdit,
@@ -23,7 +24,18 @@ import {
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import { createPlayController } from "@gltf-studio/play";
-import type { AudioHost, EngineKind, GizmoMode, PlayController, ProjectMeta, RenderHost, StorageProvider } from "@gltf-studio/engine-api";
+import { MockAgentProvider } from "@gltf-studio/agent-mock";
+import type {
+  AgentContextRef,
+  AudioHost,
+  EngineKind,
+  GizmoMode,
+  PlayController,
+  Proposal,
+  ProjectMeta,
+  RenderHost,
+  StorageProvider
+} from "@gltf-studio/engine-api";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 
 export type ThemeOverride = "light" | "dark" | null;
@@ -76,6 +88,37 @@ export interface PointerPickerRequest {
   currentPath?: string;
   currentType?: string;
 }
+
+/**
+ * specs/ux-copilot.md UX-1001/UX-1002: one removable, user-visible wrapper
+ * per `AgentContextRef` currently attached as context for the NEXT request
+ * (AG-013 — nothing reaches `AgentService.request` that isn't shown here
+ * first). `id` is a locally-generated React key/removal handle, independent
+ * of anything in `ref` itself. `label` is the chip's display text (e.g.
+ * "Selection: Cube_003", "Graph 0", "Attached: /materials/0") — computed
+ * once at attach time rather than re-derived from `ref` on every render, so
+ * callers (inline `✦` affordances) control exactly what's shown.
+ */
+export interface CopilotContextChip {
+  id: string;
+  ref: AgentContextRef;
+  label: string;
+}
+
+/**
+ * specs/ux-copilot.md UX-1003..UX-1007: one entry in the Copilot thread.
+ * "user"/"pending"/"refusal" are plain messages; "proposal" holds the
+ * `Proposal` itself plus its own accept/reject/expand-collapse UI state
+ * (AG-009: rejecting only ever flips `state` here — it never touches
+ * `history`/`document`). A `pending` entry is replaced in place (same
+ * `id`) by either a `proposal` or `refusal` entry once the request settles,
+ * per UX-1003's "thinking… bubble replaced by the resulting card".
+ */
+export type CopilotThreadEntry =
+  | { kind: "user"; id: string; text: string }
+  | { kind: "pending"; id: string }
+  | { kind: "refusal"; id: string; text: string }
+  | { kind: "proposal"; id: string; proposal: Proposal; state: "pending" | "accepted" | "rejected"; expanded: boolean };
 
 export const PANEL_BOUNDS = {
   left: { min: 190, max: 480, default: 260 },
@@ -143,6 +186,39 @@ export interface AppState {
 
   // -- inspector (UX-4xx: ephemeral only, DOC-030) --
   flashTarget: FlashTarget | null;
+
+  // -- copilot (specs/ux-copilot.md UX-10xx, specs/agent-service.md AG-###;
+  // DOC-030: ephemeral only -- a Proposal that hasn't been accepted is not
+  // document state, and even once accepted it lives on as ordinary
+  // history/document state, not here) --
+  copilotContextChips: CopilotContextChip[];
+  copilotThread: CopilotThreadEntry[];
+  copilotPrompt: string;
+  /**
+   * Part B ("Try in play"): the live scratch-preview controller for AT MOST
+   * one proposal at a time, and which thread entry it belongs to. Modeled
+   * as its OWN small state machine, deliberately NOT `playState`/
+   * `activePlayController` -- see `startTryInPlay`'s doc comment for the
+   * full reasoning (short version: reusing real play-mode state would
+   * freeze `history` via `dispatchCommand`'s `playState !== "stopped"`
+   * guard, which would incorrectly also block accepting/rejecting a
+   * DIFFERENT pending proposal while one is being previewed).
+   */
+  tryInPlayController: PlayController | null;
+  tryInPlayEntryId: string | null;
+  /**
+   * Cross-component "do a thing in the viewport" signal (same pattern as
+   * `flashTarget`/`triggerFlash` above): the scene-tree/viewport context
+   * menu's "Frame" action (UX-207) lives outside `Viewport.tsx`'s own
+   * `hostRef`, so it can't call `frameNode` directly like the viewport's own
+   * toolbar button does. `Viewport.tsx` watches this field (by object
+   * identity, bumped every request via `seq` so re-requesting the SAME
+   * `nodeIndex` twice in a row still re-triggers the effect) and calls
+   * `hostRef.current?.frameNode(nodeIndex)`.
+   */
+  frameRequest: { nodeIndex: number | null; seq: number } | null;
+  /** Same cross-component-signal pattern: bumped by an inline "✦ Ask Copilot" affordance so `Copilot.tsx`'s composer can autofocus once the right panel switches to it. */
+  copilotComposerFocusSeq: number;
 
   // -- shell chrome (UX-1xx) --
   themeOverride: ThemeOverride;
@@ -219,6 +295,33 @@ export interface AppState {
    * undoable command; switches the bottom dock to the Behavior graph tab.
    */
   addPointerGraphNode(kind: "set" | "interpolate", pointerPath: string, signature: string): void;
+
+  // -- copilot actions (specs/ux-copilot.md UX-10xx, AG-###) --
+  /** UX-1001/UX-1002/AG-013: adds a context chip, de-duped by an equality key derived from `ref` (see `contextRefKey` — same selection/graph-node/pointer counts as "already attached", regardless of `label`). */
+  addCopilotContextChip(ref: AgentContextRef, label: string): void;
+  /** UX-1002: removes one chip by its local `id` -- it will not be sent with the next request. */
+  removeCopilotContextChip(id: string): void;
+  setCopilotPrompt(text: string): void;
+  /**
+   * UX-1011: appends the user message and clears the composer BEFORE the
+   * response arrives; AG-012: auto-attaches a `{kind:"selection"}` chip for
+   * the current `selectedNodeIndex` first (visibly, in `copilotContextChips`)
+   * if one isn't already present, so the request's `context` is exactly
+   * what's shown as chips (AG-013) at send time.
+   */
+  sendCopilotPrompt(): Promise<void>;
+  /** AG-004/AG-006..008/UX-1006: applies as one `HistoryStack.transact`; no-op (with an explanatory toast) when the proposal isn't eligible for one-click acceptance or the document is locked by real play mode. */
+  acceptCopilotProposal(entryId: string): void;
+  /** AG-009/UX-1006: zero document/history/storage mutation -- only flips the card's own thread-entry state. */
+  rejectCopilotProposal(entryId: string): void;
+  toggleCopilotProposalExpanded(entryId: string): void;
+  /** Part B: apply-scratch-play-discard preview -- see doc comment above the implementation for the full design note. */
+  startTryInPlay(entryId: string): Promise<void>;
+  stopTryInPlay(): Promise<void>;
+  /** UX-207: requests the viewport frame the given node (or the whole scene, when `null`) — see `frameRequest`'s own doc comment. */
+  requestFrame(nodeIndex: number | null): void;
+  /** Bumps `copilotComposerFocusSeq` so the mounted Copilot composer autofocuses. */
+  requestCopilotComposerFocus(): void;
   /**
    * M3: real export — `editor-core`'s byte-preserving `save()` -> a browser
    * download (or a File-System-Access save-to-handle when the current
@@ -259,6 +362,59 @@ export function getActivePlayController(): PlayController | null {
   return activePlayController;
 }
 
+// specs/agent-service.md AG-010: the mock/offline AgentService, wired up as
+// a module-level singleton (mirrors `activePlayController` above) rather
+// than reactive AppState -- nothing outside this file needs the provider
+// INSTANCE, only its `request()` result. Constructed lazily, on first use,
+// since `MockAgentProvider`'s constructor requires a real `EditorDocument`
+// (none exists before a project is imported); `syncAgentProviderDocument`
+// below is called from every place `document`/`history` already gets
+// updated elsewhere in this store, so the provider never sees a stale
+// document by the time a request is made.
+let agentProvider: MockAgentProvider | null = null;
+
+function syncAgentProviderDocument(document: EditorDocument): MockAgentProvider {
+  if (agentProvider) agentProvider.setDocument(document);
+  else agentProvider = new MockAgentProvider(document);
+  return agentProvider;
+}
+
+let localIdSeq = 0;
+/** Local id generator for chips/thread entries -- same pattern as `toastSeq`/`makeCommandId`, just namespaced per call site so ids stay readable in devtools. */
+function makeLocalId(prefix: string): string {
+  localIdSeq += 1;
+  return `${prefix}-${localIdSeq}`;
+}
+
+/**
+ * UX-1001/AG-013 de-dupe key: two `AgentContextRef`s count as "the same
+ * context already attached" when this key matches, regardless of the
+ * chip's own `label` (a user could re-attach the same node under a
+ * different label and it still shouldn't duplicate the underlying context
+ * sent to the agent). Judgment call, documented here since AG-002 doesn't
+ * pin down equality semantics: "selection" compares its full
+ * `nodeIndices` array (order-sensitive -- simplest correct rule for the
+ * single-index case every current call site produces); "graph-node"
+ * compares `graphIndex`+`nodeId`; "explicit" compares `pointer` alone (two
+ * explicit chips at the same pointer are the same context even if their
+ * `label`s differ).
+ */
+function contextRefKey(ref: AgentContextRef): string {
+  switch (ref.kind) {
+    case "selection":
+      return `selection:${ref.nodeIndices.join(",")}`;
+    case "graph-node":
+      return `graph-node:${ref.graphIndex}:${ref.nodeId}`;
+    case "explicit":
+      return `explicit:${ref.pointer}`;
+  }
+}
+
+// Part B ("Try in play"): the scratch-preview PlayController's diagnostics
+// unsubscribe -- mirrors `activePlayDiagnosticsUnsub` above, kept separate
+// since it belongs to a wholly different controller/lifecycle.
+let tryInPlayDiagnosticsUnsub: (() => void) | null = null;
+
 export const useAppStore = create<AppState>((set, get) => ({
   storage: new IndexedDBStorage(),
   projectId: null,
@@ -289,6 +445,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   dataPointer: "",
   pointerPickerRequest: null,
   flashTarget: null,
+
+  copilotContextChips: [],
+  copilotThread: [],
+  copilotPrompt: "",
+  tryInPlayController: null,
+  tryInPlayEntryId: null,
+  frameRequest: null,
+  copilotComposerFocusSeq: 0,
 
   themeOverride: null,
   testIdOverlay: false,
@@ -335,8 +499,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         hoveredNodeIndex: null,
         selectedAsset: null,
         dataPointer: "",
-        collapsedNodes: new Set()
+        collapsedNodes: new Set(),
+        // A new project is an unrelated document -- any in-flight Copilot
+        // thread/proposal/preview from the previous one no longer applies.
+        copilotContextChips: [],
+        copilotThread: [],
+        copilotPrompt: "",
+        tryInPlayController: null,
+        tryInPlayEntryId: null
       });
+      syncAgentProviderDocument(document);
       log("info", `Imported "${file.name}" (${file.bytes.byteLength.toLocaleString()} bytes).`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -367,6 +539,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err; // anything else is a real bug, don't swallow it
     }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    syncAgentProviderDocument(history.document);
     // SP-004/SP-014: autosave journal wiring — every applied command's
     // forward patches are appended to the project's journal so a crash
     // mid-session can replay back to the same state (SP-015).
@@ -392,6 +565,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err;
     }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    syncAgentProviderDocument(history.document);
   },
 
   redo() {
@@ -411,6 +585,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err;
     }
     set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    syncAgentProviderDocument(history.document);
   },
 
   historyEntries() {
@@ -463,6 +638,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     activePlayController = controller;
     history.freeze(); // DOC-031/DOC-045
     set({ playState: "playing", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
+    syncAgentProviderDocument(history.document);
   },
 
   pausePlay() {
@@ -500,6 +676,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // as a spurious micro-drag, pushing an unwanted no-op SceneEdit.setTransform onto history instead
     // of reaching the editor's own click-to-select handling.
     set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
+    syncAgentProviderDocument(history.document);
   },
 
   selectNode(index) {
@@ -604,6 +781,269 @@ export const useAppStore = create<AppState>((set, get) => ({
     dispatchCommand(command);
     setActiveDockTab("graph");
     pushToast(`Added ${kind === "set" ? "pointer/set" : "pointer/interpolate"} node for ${pointerPath}.`);
+  },
+
+  addCopilotContextChip(ref, label) {
+    const key = contextRefKey(ref);
+    set((state) => {
+      if (state.copilotContextChips.some((chip) => contextRefKey(chip.ref) === key)) return {};
+      return { copilotContextChips: [...state.copilotContextChips, { id: makeLocalId("chip"), ref, label }] };
+    });
+  },
+
+  removeCopilotContextChip(id) {
+    set((state) => ({ copilotContextChips: state.copilotContextChips.filter((chip) => chip.id !== id) }));
+  },
+
+  setCopilotPrompt(text) {
+    set({ copilotPrompt: text });
+  },
+
+  async sendCopilotPrompt() {
+    const { copilotPrompt, document, selectedNodeIndex, addCopilotContextChip, pushToast } = get();
+    const text = copilotPrompt.trim();
+    if (!text || !document) return;
+
+    // AG-012: the current selection auto-populates a context chip on every
+    // request -- visibly, via the same `addCopilotContextChip` an inline
+    // "✦" affordance uses, so it's indistinguishable from a manually
+    // attached one and satisfies AG-013 ("nothing reaches request() that
+    // wasn't shown as a chip") by construction. De-duped like any other
+    // chip -- a manually-attached selection chip for the same node isn't
+    // duplicated.
+    if (selectedNodeIndex !== null) {
+      addCopilotContextChip({ kind: "selection", nodeIndices: [selectedNodeIndex] }, `Selection: Node #${selectedNodeIndex}`);
+    }
+
+    const entryId = makeLocalId("thread");
+    // UX-1011: the user message is appended and the composer cleared BEFORE
+    // the request resolves -- both happen in this one synchronous `set`,
+    // before `provider.request` is ever awaited below.
+    set((state) => ({
+      copilotThread: [...state.copilotThread, { kind: "user", id: makeLocalId("thread"), text }, { kind: "pending", id: entryId }],
+      copilotPrompt: ""
+    }));
+
+    const context = get().copilotContextChips.map((chip) => chip.ref);
+    const provider = syncAgentProviderDocument(document);
+
+    try {
+      const proposal = await provider.request(text, context);
+      set((state) => ({
+        copilotThread: state.copilotThread.map((e) =>
+          e.id === entryId ? { kind: "proposal", id: entryId, proposal, state: "pending", expanded: false } : e
+        )
+      }));
+    } catch (err) {
+      // AgentRequestRefusedError (UnrecognizedPromptError/MissingSelectionError)
+      // -- rendered as a plain assistant message, never a proposal card
+      // (specs/ux-copilot.md has no "refusal card" concept). Anything else
+      // is treated the same way rather than left as a permanent "thinking…"
+      // bubble -- there is no other UI for a provider-level crash.
+      const message = err instanceof Error ? err.message : String(err);
+      set((state) => ({
+        copilotThread: state.copilotThread.map((e) => (e.id === entryId ? { kind: "refusal", id: entryId, text: message } : e))
+      }));
+      pushToast("Copilot couldn't act on that request.");
+    }
+  },
+
+  acceptCopilotProposal(entryId) {
+    const { history, storage, projectId, journalSinceRev, playState, pushToast, log, copilotThread } = get();
+    if (!history || !projectId) return;
+    const entry = copilotThread.find((e) => e.id === entryId);
+    if (!entry || entry.kind !== "proposal" || entry.state !== "pending") return;
+
+    // Mirrors dispatchCommand's own guard: a Proposal is not a separate
+    // trust tier from a manual edit once it's being applied (docs/adr/0004)
+    // -- real play mode locks the document for both the same way.
+    if (playState !== "stopped") {
+      pushToast("Document locked while playing — Stop to edit.");
+      return;
+    }
+
+    const { proposal } = entry;
+    // AG-007/AG-008: the exact "eligible for one-click acceptance" boolean
+    // packages/contract-tests/src/agent-service.ts's own AG-007/AG-008
+    // tests encode -- no error-level finding, AND (no behavior-neutral claim
+    // OR at least one EQUIV result backing it).
+    const hasErrorFinding = proposal.validationReport.findings.some((f) => f.severity === "error");
+    const claimsBehaviorNeutral = /behavior-neutral/i.test(proposal.summary);
+    const hasEquivCheck = (proposal.validationReport.equivChecks?.length ?? 0) > 0;
+    const eligible = !hasErrorFinding && (!claimsBehaviorNeutral || hasEquivCheck);
+    if (!eligible) {
+      pushToast(
+        hasErrorFinding
+          ? "Copilot proposal has validation errors and can't be applied — see its command list."
+          : "Copilot proposal claims a behavior-neutral change with no EQUIV check — not eligible for one-click acceptance."
+      );
+      return;
+    }
+
+    // DOC-009/UX-1008: relabel only the FIRST command so HistoryStack.entries()
+    // (which surfaces an entry's first command's label) shows "Copilot: …" —
+    // every other command keeps its own real label (UX-1004 already renders
+    // the full per-command label list from `Command.label` when the card is
+    // expanded, so those must stay accurate).
+    const relabeled: Command[] = proposal.commands.map((command, i) => (i === 0 ? { ...command, label: `Copilot: ${proposal.summary}` } : { ...command }));
+
+    // AG-004: exactly one HistoryStack.transact call regardless of how many
+    // commands the proposal bundles.
+    try {
+      history.transact(() => {
+        for (const command of relabeled) history.push(command);
+      });
+    } catch (err) {
+      if (err instanceof DocumentFrozenError) {
+        pushToast("Document locked while playing — Stop to edit.");
+        return;
+      }
+      throw err;
+    }
+
+    set((state) => ({
+      document: history.document,
+      projectDirty: true,
+      canUndo: history.canUndo(),
+      canRedo: history.canRedo(),
+      copilotThread: state.copilotThread.map((e) => (e.id === entryId && e.kind === "proposal" ? { ...e, state: "accepted" } : e))
+    }));
+    syncAgentProviderDocument(history.document);
+
+    // AG-005: same autosave-journal call dispatchCommand makes, over the
+    // flattened forward patches of every relabeled command, so an accepted
+    // proposal's journal entry is byte-for-byte indistinguishable from a
+    // manual multi-command edit's.
+    const flattenedPatches = relabeled.flatMap((command) => command.patches);
+    storage.autosaveJournal(projectId, journalSinceRev, flattenedPatches).catch((error: unknown) => {
+      log("error", `Autosave failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    pushToast(`Applied: ${proposal.summary}`);
+  },
+
+  rejectCopilotProposal(entryId) {
+    // AG-009: zero calls into history/storage -- purely a thread-entry flag flip.
+    set((state) => ({
+      copilotThread: state.copilotThread.map((e) => (e.id === entryId && e.kind === "proposal" ? { ...e, state: "rejected" } : e))
+    }));
+  },
+
+  toggleCopilotProposalExpanded(entryId) {
+    set((state) => ({
+      copilotThread: state.copilotThread.map((e) => (e.id === entryId && e.kind === "proposal" ? { ...e, expanded: !e.expanded } : e))
+    }));
+  },
+
+  /**
+   * Part B ("Try in play" -- specs/ux-copilot.md UX-1007): "apply-scratch-
+   * play-discard". Resolves OPEN(AG-preview-render-tbd)/UX-1007's own open
+   * question for THIS proposal-preview surface specifically (recorded in
+   * specs/ux-copilot.md's Open Questions): a pending/accepted/rejected
+   * proposal's commands are replayed onto a SCRATCH copy of the current
+   * `json` (never `history`/`document` -- `history.document.rev` is
+   * provably unchanged across this entire flow, since nothing here ever
+   * calls `history.push`/`transact`), the viewport is pointed at that
+   * scratch JSON, and a real `PlayController` runs against it exactly like
+   * `startPlay()`'s, except `getDocumentJson` is a closed-over constant
+   * instead of `() => get().document!.json`.
+   *
+   * Design call (per the parent task's brief -- documented here as
+   * requested): this does NOT set `playState`/reuse `activePlayController`.
+   * A separate `tryInPlayController`/`tryInPlayEntryId` pair models it
+   * instead. Two reasons, not just one:
+   *   1. `dispatchCommand`/`acceptCopilotProposal` both gate on
+   *      `playState !== "stopped"` to lock the document during REAL play.
+   *      UX-1007 requires Try-in-play to be available regardless of a
+   *      card's state, and the parent brief explicitly calls for Accept on
+   *      a DIFFERENT pending proposal to keep working while one proposal is
+   *      being previewed -- only possible if previewing one proposal leaves
+   *      `playState === "stopped"`.
+   *   2. `specs/ux-shell.md`'s UX-106 locked banner ("Document locked while
+   *      playing — Stop to edit.") would be actively misleading here: the
+   *      document isn't locked because of this preview, and there's nothing
+   *      the user would need to "Stop" editing to unlock (they can keep
+   *      editing the real document the whole time).
+   * The one real safety property real play mode has that IS worth keeping
+   * for honesty (per the brief's own callout): TransformControls shouldn't
+   * fight a running preview engine's own per-frame transform writes.
+   * `Viewport.tsx`'s gizmo-attach effect additionally checks
+   * `tryInPlayEntryId === null` for exactly this reason, and a small
+   * viewport-level "Previewing Copilot proposal" strip (distinct from the
+   * real locked-banner) gives the one honest visual cue that something is
+   * being previewed.
+   */
+  async startTryInPlay(entryId) {
+    const { renderHost, history, copilotThread, playEngine, tryInPlayController, log, pushToast } = get();
+    if (!renderHost || !history) return;
+    const entry = copilotThread.find((e) => e.id === entryId);
+    if (!entry || entry.kind !== "proposal") return;
+
+    if (tryInPlayController) {
+      // Switching preview target (or re-previewing the same card): tear the
+      // old one down cleanly first, same as `startPlay`'s own single-active-
+      // controller invariant.
+      await get().stopTryInPlay();
+    }
+
+    const flattenedPatches = entry.proposal.commands.flatMap((command) => command.patches);
+    const scratchJson = applyPatches(history.document.json, flattenedPatches);
+
+    await renderHost.loadScene(scratchJson);
+
+    const controller = createPlayController({
+      renderHost,
+      getAudioHost: () => get().audioHost,
+      getDocumentJson: () => scratchJson, // a closed-over constant, NOT get().document!.json (history/document are never touched by this flow)
+      getBinary: () => {
+        const container = history.document.container;
+        return container.kind === "glb" ? container.binaryChunk : undefined;
+      }
+    });
+
+    tryInPlayDiagnosticsUnsub = controller.onDiagnostic((d) => {
+      log(d.kind === "engine-error" ? "error" : "warn", `[copilot-preview/${d.kind}]${d.pointer ? ` ${d.pointer}` : ""}: ${d.message}`);
+    });
+
+    try {
+      await controller.start({ engine: playEngine });
+    } catch (err) {
+      tryInPlayDiagnosticsUnsub?.();
+      tryInPlayDiagnosticsUnsub = null;
+      pushToast(`Try in play failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      // loadScene(scratchJson) already ran above -- restore the real
+      // committed scene rather than leaving the viewport stuck on scratch.
+      await renderHost.loadScene(history.document.json);
+      return;
+    }
+
+    set({ tryInPlayController: controller, tryInPlayEntryId: entryId });
+  },
+
+  async stopTryInPlay() {
+    const { tryInPlayController, history, renderHost } = get();
+    if (!tryInPlayController) {
+      set({ tryInPlayController: null, tryInPlayEntryId: null });
+      return;
+    }
+    await tryInPlayController.stop(); // PC-007: restores via renderHost.loadScene(scratchJson) -- a no-op-ish reload, it's already showing scratch
+    tryInPlayDiagnosticsUnsub?.();
+    tryInPlayDiagnosticsUnsub = null;
+    // The "discard" half of "apply-scratch-play-discard": an EXPLICIT second
+    // reload back to the real committed document/container -- without this
+    // the viewport would stay showing the discarded scratch state forever.
+    // `history`/`document`/`rev` were never touched anywhere in this flow.
+    if (history && renderHost) {
+      await renderHost.loadScene(history.document.json);
+    }
+    set({ tryInPlayController: null, tryInPlayEntryId: null });
+  },
+
+  requestFrame(nodeIndex) {
+    set((state) => ({ frameRequest: { nodeIndex, seq: (state.frameRequest?.seq ?? 0) + 1 } }));
+  },
+
+  requestCopilotComposerFocus() {
+    set((state) => ({ copilotComposerFocusSeq: state.copilotComposerFocusSeq + 1 }));
   },
 
   async exportProject() {

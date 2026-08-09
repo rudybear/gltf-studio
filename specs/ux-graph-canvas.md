@@ -71,8 +71,14 @@ config-field editor (variable/event dropdown selectors with "+ new…" flows, a 
 config field) — not itself a numbered requirement in this file, but the mechanism `UX-505`'s
 pointer retarget and this drop-menu's created nodes both build on.
 
-`UX-511` (inline Copilot affordance's context-chip half — the tab-switch half works) remains
-unimplemented; it is the one requirement in this block still deferred past M4.
+`UX-511` (inline Copilot affordance's context-chip half — the tab-switch half already worked) is now
+also implemented, as of the M8/Phase 2 Copilot UI work: `packages/app/src/components/dock/
+BehaviorGraphPanel.tsx`'s `onAskCopilot` callback (passed to `<GraphCanvas>`'s `onAskCopilot` prop,
+which this package's own `palette-panel.tsx` invokes from its header `✦` control) now ALSO calls the
+app store's `addCopilotContextChip` with an `{kind:"explicit", ...}` ref naming the current graph
+(`Graph {selectedGraphIndex}`, pointing at `/extensions/KHR_interactivity/graphs/{graphIndex}`),
+alongside the pre-existing `setActiveRightTab("copilot")` tab switch — entirely in `packages/app`,
+with no change to this package's own `palette-panel.tsx`/`GraphCanvasProps` contract.
 
 ## Implementation notes (M7)
 

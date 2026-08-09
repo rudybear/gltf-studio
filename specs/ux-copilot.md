@@ -57,3 +57,23 @@ Prefix: `UX`. This file owns the `UX-10xx` block.
   is one concrete realization of `AG`'s deferred "is a pending proposal's diff previewed as a
   scene overlay, or only as a list/text diff" question — this freeze pins down that play-mode
   preview exists as an option, not that it is the only or primary preview surface.
+- RESOLVED (M8/Phase 2, was part of `OPEN(AG-preview-render-tbd)`'s own unresolved half — HOW "Try
+  in play" is implemented, as opposed to THAT it exists): "apply-scratch-play-discard".
+  `startTryInPlay` (`packages/app/src/store/app-store.ts`) replays the proposal's `commands`'
+  forward patches onto a SCRATCH copy of the current `json` (`applyPatches`, never
+  `history`/`document`), points the viewport at that scratch JSON via `RenderHost.loadScene`, and
+  runs a real `PlayController` against it with `getDocumentJson` closed over the scratch constant
+  instead of the live document. `stopTryInPlay` stops that controller and then EXPLICITLY reloads
+  the real committed document/container — the "discard" half — so the viewport never keeps showing
+  the discarded scratch state. `history.document.rev` is provably unchanged across the whole flow:
+  nothing in this path ever calls `history.push`/`transact`. Deliberately implemented as a SEPARATE
+  lightweight preview state (`tryInPlayController`/`tryInPlayEntryId`), NOT a reuse of
+  `playState`/`activePlayController`/`specs/ux-shell.md`'s `UX-106` locked-banner chrome — reusing
+  real play-mode state would freeze `history` via `dispatchCommand`'s `playState !== "stopped"`
+  guard, which would incorrectly also block accepting/rejecting a DIFFERENT pending proposal while
+  one is being previewed, and the "Document locked while playing" banner text would misrepresent a
+  preview of a not-yet-applied proposal as the real document being locked. The one real-play safety
+  property worth keeping anyway (TransformControls not fighting the preview engine's own per-frame
+  writes) is reproduced narrowly: `Viewport.tsx`'s gizmo-attach effect additionally checks
+  `tryInPlayEntryId === null`, and a small viewport-level "Previewing Copilot proposal" strip
+  (distinct from the real locked-banner) gives the one honest visual cue that a preview is running.
