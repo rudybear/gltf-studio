@@ -6,9 +6,9 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/bundle-runtime-lib.mjs",
+    "predev": "node scripts/bundle-runtime-lib.mjs && node scripts/copy-sample.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/bundle-runtime-lib.mjs",
+    "prebuild": "node scripts/bundle-runtime-lib.mjs && node scripts/copy-sample.mjs",
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist *.tsbuildinfo"

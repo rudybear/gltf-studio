@@ -26,6 +26,9 @@ importers:
       '@gltfi/gltf':
         specifier: file:vendor/gltfi-gltf-0.0.1.tgz
         version: file:vendor/gltfi-gltf-0.0.1.tgz
+      '@gltfi/runtime':
+        specifier: file:vendor/gltfi-runtime-0.0.1.tgz
+        version: file:vendor/gltfi-runtime-0.0.1.tgz
       '@gltfi/verify':
         specifier: file:vendor/gltfi-verify-0.0.1.tgz
         version: file:vendor/gltfi-verify-0.0.1.tgz

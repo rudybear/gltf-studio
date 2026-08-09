@@ -1,0 +1,66 @@
+name: Deploy Pages
+
+# Runs after CI (ci.yml) finishes on main, and only deploys if CI actually
+# passed — `workflow_run` (rather than a second `push` trigger) is the
+# gate: a `push`-triggered deploy would happily ship a build with failing
+# tests, since it has no dependency on the CI workflow's own conclusion.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment in flight at a time; a newer push's deploy
+# should win over an older one still running, not queue behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+
+      # BASE_PATH (packages/app/vite.config.ts, PR #6): this repo is served
+      # as a GitHub Pages PROJECT site (https://<owner>.github.io/<repo>/),
+      # not a user/org root site, so every asset URL and the sample-scene
+      # fetch (Viewport.tsx's `import.meta.env.BASE_URL`) need the `/<repo>/`
+      # prefix baked in at build time.
+      - name: Build (BASE_PATH=/${{ github.event.repository.name }}/)
+        run: pnpm build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
