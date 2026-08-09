@@ -81,6 +81,16 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   now keeps the Behavior graph tab's content mounted (hidden via `display: none`/`contents` rather
   than conditionally rendered) so this state survives; the other four tabs keep the simpler
   conditional-mount pattern since they don't need this.
+- M5 (`packages/script-panel`'s dock-tab wiring, `BottomDock.tsx` +
+  `ScriptTabPanel.tsx`): the Script tab becomes real (`specs/ux-script.md` UX-707..713 — the
+  freeze-time read-only pin, UX-701, retires) and gets the SAME mounted-but-hidden treatment as the
+  Behavior graph tab, once opened — its Monaco buffer and edit-mode state are exactly the kind of
+  per-tab local state `UX-103`'s own worked example already calls out ("script divergence state").
+  Unlike the Behavior graph tab, the Script tab is additionally never mounted AT ALL until its first
+  open (`BottomDock`'s `scriptEverOpened` gate) — `packages/script-panel` pulls in Monaco and (via a
+  Worker) `@gltfi/parse-ts`'s ts-morph dependency, both too heavy to load at app boot on the chance a
+  session never opens the tab; `packages/app/src/bundle-chunks.test.ts` asserts ts-morph never lands
+  in the built app's main entry chunk.
 
 ## Open questions
 

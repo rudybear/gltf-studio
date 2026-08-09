@@ -1,0 +1,42 @@
+{
+  "name": "@gltf-studio/script-panel",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Script tab (specs/ux-script.md UX-7xx): Monaco-based GIscript editor over the current behavior graph — read-only Emit view by default, real-syntax editable buffer, off-thread @gltfi/parse-ts diagnostics, @gltfi/verify EQUIV/DIVERGED detection, and Apply -> Graph via editor-core's GraphEdit.replaceGraph.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./script-panel.css": "./src/script-panel.css"
+  },
+  "files": [
+    "dist",
+    "src/script-panel.css"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltf-studio/editor-core": "workspace:*",
+    "@gltfi/emit-ts": "0.0.1",
+    "@gltfi/ir": "0.0.1",
+    "@gltfi/parse-ts": "0.0.1",
+    "@gltfi/verify": "0.0.1",
+    "monaco-editor": "^0.50.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "vitest": "^2.1.8"
+  }
+}
