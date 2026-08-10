@@ -25,6 +25,8 @@ export const renderHostContractObligations: string[] = [
   'patchScene returns "needs-reload" for a batch if any one patch in it is structural (RH-014)',
   "pick returns null when nothing is under the given NDC coordinates (RH-015)",
   "pick returns a PickResult with the correct nodeIndex for a hit at NDC coordinates (RH-015)",
+  "pick() honors KHR_node_selectability by default: a non-selectable node under the cursor is not picked (RH-027)",
+  "pick(x, y, { ignoreEligibility: true }) picks a non-selectable node under the cursor, still gated by visibility (RH-027)",
   "getCameraPose/setCameraPose round-trip position and rotation (RH-016, RH-017)",
   "attachGizmo accepts a GizmoMode of translate, rotate, or scale (RH-018)",
   "attachGizmo while a gizmo is already attached replaces it without an explicit detach (RH-019)",
@@ -78,6 +80,55 @@ export function buildFixtureGltfJson(): unknown {
     scenes: [{ nodes: [0, 1] }],
     nodes: [
       { name: "Hit", mesh: 0, translation: [0, 0, 0] },
+      { name: "Decoy", mesh: 1, translation: [10, 10, 10] }
+    ],
+    meshes: [
+      { name: "HitMesh", primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, material: 0 }] },
+      { name: "DecoyMesh", primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, material: 0 }] }
+    ],
+    materials: [
+      {
+        name: "FixtureRed",
+        doubleSided: true,
+        pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1], metallicFactor: 0, roughnessFactor: 1 }
+      }
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] },
+      { bufferView: 1, componentType: 5126, count: 3, type: "VEC3" }
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: positionBytes.byteLength },
+      { buffer: 0, byteOffset: positionBytes.byteLength, byteLength: normalBytes.byteLength }
+    ],
+    buffers: [{ uri: `data:application/octet-stream;base64,${base64FromBytes(combined)}`, byteLength: combined.byteLength }]
+  };
+}
+
+/**
+ * Same fixture as `buildFixtureGltfJson()` (identical geometry/material/
+ * accessors) except node 0 ("Hit") also carries `KHR_node_selectability`'s
+ * `selectable: false` — used by the RH-027 tests below to prove `pick()`'s
+ * default eligibility gate excludes it while `ignoreEligibility: true`
+ * bypasses that gate. Node 1 ("Decoy") is unchanged (still selectable by
+ * default — KHR_node_selectability's absence means selectable).
+ */
+export function buildFixtureGltfJsonWithNonSelectableHitNode(): unknown {
+  const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
+  const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  const positionBytes = new Uint8Array(positions.buffer);
+  const normalBytes = new Uint8Array(normals.buffer);
+  const combined = new Uint8Array(positionBytes.byteLength + normalBytes.byteLength);
+  combined.set(positionBytes, 0);
+  combined.set(normalBytes, positionBytes.byteLength);
+
+  return {
+    asset: { version: "2.0", generator: "gltf-studio contract-tests fixture" },
+    extensionsUsed: ["KHR_node_selectability"],
+    scene: 0,
+    scenes: [{ nodes: [0, 1] }],
+    nodes: [
+      { name: "Hit", mesh: 0, translation: [0, 0, 0], extensions: { KHR_node_selectability: { selectable: false } } },
       { name: "Decoy", mesh: 1, translation: [10, 10, 10] }
     ],
     meshes: [
@@ -331,6 +382,25 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       expect(result?.nodeIndex).toBe(FIXTURE_HIT_NODE_INDEX);
       expect(result?.point).toHaveLength(3);
       expect(typeof result?.distance).toBe("number");
+      teardown(host, container);
+    });
+
+    test("pick() honors KHR_node_selectability by default: a non-selectable node under the cursor is not picked (RH-027)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await host.loadScene(buildFixtureGltfJsonWithNonSelectableHitNode());
+      host.setCameraPose(FRONT_CAMERA_POSE);
+      expect(host.pick(0, 0)).toBeNull();
+      teardown(host, container);
+    });
+
+    test("pick(x, y, { ignoreEligibility: true }) picks a non-selectable node under the cursor, still gated by visibility (RH-027)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await host.loadScene(buildFixtureGltfJsonWithNonSelectableHitNode());
+      host.setCameraPose(FRONT_CAMERA_POSE);
+      const result = host.pick(0, 0, { ignoreEligibility: true });
+      expect(result?.nodeIndex).toBe(FIXTURE_HIT_NODE_INDEX);
+      // Empty space (no geometry at all) still misses even with eligibility ignored.
+      expect(host.pick(0.95, 0.95, { ignoreEligibility: true })).toBeNull();
       teardown(host, container);
     });
 

@@ -1,3 +1,4 @@
+import { PNG } from "pngjs";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { assertRegionRendersContent, assertRegionSpansMultipleLines } from "./visual-assert.js";
 
@@ -24,9 +25,51 @@ import { assertRegionRendersContent, assertRegionSpansMultipleLines } from "./vi
  * V.raceT/V.steer are `KHR_interactivity` variables the running interpreter
  * exposes through the same `viewport.play-overlay.variable.<key>` testids
  * PlayOverlay.tsx documents generically for any asset.
+ *
+ * Also covers the EDIT-mode pick-eligibility bug fix (specs/ux-viewport.md
+ * UX-312, specs/render-host.md RH-027): the scenery nodes (Ground,
+ * TrackRing, StartLine, Pylon00..11, Car, RivalCar) all carry
+ * `KHR_node_selectability`'s `selectable: false` so they're non-interactive
+ * during PLAY, which used to also make them unclickable in EDIT mode —
+ * Pylon00 (node 3) is used below to prove a real viewport click/hover still
+ * selects/highlights it while editing, and that PLAY mode's own pick gate is
+ * unchanged.
  */
 
-const SCENE_NODE = { PAD_LEFT: 17 } as const;
+const SCENE_NODE = { PAD_LEFT: 17, PYLON: 3 } as const;
+
+type Point = { x: number; y: number };
+
+/**
+ * Finds a pixel matching `ThreeRenderHost`'s `scene.background` clear color
+ * (`0x11141a`, `packages/engine-three/src/render-host.ts`) in the mounted
+ * canvas's current screenshot — genuinely empty space with no geometry at
+ * all under it. Needed instead of `e2e/viewport-real-click.spec.ts`'s own
+ * fixed-corner `emptyCorner()` helper because R4 Racer's Ground plane is
+ * large enough that even a tight `frameNode`-style close-up on one small
+ * pylon still has geometry filling most corners of the frame — only a thin
+ * sky-line strip is guaranteed clear-color background, and its position
+ * shifts with camera framing, so it has to be found by scanning real
+ * pixels, the same technique `reddishClusters` uses in that other file.
+ */
+async function findBackgroundPixel(mount: Locator): Promise<Point> {
+  const box = (await mount.boundingBox())!;
+  const buffer = await mount.screenshot();
+  const png = PNG.sync.read(buffer);
+  const { width, height, data } = png;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (width * y + x) << 2;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (Math.abs(r - 0x11) <= 6 && Math.abs(g - 0x14) <= 6 && Math.abs(b - 0x1a) <= 6) {
+        return { x: box.x + x, y: box.y + y };
+      }
+    }
+  }
+  throw new Error("expected at least one clear-color background pixel in the framed viewport");
+}
 
 async function readVal(row: Locator): Promise<string> {
   return (await row.locator(".val").textContent()) ?? "";
@@ -163,5 +206,58 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     // Stop restores the pre-play document — normal editor selection works again.
     await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
     await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`)).toHaveClass(/selected/);
+  });
+
+  await test.step("EDIT mode: clicking a checkpoint pylon (KHR_node_selectability selectable:false) selects it via a real viewport click, and hovering it shows the hover affordance (bug fix regression, specs/ux-viewport.md UX-312 / specs/render-host.md RH-027)", async () => {
+    // Frame Pylon00 the same way the play-mode step above framed PadLeft —
+    // by now playState is back to "stopped" (Stop above restored editor
+    // mode), so this scene-tree-select + camera-frame affordance is enabled.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`).click();
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).toHaveClass(/selected/);
+    await page.getByTestId("viewport.camera-frame").click();
+
+    const mount = page.getByTestId("viewport.mount");
+    const box = (await mount.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    // R4 Racer's Ground plane is large enough that even this tight
+    // close-up on one small pylon still has geometry filling most of the
+    // frame (unlike e2e/viewport-real-click.spec.ts's isolated fixtures) —
+    // find a real empty (clear-color background) pixel instead of assuming
+    // a fixed corner is clear. With the fix, EDIT mode can now also select
+    // Ground itself (any visible node is eligible), so a click on Ground
+    // would just move the selection to Ground, not prove a clean deselect.
+    const empty = await findBackgroundPixel(mount);
+
+    // Clear the scene-tree-driven selection via a real empty-space click
+    // (UX-303) so the click below is a genuine reselect of the pylon, not a
+    // no-op against a selection that was already there.
+    await page.mouse.click(empty.x, empty.y);
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).not.toHaveClass(/selected/);
+    await expect(page.getByTestId("inspector.empty")).toBeVisible();
+
+    // Before the fix, this real click would have missed (ThreeRenderHost.pick()
+    // required KHR_node_selectability's selectable:true, which Pylon00 lacks).
+    await page.mouse.click(cx, cy);
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).toHaveClass(/selected/);
+    await expect(page.getByTestId("inspector.identity")).toContainText(`Node #${SCENE_NODE.PYLON}`);
+
+    // Hover: move off, then onto, the pylon; hover-pickable should engage.
+    await page.mouse.move(empty.x, empty.y);
+    await expect(mount).not.toHaveClass(/hover-pickable/);
+    await page.mouse.move(cx, cy);
+    await expect(mount).toHaveClass(/hover-pickable/);
+  });
+
+  await test.step("PLAY mode: a checkpoint pylon stays non-interactive (KHR_node_selectability selectable:false is still honored — the fix must not regress PLAY-mode eligibility)", async () => {
+    await page.getByTestId("playbar.play").click();
+    await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "playing");
+    // Camera is still framed on the pylon from the previous step (Stop is
+    // the only thing that resets the camera, per this file's own comment on
+    // PadLeft's identical technique above).
+    const playPick = await page.evaluate(() => window.__gltfStudioTest?.pick(0, 0) ?? null);
+    expect(playPick).toBeNull(); // default (PLAY-mode) eligibility still excludes the pylon.
+    await page.getByTestId("playbar.stop").click();
+    await expect(page.getByTestId("locked-banner")).toHaveCount(0);
   });
 });

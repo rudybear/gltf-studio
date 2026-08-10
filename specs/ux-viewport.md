@@ -24,6 +24,7 @@ Prefix: `UX`. This file owns the `UX-3xx` block.
 - [UX-301] (active) Hovering a rendered object (that is not the current selection) shows a dashed hover outline around it; moving the pointer off that object (to empty space or a different object) clears the hover outline.
 - [UX-302] (active) Clicking a rendered object selects it: a solid outline (for extent-having objects) or a labeled point marker (for point-like objects — lights, camera, audio emitters) is shown at its screen position, labeled with the object's name, and the selection is synchronized to the scene tree, Inspector, and Data tab per `specs/ux-scene-tree.md`'s `UX-202`.
 - [UX-303] (active) Clicking empty viewport space (no object under the cursor) clears the current selection everywhere it is reflected — scene tree, Inspector (to its empty state, `specs/ux-inspector.md`'s `UX-412`), and the viewport's own outline/gizmo.
+- [UX-312] (active) Viewport click-to-select (`UX-302`) and hover-highlight (`UX-301`) in EDIT mode (i.e. `playState === "stopped"`) apply to any visible rendered object regardless of that node's authored `KHR_node_selectability`/`KHR_node_hoverability` — those two extensions govern PLAY-mode `onSelect`/`onHoverIn` interactivity only (this file's Play-mode section, `RH-027`'s default path), not editor authoring, so a scenery node a game author has deliberately marked non-interactive-during-play (e.g. `samples/r4-racer.glb`'s checkpoint pylons) remains selectable/hoverable in the viewport while editing.
 
 ### Gizmo
 
