@@ -2,7 +2,9 @@
 
 Populated at UX freeze **U4** (see the program plan's Phase U): the user approved mockup **v5** as
 the v1 UX baseline. From this point forward, UX is iterated *in this repo* — the discipline
-`specs/README.md` describes for requirements generally, applied to UX specifically.
+`specs/README.md` describes for requirements generally, applied to UX specifically. A later,
+narrower round — **v6** — added usage mapping (below) on top of the same v5 baseline; both
+snapshots are kept, each normative for what it covers.
 
 ## What's here
 
@@ -15,10 +17,19 @@ the v1 UX baseline. From this point forward, UX is iterated *in this repo* — t
   reference** for the `UX-###` requirements in `specs/ux-*.md`. If a requirement and the snapshot
   ever disagree, the requirement wins (it may have been revised since the freeze); the snapshot
   stays frozen so "what did v5 actually do" is always answerable without git-archaeology.
-- `mockups/mockup-v2.png` .. `mockups/mockup-v5.png` — screenshots from the iteration history
-  leading to the freeze, kept for context on what changed between rounds (v2: shell + graph
-  canvas; v3: pointer-address affordances; v4: agentic Copilot flow; v5: glTF-addressing —
-  identity strip, mesh section, Data tab). Only v5 is normative; the others are provenance.
+- `mockups/mockup-v6.html` — a second **approved snapshot**, built as a v5 diff rather than a
+  redo: same shell, same `data-testid` convention, same golden-path surfaces, PLUS usage mapping
+  (`specs/ux-usage-mapping.md`'s `UX-11xx`) — the Inspector's "Used in behavior" section
+  (`usageSectionHtml`/`usageRowsForSceneNode`), the forward/reverse reference-resolution rule
+  (`graphNodeSceneRefIndex`), and the two-tier blue-selection/amber-reference highlight vocabulary
+  (`setGraphRefHighlight`/`revealRefInViewport`, the `ref-highlight`-prefixed CSS). v6 is normative
+  for those usage-mapping surfaces specifically; v5 remains normative for every surface it already
+  covered and v6 does not touch (v6's own diff is additive-only against v5's markup/script, so
+  nothing v5 already established changed underneath it).
+- `mockups/mockup-v2.png` .. `mockups/mockup-v6.png` — screenshots from the iteration history
+  (v2: shell + graph canvas; v3: pointer-address affordances; v4: agentic Copilot flow; v5:
+  glTF-addressing — identity strip, mesh section, Data tab; v6: usage mapping). v5 and v6 are both
+  normative (for their respective surfaces, per above); v2..v4 are provenance only.
 
 ## The freeze process
 

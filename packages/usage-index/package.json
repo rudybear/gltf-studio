@@ -1,0 +1,30 @@
+{
+  "name": "@gltf-studio/usage-index",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Usage-mapping derived view (specs/ux-usage-mapping.md UX-1100..1105): pure entity -> behavior-graph-reference index computed from a document's KHR_interactivity graphs, KHR_audio_emitter extensions, and animation channels. No React, no RenderHost — the Inspector's \"Used in behavior\" section and the graph canvas's \"Reveal in viewport\" both build on this one module.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltfi/kernel": "0.0.1"
+  },
+  "devDependencies": {
+    "@gltfi/gltf": "0.0.1",
+    "vitest": "^2.1.8"
+  }
+}

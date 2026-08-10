@@ -112,11 +112,20 @@ export type GraphViewProps = {
   /** UX-508: a drop-menu option was chosen for an externally-dragged scene node/animation clip. */
   onCreateFromDrop: (kind: DropKind, refId: number, optionKey: string, position: { x: number; y: number }) => void;
   onRendered?: (info: { nodeCount: number; layout: LayoutEngineMode }) => void;
+  /**
+   * UX-1107 (specs/ux-usage-mapping.md): a programmatic "center the canvas
+   * on this node" request from OUTSIDE the canvas (the Inspector's "Used in
+   * behavior" → Graph jump has no other way to reach a node that isn't
+   * already on-screen) — same cross-component-signal shape as
+   * `packages/app`'s own `frameRequest` (a bumped `seq` so re-requesting
+   * the SAME node twice in a row still re-triggers the effect below).
+   */
+  focusRequest?: { nodeIndex: number; seq: number } | null;
 };
 
 function GraphViewInner(props: GraphViewProps) {
   const { graph, selectedNodeIndex, onSelectNode, diagnosticsByNode, onLiteralCommit, onPointerTextClick, onPointerIconClick } = props;
-  const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered } = props;
+  const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered, focusRequest } = props;
 
   const engineRef = useRef<LayoutEngine | null>(null);
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
@@ -179,6 +188,18 @@ function GraphViewInner(props: GraphViewProps) {
     observer.observe(canvasRootEl);
     return () => observer.disconnect();
   }, [canvasRootEl, reactFlow]);
+
+  // UX-1107: an external focus request (Inspector "→ Graph" jump) pans/
+  // zooms the canvas to the requested node, same as clicking it would
+  // visually center it — but without changing selection itself (the
+  // caller already calls `onSelectNode` separately; this effect only
+  // handles the "isn't already on-screen" half a plain selection-state
+  // change can't do on its own, see graph-canvas.tsx's `NodeDetails`
+  // still opening from selection alone regardless of this effect).
+  useEffect(() => {
+    if (!focusRequest) return;
+    reactFlow.fitView({ nodes: [{ id: String(focusRequest.nodeIndex) }], duration: 400, maxZoom: 1.2 });
+  }, [focusRequest, reactFlow]);
 
   // One long-lived LayoutEngine for the mounted GraphView's whole lifetime.
   useEffect(() => {

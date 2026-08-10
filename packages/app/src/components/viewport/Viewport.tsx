@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine-three";
 import type { CameraPose, GizmoMode, PickResult } from "@gltf-studio/engine-api";
 import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-studio/editor-core";
@@ -118,6 +118,8 @@ export function Viewport(): JSX.Element {
   const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
   const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
   const requestFrame = useAppStore((s) => s.requestFrame);
+  const selectedGraphNodeIndex = useAppStore((s) => s.selectedGraphNodeIndex);
+  const selectedGraphIndex = useAppStore((s) => s.selectedGraphIndex);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
 
@@ -255,6 +257,22 @@ export function Viewport(): JSX.Element {
   useEffect(() => {
     hostRef.current?.setHover(hoveredNodeIndex !== null ? [hoveredNodeIndex] : []);
   }, [hoveredNodeIndex, history, sceneReady]);
+
+  // UX-1110 (specs/ux-usage-mapping.md): the amber reference highlight, a
+  // THIRD tier independent of selection/hover — derived from the Behavior
+  // graph canvas's own selection via the store's `referenceHighlightSceneNodeIndex()`
+  // getter (not reactive state itself, same convention as `historyEntries()`),
+  // re-derived whenever any field it reads could have changed. Naturally
+  // clears (returns null) when the graph-node selection is cleared/changed
+  // to something with no scene-node reference, or the document changes out
+  // from under it — no separate clearing code needed here.
+  const referenceHighlightNodeIndex = useMemo(
+    () => useAppStore.getState().referenceHighlightSceneNodeIndex(),
+    [document, selectedGraphNodeIndex, selectedGraphIndex]
+  );
+  useEffect(() => {
+    hostRef.current?.setReferenceHighlight(referenceHighlightNodeIndex !== null ? [referenceHighlightNodeIndex] : []);
+  }, [referenceHighlightNodeIndex, history, sceneReady]);
 
   // specs/ux-scene-tree.md UX-207: the scene-tree/viewport context menu's
   // "Frame" action lives outside this component's own `hostRef` (a

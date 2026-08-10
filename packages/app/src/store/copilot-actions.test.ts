@@ -65,6 +65,7 @@ function fakeRenderHost(): RenderHost {
     onGizmoChange: vi.fn(() => () => {}),
     applyPointer: vi.fn(),
     setHighlight: vi.fn(),
+    setReferenceHighlight: vi.fn(),
     snapshot: vi.fn(async () => new Blob())
   };
 }

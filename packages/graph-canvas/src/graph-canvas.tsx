@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GraphEdit, applyPatches, combineCommandParts, getIn, makeCommandId, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import type { ValueType } from "@gltfi/kernel";
+import { graphNodeSceneRef, type UsageDocJson, type UsageGraphNode } from "@gltf-studio/usage-index";
 import { mapGraph, type InteractivityGraph, type MappedGraph } from "./map-graph.js";
 import { GraphView } from "./graph-view.js";
 import { PalettePanel } from "./palette-panel.js";
@@ -70,6 +71,10 @@ export type GraphCanvasProps = {
    * no config yet.
    */
   onOpenPointerPicker?: (info: { nodeIndex: number; currentPath?: string; currentType?: string }) => void;
+  /** UX-1107 (specs/ux-usage-mapping.md): forwarded to GraphView — see its own doc comment. */
+  focusRequest?: { nodeIndex: number; seq: number } | null;
+  /** UX-1111: the node-details "Reveal in viewport" control, when the selected node addresses a scene node (`graphNodeSceneRef`, below). Omitted (button hidden) when the host has no viewport to reveal into. */
+  onRevealInViewport?: (sceneNodeIndex: number) => void;
 };
 
 export function GraphCanvas({
@@ -82,7 +87,9 @@ export function GraphCanvas({
   onToast,
   onAskCopilot,
   onJumpToData,
-  onOpenPointerPicker
+  onOpenPointerPicker,
+  focusRequest,
+  onRevealInViewport
 }: GraphCanvasProps): JSX.Element {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [validation, setValidation] = useState<ValidationResult>(EMPTY_VALIDATION);
@@ -318,6 +325,16 @@ export function GraphCanvas({
   }
 
   const selectedNode = mapped?.nodes.find((n) => n.index === selectedNodeIndex) ?? null;
+  // UX-1110/UX-1111: the same resolution rule the reverse usage index
+  // (@gltf-studio/usage-index's buildUsageIndex) is built from, applied
+  // forward — "does the SELECTED graph node address a scene node?" — for
+  // the reference highlight and the "Reveal in viewport" control. `null`
+  // for animation/* ops (no single "the" scene node, UX-1102) and for any
+  // op this module can't resolve with certainty (UX-1105).
+  const selectedNodeSceneRef =
+    rawGraph && selectedNode
+      ? graphNodeSceneRef(selectedNode.op, rawGraph.nodes[selectedNode.index] as unknown as UsageGraphNode, document.json as UsageDocJson)
+      : null;
 
   return (
     <div className="gcanvas-root" data-testid="gcanvas.root">
@@ -339,6 +356,7 @@ export function GraphCanvas({
           onMoveNode={handleMoveNode}
           onDropOp={handleAddNode}
           onCreateFromDrop={handleCreateFromDrop}
+          focusRequest={focusRequest}
         />
       ) : (
         <div className="gcanvas-empty-state" data-testid="gcanvas.empty">
@@ -362,6 +380,8 @@ export function GraphCanvas({
           onAddEventAndSetConfig={handleAddEventAndSetConfig}
           onSetAnimationValue={handleSetAnimationValue}
           onOpenPointerPicker={onOpenPointerPicker ? (nodeIndex) => handlePointerIconClick(nodeIndex) : undefined}
+          sceneRef={selectedNodeSceneRef}
+          onRevealInViewport={onRevealInViewport}
         />
       ) : null}
     </div>

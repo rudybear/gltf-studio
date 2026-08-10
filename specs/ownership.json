@@ -19,6 +19,7 @@
   "packages/play/**": "specs/engine-api.md",
   "packages/agent-mock/**": "specs/agent-service.md",
   "packages/editor-core/**": "specs/document-model.md",
+  "packages/usage-index/**": "specs/ux-usage-mapping.md",
   "packages/engine-three/**": "specs/render-host.md",
   "packages/storage/**": "specs/storage-provider.md",
   "packages/audio-webaudio/**": "specs/engine-api.md",

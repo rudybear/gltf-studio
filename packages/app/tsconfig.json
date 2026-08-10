@@ -17,6 +17,7 @@
     { "path": "../agent-mock" },
     { "path": "../storage" },
     { "path": "../graph-canvas" },
+    { "path": "../usage-index" },
     { "path": "../audio-webaudio" },
     { "path": "../audio-graph" },
     { "path": "../audio-canvas" },

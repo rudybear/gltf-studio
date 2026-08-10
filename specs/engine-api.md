@@ -85,6 +85,15 @@ same "diff satisfied honestly, not routed around" reason as `EA-pickresult-shape
 - [AH-002] (active) `AudioHost`'s method surface in v1 is exactly `init/loadEmitters/applyPointer/setListenerPose/auditionEmitter` plus the `suspend/resume/dispose` lifecycle — no additional emitter-authoring methods.
 - [AGH-001] (active) `AudioGraphHost` builds and runs `KHR_audio_graph` via AudioGraphJS's `buildGraph` and exposes lint results — combining AudioGraphJS's own `lint.ts` with this project's audio-graph gap-analysis constraints (DAG-only; no cycles, envelopes, or param-modulation in v1) — to the audio-graph canvas.
 
+## Implementation notes
+
+- Usage mapping (`specs/render-host.md`'s `RH-029`/`RH-030`, a new `RenderHost.setReferenceHighlight`
+  method): the fake `RenderHost` test doubles this file's own `PlayController` coverage builds
+  (`packages/contract-tests/src/play-controller.ts`'s harness, `packages/play/src/play-controller.
+  test.ts`'s local fixture) gained a no-op `setReferenceHighlight` stub alongside their existing
+  `setHighlight` one, purely to keep satisfying the widened `RenderHost` interface — no
+  `PlayController`/`PC-###` behavior here changed or depends on the new method.
+
 ## Open questions
 
 - RESOLVED(AH-init-signature-tbd) (by `audio-webaudio`, M7): the gesture is an app-side calling-convention obligation, not something `init()` detects itself — see `packages/engine-api/src/audio-host.ts`'s updated doc comment on `init()`.

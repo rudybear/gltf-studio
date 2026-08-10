@@ -96,6 +96,17 @@ export interface RenderHost {
   setHighlight(nodeIndices: number[]): void;
 
   /**
+   * RH-029/RH-030 (specs/ux-usage-mapping.md's reverse reference highlight,
+   * UX-1110): a THIRD, independent highlighted-node set alongside
+   * `setHighlight`'s own (RH-022) — rendered in a visually distinct style
+   * and fully coexisting with it (a node may be selected, hovered, AND
+   * reference-highlighted at once, each its own visible outline).
+   * `setReferenceHighlight([])` clears it (RH-030) without touching
+   * whatever `setHighlight`'s set currently holds.
+   */
+  setReferenceHighlight(nodeIndices: number[]): void;
+
+  /**
    * RH-024: resolves to a Promise of a PNG-encoded Blob at the render
    * canvas's current resolution. See specs/render-host.md's "Open
    * questions" for the unresolved tension with PC-003's use of "snapshot"

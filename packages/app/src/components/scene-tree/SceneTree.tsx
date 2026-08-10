@@ -44,6 +44,15 @@ export function SceneTree(): JSX.Element {
   const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
   const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
   const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
+  const selectedGraphNodeIndex = useAppStore((s) => s.selectedGraphNodeIndex);
+  const selectedGraphIndex = useAppStore((s) => s.selectedGraphIndex);
+  // UX-1110 (specs/ux-usage-mapping.md): same derived amber reference-
+  // highlight the viewport shows, mirrored here for the scene tree row —
+  // see Viewport.tsx's own use of this getter for the full doc comment.
+  const referenceHighlightNodeIndex = useMemo(
+    () => useAppStore.getState().referenceHighlightSceneNodeIndex(),
+    [document, selectedGraphNodeIndex, selectedGraphIndex]
+  );
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
   const [renamingNode, setRenamingNode] = useState<number | null>(null);
@@ -94,7 +103,7 @@ export function SceneTree(): JSX.Element {
           rows.map((row, i) => (
             <div
               key={row.nodeIndex}
-              className={`tree-row${row.nodeIndex === selectedNodeIndex ? " selected" : ""}`}
+              className={`tree-row${row.nodeIndex === selectedNodeIndex ? " selected" : ""}${row.nodeIndex === referenceHighlightNodeIndex ? " ref-highlighted" : ""}`}
               style={{ paddingLeft: 6 + row.depth * 16, display: hiddenNodes.has(row.nodeIndex) ? "none" : undefined }}
               data-testid={`scene-tree.row.${i}`}
               onClick={() => selectNode(row.nodeIndex)}

@@ -39,6 +39,10 @@ export type NodeDetailsProps = {
   onAddEventAndSetConfig?: (nodeIndex: number, id: string) => void;
   onSetAnimationValue?: (nodeIndex: number, animationIndex: number) => void;
   onOpenPointerPicker?: (nodeIndex: number) => void;
+  /** UX-1110/UX-1111 (specs/ux-usage-mapping.md): the scene-node index `selectedNode` addresses (`@gltf-studio/usage-index`'s `graphNodeSceneRef`), or `null` when it addresses none/isn't resolvable. Drives the "Reveal in viewport" control below — the reference-highlight OUTLINE itself is driven by plain selection state one layer up (`packages/app`'s `Viewport`/`SceneTree`), not by anything in this component. */
+  sceneRef?: number | null;
+  /** UX-1111: "Reveal in viewport" — omitted (button hidden) when the host has no viewport to reveal into, same optional-callback convention as `onOpenPointerPicker` above. */
+  onRevealInViewport?: (sceneNodeIndex: number) => void;
 };
 
 function formatLiteral(value: Array<number | boolean | string>): string {
@@ -496,7 +500,9 @@ export function NodeDetails({
   onSetEventConfig,
   onAddEventAndSetConfig,
   onSetAnimationValue,
-  onOpenPointerPicker
+  onOpenPointerPicker,
+  sceneRef = null,
+  onRevealInViewport
 }: NodeDetailsProps) {
   if (collapsed) {
     return (
@@ -542,6 +548,16 @@ export function NodeDetails({
             <AnimationValueEditor node={selectedNode} animationNames={animationNames} onSetAnimationValue={onSetAnimationValue} />
             <PortStatusRows graph={graph} node={selectedNode} />
             <DiagnosticsSection diagnostics={diagnostics} />
+            {sceneRef !== null && onRevealInViewport ? (
+              <button
+                type="button"
+                className="btn small"
+                data-testid="gcanvas.details.reveal"
+                onClick={() => onRevealInViewport(sceneRef)}
+              >
+                Reveal in viewport
+              </button>
+            ) : null}
           </>
         ) : (
           <GraphSummary graph={graph} unindexedDiagnostics={unindexedDiagnostics} />

@@ -73,6 +73,12 @@ export class ThreeRenderHost implements RenderHost {
   private highlightedNodeIndices = new Set<number>();
   private hoverHelpers: THREE.BoxHelper[] = [];
   private lastHoverIndices: number[] = [];
+  // RH-029/RH-030 (specs/ux-usage-mapping.md UX-1110): a third, independent
+  // highlighted-node set — its own helper list/index set, cleared on the
+  // same lifecycle events as `highlightHelpers` above but never by
+  // `setHighlight`/`setHover` (the three tiers are fully independent).
+  private referenceHighlightHelpers: THREE.BoxHelper[] = [];
+  private referenceHighlightedNodeIndices = new Set<number>();
 
   private gizmo: TransformControls | null = null;
   private gizmoNodeIndex: number | null = null;
@@ -94,6 +100,9 @@ export class ThreeRenderHost implements RenderHost {
       // fresh geometry too, or the dash pattern goes stale/wrong as soon as
       // the object (or camera) moves.
       helper.computeLineDistances();
+    }
+    for (const helper of this.referenceHighlightHelpers) {
+      helper.update();
     }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
@@ -201,6 +210,13 @@ export class ThreeRenderHost implements RenderHost {
     this.hoverHelpers = [];
     this.lastHoverIndices = [];
 
+    for (const helper of this.referenceHighlightHelpers) {
+      this.scene!.remove(helper);
+      helper.dispose();
+    }
+    this.referenceHighlightHelpers = [];
+    this.referenceHighlightedNodeIndices = new Set();
+
     if (this.gizmo) {
       this.scene!.remove(this.gizmo.getHelper());
       this.gizmo.dispose();
@@ -266,6 +282,12 @@ export class ThreeRenderHost implements RenderHost {
     }
     this.hoverHelpers = [];
     this.lastHoverIndices = [];
+    for (const helper of this.referenceHighlightHelpers) {
+      this.scene.remove(helper);
+      helper.dispose();
+    }
+    this.referenceHighlightHelpers = [];
+    this.referenceHighlightedNodeIndices = new Set();
     this.gizmo?.detach();
     this.gizmoNodeIndex = null;
 
@@ -562,6 +584,42 @@ export class ThreeRenderHost implements RenderHost {
       helper.material = new THREE.LineDashedMaterial({ color: 0x4d9dff, dashSize: 0.08, gapSize: 0.06 });
       this.scene.add(helper);
       this.hoverHelpers.push(helper);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Reference highlight (RH-029, RH-030 — specs/ux-usage-mapping.md UX-1110)
+  // ---------------------------------------------------------------------
+
+  /**
+   * A third, solid outline color (0xd9a441, the same amber
+   * `docs/ux/mockups/mockup-v6.html` uses for its `--warn` reference-
+   * highlight CSS) — distinct from both `setHighlight`'s selection amber
+   * (0xffaa00) and `setHover`'s dashed blue (0x4d9dff), so all three tiers
+   * remain visually distinguishable when they coexist on the same or
+   * different nodes.
+   */
+  setReferenceHighlight(nodeIndices: number[]): void {
+    if (!this.scene) {
+      throw new Error("RenderHost.setReferenceHighlight: call mount() first");
+    }
+    for (const helper of this.referenceHighlightHelpers) {
+      this.scene.remove(helper);
+      helper.dispose();
+    }
+    this.referenceHighlightHelpers = [];
+    this.referenceHighlightedNodeIndices = new Set(nodeIndices);
+    if (!this.tables) {
+      return;
+    }
+    for (const nodeIndex of nodeIndices) {
+      const object = this.tables.nodeByIndex[nodeIndex];
+      if (!object) {
+        continue;
+      }
+      const helper = new THREE.BoxHelper(object, 0xd9a441);
+      this.scene.add(helper);
+      this.referenceHighlightHelpers.push(helper);
     }
   }
 
