@@ -64,6 +64,13 @@ lives in `specs/render-host.md`'s "Open questions" (that's the spec whose `RH-01
 obligation (a `value-types.ts` change requires an `engine-api.md` diff) is honestly satisfied rather
 than routed around.
 
+**Follow-up** (same ownership note as above, same rationale): `value-types.ts` also gained a new
+`PickOptions` interface (`{ ignoreEligibility?: boolean }`), `RenderHost.pick()`'s new optional third
+parameter. The requirement text and full narrative (a user-reported bug: EDIT-mode viewport clicks on
+a node with `KHR_node_selectability`'s `selectable: false` silently did nothing) live in
+`specs/render-host.md`'s `RH-027` and `specs/ux-viewport.md`'s `UX-312` — not duplicated here, for the
+same "diff satisfied honestly, not routed around" reason as `EA-pickresult-shape-tbd` above.
+
 ## Requirements
 
 - [PC-001] (active) `PlayController.start(options)` accepts `options.engine` of `"interpreter"` or `"compiled"`; play mode drives the scene only through the fan-out `SceneAdapter.applyPointer -> renderHost ‖ audioHost`, never by mutating the edited document.

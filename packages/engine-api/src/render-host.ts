@@ -1,5 +1,5 @@
 import type { JsonPatchOp } from "./json-patch.js";
-import type { CameraPose, PickResult, TRS } from "./value-types.js";
+import type { CameraPose, PickOptions, PickResult, TRS } from "./value-types.js";
 
 /**
  * RenderHost: the viewport abstraction. The editor never imports three.js
@@ -64,9 +64,12 @@ export interface RenderHost {
 
   /**
    * RH-015: `x`/`y` are normalized device coordinates in [-1, 1] on both
-   * axes, with +y up (not viewport-relative pixels).
+   * axes, with +y up (not viewport-relative pixels). RH-027: an optional
+   * `options.ignoreEligibility` flag skips the default KHR_node_selectability
+   * gate (for EDIT-mode authoring); omitted/false keeps today's behavior
+   * (used by PLAY-mode's select/hover injection).
    */
-  pick(x: number, y: number): PickResult | null;
+  pick(x: number, y: number, options?: PickOptions): PickResult | null;
 
   /** RH-016/RH-017: see CameraPose (position + quaternion + optional target). */
   getCameraPose(): CameraPose;

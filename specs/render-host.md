@@ -44,6 +44,7 @@ this file now owns the entire `RH` numbering space going forward.
 ### Pick semantics
 
 - [RH-015] (active) `pick(x, y)` interprets `x` and `y` as normalized device coordinates in the range `[-1, 1]` on both axes, with `+y` pointing up — not viewport-relative pixel coordinates.
+- [RH-027] (active) `pick(x, y, options)` accepts an optional `options.ignoreEligibility` flag. When omitted or `false` (the default, and PLAY-mode's select/hover injection ALWAYS uses this default — see `specs/ux-viewport.md`'s Play-mode section), a hit whose nearest node ancestor has `KHR_node_selectability`'s `selectable` resolved to `false` is not returned. When `true` (used only by EDIT-mode viewport click/hover/context-menu, `specs/ux-viewport.md`'s `UX-312`), eligibility is not consulted at all — inherited visibility (`KHR_node_visibility`, unchanged) and nearest-node-ancestor resolution are the only gates, so any visible node can be picked regardless of authored `KHR_node_selectability`/`KHR_node_hoverability`.
 
 ### Camera pose
 
