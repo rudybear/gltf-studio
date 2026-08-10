@@ -12,7 +12,7 @@ import { buildUsageMappingFixtureBytes, USAGE_MAPPING_FIXTURE_NAME, USAGE_FIXTUR
  * fixture pinned by unrelated specs.
  */
 
-const AMBER_REF = { r: 0xd9, g: 0xa4, b: 0x41 }; // RH-027/RH-028's reference-highlight color (0xd9a441)
+const AMBER_REF = { r: 0xd9, g: 0xa4, b: 0x41 }; // RH-029/RH-030's reference-highlight color (0xd9a441)
 const BLUE_SELECTION_ISH = { r: 0x4d, g: 0x9d, b: 0xff }; // the hover-outline blue (0x4d9dff) — used here only to confirm the amber count below is NOT that color
 
 function countPixelsNear(buffer: Buffer, target: { r: number; g: number; b: number }, tolerance = 20): number {

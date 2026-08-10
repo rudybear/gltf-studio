@@ -24,6 +24,7 @@ import type {
   GizmoMode,
   JsonPatchOp,
   PatchOutcome,
+  PickOptions,
   PickResult,
   RenderHost,
   TRS
@@ -72,7 +73,7 @@ export class ThreeRenderHost implements RenderHost {
   private highlightedNodeIndices = new Set<number>();
   private hoverHelpers: THREE.BoxHelper[] = [];
   private lastHoverIndices: number[] = [];
-  // RH-027/RH-028 (specs/ux-usage-mapping.md UX-1110): a third, independent
+  // RH-029/RH-030 (specs/ux-usage-mapping.md UX-1110): a third, independent
   // highlighted-node set — its own helper list/index set, cleared on the
   // same lifecycle events as `highlightHelpers` above but never by
   // `setHighlight`/`setHover` (the three tiers are fully independent).
@@ -334,7 +335,17 @@ export class ThreeRenderHost implements RenderHost {
   // pick (RH-015)
   // ---------------------------------------------------------------------
 
-  pick(x: number, y: number): PickResult | null {
+  /**
+   * RH-027: default (options omitted/false) enforces KHR_node_selectability
+   * — the gate PLAY-mode's select/hover injection always relies on (scenery
+   * a game deliberately marks non-interactive-during-play must stay
+   * unpickable there). `options.ignoreEligibility: true` bypasses that
+   * check entirely for EDIT-mode authoring — visibility and nearest-node-
+   * ancestor resolution still apply, only the selectable gate is skipped —
+   * so any visible node can be selected/hovered while editing regardless of
+   * its authored selectability/hoverability.
+   */
+  pick(x: number, y: number, options?: PickOptions): PickResult | null {
     if (!this.camera || !this.modelRoot || !this.tables) {
       return null;
     }
@@ -353,7 +364,7 @@ export class ThreeRenderHost implements RenderHost {
         const nodeIndex = this.tables.nodeIndexByObject.get(current);
         if (nodeIndex !== undefined) {
           const state = this.tables.getNodeState(nodeIndex);
-          if (isEffectivelyVisible(current) && state.selectable) {
+          if (isEffectivelyVisible(current) && (options?.ignoreEligibility || state.selectable)) {
             return {
               nodeIndex,
               point: hit.point.toArray() as [number, number, number],
@@ -577,7 +588,7 @@ export class ThreeRenderHost implements RenderHost {
   }
 
   // ---------------------------------------------------------------------
-  // Reference highlight (RH-027, RH-028 — specs/ux-usage-mapping.md UX-1110)
+  // Reference highlight (RH-029, RH-030 — specs/ux-usage-mapping.md UX-1110)
   // ---------------------------------------------------------------------
 
   /**

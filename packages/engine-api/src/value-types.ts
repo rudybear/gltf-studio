@@ -48,6 +48,17 @@ export interface PickResult {
   distance: number;
 }
 
+/**
+ * Optional `RenderHost.pick()` modifier (see specs/render-host.md's RH-027).
+ * `ignoreEligibility: true` skips the KHR_node_selectability check a default
+ * pick() applies — used by EDIT-mode picking (authoring can select/hover any
+ * visible node regardless of authored selectability), never by PLAY-mode's
+ * select/hover injection (which must keep respecting it, per spec).
+ */
+export interface PickOptions {
+  ignoreEligibility?: boolean;
+}
+
 /** SP-011 (see specs/storage-provider.md): thumbnail is the only optional field. */
 export interface ProjectMeta {
   id: string;

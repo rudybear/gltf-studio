@@ -64,7 +64,7 @@ millisecond on a dev machine; see the PR description for the exact figure.
 usage-mapping implementation note (that file, not this one, owns `packages/app/**`); the graph-
 canvas-side additions (`focusRequest`, `NodeDetails`' "Reveal in viewport") are documented in
 `specs/ux-graph-canvas.md`'s own usage-mapping implementation note; the `RenderHost` reference-
-highlight tier the viewport wiring calls (`setReferenceHighlight`) is `RH-027`/`RH-028` in
+highlight tier the viewport wiring calls (`setReferenceHighlight`) is `RH-029`/`RH-030` in
 `specs/render-host.md`.
 
 ## Open questions

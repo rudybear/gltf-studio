@@ -190,6 +190,19 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   single-file and packed-multi-file import paths, plus dedicated jitter/deliberate-drag regression
   coverage for the mechanism itself — verified to fail on the pre-fix code and pass after.
 
+- Follow-up (user-reported bug, "clicking the checkpoint pylons in the R4 Racer viewport does not
+  select them", `Viewport.tsx`, `packages/engine-three/src/render-host.ts`):
+  `specs/ux-viewport.md`'s `UX-302` (click-to-select) held for ordinary scenes but not for
+  `samples/r4-racer.glb`'s checkpoint pylons, because `ThreeRenderHost.pick()` — reused by both
+  EDIT-mode selection/hover and PLAY-mode's `onSelect`/`onHoverIn` injection (`PC-008`) —
+  unconditionally requires `KHR_node_selectability`'s `selectable` to be `true`, a check that's
+  correct for PLAY (scenery is deliberately non-interactive during the race) but wrong for EDIT
+  (authoring must be able to select any visible node). Fixed by adding `pick()`'s
+  `ignoreEligibility` option (`specs/render-host.md`'s `RH-027`), which `Viewport.tsx` now passes
+  whenever `playState === "stopped"`; PLAY mode's own pick calls are unchanged. See
+  `specs/ux-viewport.md`'s `UX-312` and `e2e/racer.spec.ts`'s edit-mode pylon-select/hover coverage
+  plus its play-mode pylon-not-interactive regression check.
+
 - Starter gallery (`UX-119`, `Viewport.tsx`, `SampleGalleryPreviews.tsx`,
   `packages/app/scripts/copy-sample.mjs`, `samples/r4-racer.glb`, `samples/README.md`): the
   checkpoint's single "Load sample scene" button becomes a two-card gallery, adding R4 Racer
@@ -229,7 +242,7 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   `selectedGraphNodeIndex`, `selectedGraphIndex`) to derive `UX-1110`'s amber reference-highlight
   target from the CURRENT Behavior-graph selection, via `@gltf-studio/usage-index`'s
   `graphNodeSceneRef`. `Viewport.tsx` forwards that index to the new `RenderHost.
-  setReferenceHighlight` (`specs/render-host.md` `RH-027`/`RH-028`); `SceneTree.tsx` adds a
+  setReferenceHighlight` (`specs/render-host.md` `RH-029`/`RH-030`); `SceneTree.tsx` adds a
   `ref-highlighted` row class (new `--ref-soft` CSS variable, `app.css`, matching
   `docs/ux/mockups/mockup-v6.html`'s own `--ref-soft`). `UX-1112`'s clearing rules fall out of this
   design for free, with no dedicated clearing code: closing the graph-node details card (clicking

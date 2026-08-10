@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine-three";
-import type { CameraPose, GizmoMode } from "@gltf-studio/engine-api";
+import type { CameraPose, GizmoMode, PickResult } from "@gltf-studio/engine-api";
 import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-studio/editor-core";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
@@ -78,6 +78,8 @@ export interface GltfStudioTestHook {
   simulateGizmoDrag(delta: [number, number, number]): boolean;
   /** True once the current document's async `loadScene` has resolved — see `ThreeRenderHost.isReady`. */
   isReady(): boolean;
+  /** Test-only passthrough to RenderHost.pick() at PLAY mode's default eligibility (no ignoreEligibility) — lets e2e assert the play-mode pick gate directly without needing an actual onSelect side effect to observe (see e2e/racer.spec.ts). */
+  pick(x: number, y: number): PickResult | null;
 }
 
 declare global {
@@ -181,7 +183,8 @@ export function Viewport(): JSX.Element {
       setCameraPose: (pose) => host.setCameraPose(pose),
       getCameraPose: () => host.getCameraPose(),
       simulateGizmoDrag: (delta) => host.simulateGizmoDrag(delta),
-      isReady: () => host.isReady()
+      isReady: () => host.isReady(),
+      pick: (x, y) => host.pick(x, y)
     };
     return () => {
       delete window.__gltfStudioTest;
@@ -416,7 +419,12 @@ export function Viewport(): JSX.Element {
     if (!document) return;
     if (dragged) return; // an orbit drag, not a click-to-select (see pointerDownPos's doc comment above).
     const [x, y] = ndcFromEvent(e);
-    const result = hostRef.current?.pick(x, y) ?? null;
+    // EDIT mode bypasses KHR_node_selectability (specs/ux-viewport.md UX-312,
+    // specs/render-host.md RH-027) — authoring can select any visible node
+    // regardless of authored selectability; PLAY mode keeps today's default
+    // (selectable-only) so onSelect injection still respects it (PC-008).
+    const editMode = playState === "stopped";
+    const result = hostRef.current?.pick(x, y, editMode ? { ignoreEligibility: true } : undefined) ?? null;
     if (playState !== "stopped") {
       // PC-008: route clicks to the running engine's fireSelect instead of
       // editor selection while playing/paused — do not touch editor
@@ -441,7 +449,10 @@ export function Viewport(): JSX.Element {
       hostRef.current?.setControlsEnabled(true);
     }
     const [x, y] = ndcFromEvent(e);
-    const result = hostRef.current?.pick(x, y) ?? null;
+    // See onClick's identical EDIT-mode eligibility bypass comment above
+    // (specs/ux-viewport.md UX-312, specs/render-host.md RH-027).
+    const editMode = playState === "stopped";
+    const result = hostRef.current?.pick(x, y, editMode ? { ignoreEligibility: true } : undefined) ?? null;
     if (playState !== "stopped") {
       const controller = getActivePlayController();
       if (result) controller?.fireHoverIn(result.nodeIndex, result.point);
@@ -478,7 +489,10 @@ export function Viewport(): JSX.Element {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-    const result = hostRef.current?.pick(x, y) ?? null;
+    // Always EDIT mode here (the early-return above already requires
+    // playState === "stopped") — bypass KHR_node_selectability the same way
+    // onClick/onPointerMove do (specs/ux-viewport.md UX-312, RH-027).
+    const result = hostRef.current?.pick(x, y, { ignoreEligibility: true }) ?? null;
     if (!result) return; // no object under the cursor -- nothing to menu about (UX-207 is scoped to "a scene-tree row or a viewport OBJECT").
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, nodeIndex: result.nodeIndex });

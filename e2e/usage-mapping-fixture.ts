@@ -12,7 +12,7 @@
 //                 zero-ref/"Attach behavior…" stub state)
 // Prop_01/Prop_02 each get a small real triangle mesh (same geometry as
 // e2e/inspector-fixture.ts's, translated apart) so the viewport's
-// selection/reference-highlight BoxHelper outlines (RH-022/RH-027) have
+// selection/reference-highlight BoxHelper outlines (RH-022/RH-029) have
 // real, non-degenerate geometry to wrap — an empty transform-only node has
 // no bounding box for a BoxHelper to draw. Built in-process via the real
 // `@gltfi/gltf` `writeContainer` (same approach as inspector-fixture.ts),
