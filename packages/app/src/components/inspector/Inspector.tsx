@@ -6,6 +6,7 @@ import { TransformSection } from "./TransformSection";
 import { MeshSection } from "./MeshSection";
 import { MaterialSections } from "./MaterialSection";
 import { AudioSection } from "./AudioSection";
+import { UsageSection } from "./UsageSection";
 
 /**
  * specs/ux-inspector.md UX-4xx: identity strip, Transform/Mesh & Primitives/
@@ -163,6 +164,8 @@ export function Inspector(): JSX.Element {
           Camera-specific properties (FOV, clipping) are edited here in a later iteration.
         </div>
       )}
+
+      {json && <UsageSection nodeIndex={selectedNodeIndex} json={json} />}
     </div>
   );
 }

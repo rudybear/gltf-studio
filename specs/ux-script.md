@@ -56,6 +56,16 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
   (0-height) editor is. This is UX-700/UX-707's necessary precondition, not a new mode: every other
   UX-7xx requirement in this file continues to assume a graph is present.
 
+## Implementation notes
+
+- Usage mapping (`specs/ux-usage-mapping.md` `UX-1108`): the Inspector's "Used in behavior" → Script
+  row action reuses `UX-712`'s existing cross-highlight wiring as-is (it drives the exact same
+  `selectedGraphNodeIndex` this file's own `UX-712` already reacts to) — no change to this
+  package's own highlight logic. The one addition here is test-only: `window.__gltfStudioScriptTest`
+  (`GltfStudioScriptTestHook`) gains `getSelectedText()`, reading the Monaco editor's current
+  selection back out, so an e2e test can assert `UX-712`'s `editor.setSelection(range)` actually
+  selected the expected identifier rather than merely that some selection changed.
+
 ## Open questions
 
 - OPEN(UX-script-sugar-tbd): **the approved mockup renders script lines using an aspirational

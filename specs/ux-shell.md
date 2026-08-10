@@ -209,6 +209,39 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   script-tab decompile, and play-mode pad interaction) and `e2e/golden-path.spec.ts`'s updated
   first step for the Playground card's continued coverage.
 
+- M9 (usage mapping, `specs/ux-usage-mapping.md`'s `UX-11xx` — this file's own `packages/app/**`
+  catch-all is what makes the following a `specs/ux-shell.md` change, not just a
+  `specs/ux-usage-mapping.md` one, per that file's own "Owns" note): the Inspector gains a new
+  `UsageSection.tsx` (`UX-1106..1109`), rendered unconditionally for every selected node (unlike
+  Mesh/Material/Audio, which are gated on the node having that fact), built on the new
+  `@gltf-studio/usage-index` package's `buildUsageIndex` — memoized via `useMemo` keyed on
+  `document.json`'s own identity (`UX-1113`), the same convention `@gltf-studio/graph-canvas`'s
+  `mapGraph` already established. Its "Attach behavior…" zero-state menu reuses the app-store's
+  existing `addCopilotContextChip`/`requestCopilotComposerFocus` pair for its one real action, and
+  `specs/ux-scene-tree.md` `UX-206`'s "real, clickable, toasts instead of mutating" convention for
+  its Phase-2 stub entries.
+  Two new store fields back the → Graph / → Script jumps and the reverse reference highlight:
+  `graphNodeFocusRequest` (a `frameRequest`-shaped cross-component signal `BehaviorGraphPanel.tsx`
+  forwards to `@gltf-studio/graph-canvas`'s new `GraphCanvas`/`GraphView` `focusRequest` prop, per
+  that package's own usage-mapping implementation note) and a plain (non-reactive)
+  `referenceHighlightSceneNodeIndex()` getter — same style as the pre-existing `historyEntries()` —
+  that both `Viewport.tsx` and `SceneTree.tsx` independently `useMemo` (keyed on `document`,
+  `selectedGraphNodeIndex`, `selectedGraphIndex`) to derive `UX-1110`'s amber reference-highlight
+  target from the CURRENT Behavior-graph selection, via `@gltf-studio/usage-index`'s
+  `graphNodeSceneRef`. `Viewport.tsx` forwards that index to the new `RenderHost.
+  setReferenceHighlight` (`specs/render-host.md` `RH-027`/`RH-028`); `SceneTree.tsx` adds a
+  `ref-highlighted` row class (new `--ref-soft` CSS variable, `app.css`, matching
+  `docs/ux/mockups/mockup-v6.html`'s own `--ref-soft`). `UX-1112`'s clearing rules fall out of this
+  design for free, with no dedicated clearing code: closing the graph-node details card (clicking
+  the canvas's empty pane) sets `selectedGraphNodeIndex` back to `null` (already-existing
+  behavior, `onPaneClick`), and switching graphs (`setSelectedGraphIndex`) already resets
+  `selectedGraphNodeIndex` to `null` too (pre-existing, M4) — both make the getter return `null`
+  with no new logic. "Reveal in viewport" (`UX-1111`) is `revealSceneNodeInViewport`, a thin action
+  that reuses the pre-existing `requestFrame` cross-component signal (`UX-207`'s own mechanism) and
+  adds a confirmation toast — see `specs/ux-usage-mapping.md`'s own `OPEN(UX-usage-reveal-flash-tbd)`
+  for why this does not ALSO add a second, separate transient-pulse animation the approved mockup's
+  mock renderer used in place of a real camera it didn't have.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

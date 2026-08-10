@@ -120,6 +120,9 @@ importers:
       '@gltf-studio/storage':
         specifier: workspace:*
         version: link:../storage
+      '@gltf-studio/usage-index':
+        specifier: workspace:*
+        version: link:../usage-index
       '@gltfi/gltf':
         specifier: file:../../vendor/gltfi-gltf-0.0.1.tgz
         version: file:vendor/gltfi-gltf-0.0.1.tgz
@@ -300,6 +303,9 @@ importers:
       '@gltf-studio/editor-core':
         specifier: workspace:*
         version: link:../editor-core
+      '@gltf-studio/usage-index':
+        specifier: workspace:*
+        version: link:../usage-index
       '@gltfi/ir':
         specifier: file:../../vendor/gltfi-ir-0.0.1.tgz
         version: file:vendor/gltfi-ir-0.0.1.tgz
@@ -415,6 +421,19 @@ importers:
       fake-indexeddb:
         specifier: ^6.0.0
         version: 6.2.5
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)
+
+  packages/usage-index:
+    dependencies:
+      '@gltfi/kernel':
+        specifier: file:../../vendor/gltfi-kernel-0.0.1.tgz
+        version: file:vendor/gltfi-kernel-0.0.1.tgz
+    devDependencies:
+      '@gltfi/gltf':
+        specifier: file:../../vendor/gltfi-gltf-0.0.1.tgz
+        version: file:vendor/gltfi-gltf-0.0.1.tgz
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)

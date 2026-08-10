@@ -48,6 +48,8 @@ type ParseStatus = "clean" | "error" | "pending";
 export interface GltfStudioScriptTestHook {
   setValue(text: string): void;
   getCode(): string;
+  /** e2e-only (specs/ux-usage-mapping.md UX-1108): the Monaco editor's current text selection, or `null` when nothing is selected — lets a test assert UX-712's cross-highlight actually selected the expected identifier, not just that SOME selection changed. */
+  getSelectedText(): string | null;
 }
 
 declare global {
@@ -282,7 +284,13 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   useEffect(() => {
     window.__gltfStudioScriptTest = {
       setValue: (text: string) => editorRef.current?.setValue(text),
-      getCode: () => codeRef.current
+      getCode: () => codeRef.current,
+      getSelectedText: () => {
+        const editor = editorRef.current;
+        const selection = editor?.getSelection();
+        if (!editor || !selection || selection.isEmpty()) return null;
+        return editor.getModel()?.getValueInRange(selection) ?? null;
+      }
     };
     return () => {
       delete window.__gltfStudioScriptTest;

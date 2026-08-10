@@ -107,6 +107,33 @@ rather than duplicating them in `@gltf-studio/audio-canvas`:
   deterministic hash-based fallback color for any category string outside the fixed map, replacing
   the previous flat "anything unrecognized is gray" fallback.
 
+## Implementation notes (usage mapping)
+
+`specs/ux-usage-mapping.md`'s `UX-1107`/`UX-1110`/`UX-1111` add two small, additive surfaces to
+this package, both consumed by `packages/app` (the Inspector's "Used in behavior" section and the
+viewport's reference highlight — this package has no Inspector/viewport of its own):
+
+- `GraphView`/`GraphCanvas` gain an optional `focusRequest?: { nodeIndex: number; seq: number } |
+  null` prop (`UX-1107`'s "programmatic focus API"): `graph-view.tsx` watches it and calls React
+  Flow's own `fitView({ nodes: [{ id }], duration, maxZoom })`, panning/zooming the canvas to a
+  node that may not already be on-screen — the same cross-component-signal shape (a bumped `seq`
+  so re-requesting the same node twice still re-fires) `packages/app`'s own `frameRequest` already
+  established for the viewport's "Frame" action. This is deliberately NOT selection — the caller
+  (`packages/app`'s Inspector) calls the existing `onSelectNode` separately; `focusRequest` only
+  solves the "isn't already visible" half selection state alone can't.
+- `NodeDetails` gains an optional `sceneRef: number | null` + `onRevealInViewport?:
+  (sceneNodeIndex: number) => void`: `graph-canvas.tsx` computes `sceneRef` for the selected node
+  via `@gltf-studio/usage-index`'s `graphNodeSceneRef` (the exact same resolution rule
+  `specs/ux-usage-mapping.md`'s reverse usage index is built from, run forward) and shows a "Reveal
+  in viewport" button (`gcanvas.details.reveal`) whenever it resolves to a real scene node. This
+  package owns none of the actual highlighting — the reference-highlight OUTLINE itself (`UX-1110`)
+  is driven purely by `packages/app`'s existing `selectedGraphNodeIndex`/`selectedGraphIndex` store
+  state one layer up (`Viewport.tsx`/`SceneTree.tsx` each derive the same `graphNodeSceneRef` result
+  independently, via a shared `referenceHighlightSceneNodeIndex()` store getter — see
+  `specs/ux-shell.md`'s own usage-mapping implementation note) — this button's own job is purely
+  camera framing (`RenderHost.frameNode`/`UX-308`'s existing `frameRequest` mechanism) plus a
+  confirmation toast, since the outline is already visible for as long as the details card is open.
+
 ## Implementation notes (bug fix)
 
 Follow-up (hidden-mount `fitView`, found auditing `specs/ux-shell.md`'s M5 Script-tab sizing bug for

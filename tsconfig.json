@@ -5,6 +5,7 @@
     { "path": "packages/contract-tests" },
     { "path": "packages/editor-core" },
     { "path": "packages/agent-mock" },
+    { "path": "packages/usage-index" },
     { "path": "packages/engine-three" },
     { "path": "packages/play" },
     { "path": "packages/graph-canvas" },

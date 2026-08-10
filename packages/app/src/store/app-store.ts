@@ -15,6 +15,7 @@ import {
   applyPatches,
   createDocument,
   DocumentFrozenError,
+  getIn,
   GraphEdit,
   HistoryStack,
   save,
@@ -22,6 +23,7 @@ import {
   type EditorDocument
 } from "@gltf-studio/editor-core";
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
+import { graphNodeSceneRef, type UsageDocJson, type UsageGraphNode } from "@gltf-studio/usage-index";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import { createPlayController } from "@gltf-studio/play";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
@@ -248,6 +250,8 @@ export interface AppState {
    * `hostRef.current?.frameNode(nodeIndex)`.
    */
   frameRequest: { nodeIndex: number | null; seq: number } | null;
+  /** UX-1107: same cross-component-signal pattern as `frameRequest` above, for the Behavior graph canvas instead of the viewport — `BehaviorGraphPanel.tsx` forwards it to `GraphCanvas`'s `focusRequest` prop. */
+  graphNodeFocusRequest: { nodeIndex: number; seq: number } | null;
   /** Same cross-component-signal pattern: bumped by an inline "✦ Ask Copilot" affordance so `Copilot.tsx`'s composer can autofocus once the right panel switches to it. */
   copilotComposerFocusSeq: number;
 
@@ -323,6 +327,35 @@ export interface AppState {
   selectNode(index: number | null): void;
   selectGraphNode(index: number | null): void;
   setSelectedGraphIndex(index: number): void;
+  /** UX-1107 (specs/ux-usage-mapping.md): requests the Behavior graph canvas center/pan to the given graph node — see `@gltf-studio/graph-canvas`'s `GraphView` `focusRequest` doc comment. Same cross-component-signal pattern as `requestFrame` below. */
+  requestGraphNodeFocus(nodeIndex: number): void;
+  /**
+   * UX-1106..1108: the Inspector "Used in behavior" section's → Graph / →
+   * Script row actions. Both switch to the ref's own owning graph first
+   * (a no-op when it's already `selectedGraphIndex`), then select that
+   * graph node — the SAME `selectedGraphNodeIndex` state the Behavior
+   * graph canvas's own details card (`specs/ux-graph-canvas.md` UX-507)
+   * and the Script tab's cross-highlight (`specs/ux-script.md` UX-712)
+   * already react to, so neither jump needs its own bespoke open-details
+   * or flash mechanism. → Graph additionally requests a canvas focus
+   * (the target node may not already be on-screen); → Script has no such
+   * need (Monaco's own selection-revealing scroll, wired in script-panel,
+   * already handles that for text).
+   */
+  jumpUsageRefToGraph(ref: { graphIndex: number; graphNodeIndex: number }): void;
+  jumpUsageRefToScript(ref: { graphIndex: number; graphNodeIndex: number }): void;
+  /**
+   * UX-1110: derives the reference-highlight scene-node index from the
+   * current Behavior-graph selection (`selectedGraphIndex`/
+   * `selectedGraphNodeIndex`), via `@gltf-studio/usage-index`'s
+   * `graphNodeSceneRef` — the exact same resolution rule the Inspector's
+   * usage index (above) is built from, run forward. A plain getter (not
+   * reactive state, same convention as `historyEntries()`) — callers
+   * `useMemo` it themselves, keyed on the store fields it reads.
+   */
+  referenceHighlightSceneNodeIndex(): number | null;
+  /** UX-1111: "Reveal in viewport" — frames the given scene node (reusing `requestFrame`'s cross-component signal) and confirms via a toast. */
+  revealSceneNodeInViewport(nodeIndex: number): void;
   setHover(index: number | null): void;
   setGizmoMode(mode: GizmoMode): void;
   toggleCollapsed(nodeIndex: number): void;
@@ -524,6 +557,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tryInPlayController: null,
   tryInPlayEntryId: null,
   frameRequest: null,
+  graphNodeFocusRequest: null,
   copilotComposerFocusSeq: 0,
 
   themeOverride: null,
@@ -875,6 +909,49 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSelectedGraphIndex(index) {
     set({ selectedGraphIndex: index, selectedGraphNodeIndex: null });
+  },
+
+  requestGraphNodeFocus(nodeIndex) {
+    set((state) => ({ graphNodeFocusRequest: { nodeIndex, seq: (state.graphNodeFocusRequest?.seq ?? 0) + 1 } }));
+  },
+
+  jumpUsageRefToGraph(ref) {
+    const { selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode, requestGraphNodeFocus } = get();
+    setActiveDockTab("graph");
+    if (ref.graphIndex !== selectedGraphIndex) setSelectedGraphIndex(ref.graphIndex);
+    selectGraphNode(ref.graphNodeIndex);
+    requestGraphNodeFocus(ref.graphNodeIndex);
+  },
+
+  jumpUsageRefToScript(ref) {
+    const { selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode } = get();
+    setActiveDockTab("script");
+    if (ref.graphIndex !== selectedGraphIndex) setSelectedGraphIndex(ref.graphIndex);
+    // specs/ux-script.md UX-712 already flashes the corresponding identifier
+    // purely off this same `selectedGraphNodeIndex` field — no separate
+    // flash mechanism needed here.
+    selectGraphNode(ref.graphNodeIndex);
+  },
+
+  referenceHighlightSceneNodeIndex() {
+    const { history, selectedGraphIndex, selectedGraphNodeIndex } = get();
+    if (!history || selectedGraphNodeIndex === null) return null;
+    const json = history.document.json;
+    const graph = getIn(json, ["extensions", "KHR_interactivity", "graphs", selectedGraphIndex]) as
+      | { declarations?: Array<{ op: string }>; nodes?: UsageGraphNode[] }
+      | undefined;
+    const node = graph?.nodes?.[selectedGraphNodeIndex];
+    const op = node ? graph?.declarations?.[node.declaration]?.op : undefined;
+    if (!node || !op) return null;
+    return graphNodeSceneRef(op, node, json as UsageDocJson);
+  },
+
+  revealSceneNodeInViewport(nodeIndex) {
+    const { history, requestFrame, pushToast } = get();
+    const json = history?.document.json as { nodes?: Array<{ name?: string }> } | undefined;
+    const label = json?.nodes?.[nodeIndex]?.name ?? `Node #${nodeIndex}`;
+    requestFrame(nodeIndex);
+    pushToast(`Framed ${label} in viewport`);
   },
 
   setHover(index) {

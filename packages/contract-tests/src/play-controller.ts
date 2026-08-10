@@ -145,6 +145,7 @@ export function createFakeRenderHost(options?: { throwOnPointer?: string }): Ren
       }
     },
     setHighlight(_nodeIndices: number[]): void {},
+    setReferenceHighlight(_nodeIndices: number[]): void {},
     async snapshot(): Promise<Blob> {
       return new Blob([], { type: "image/png" });
     }

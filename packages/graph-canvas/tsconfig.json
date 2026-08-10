@@ -10,7 +10,7 @@
     "moduleResolution": "Bundler",
     "noEmit": false
   },
-  "references": [{ "path": "../editor-core" }],
+  "references": [{ "path": "../editor-core" }, { "path": "../usage-index" }],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

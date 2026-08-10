@@ -25,6 +25,7 @@
     "@gltf-studio/play": "workspace:*",
     "@gltf-studio/script-panel": "workspace:*",
     "@gltf-studio/storage": "workspace:*",
+    "@gltf-studio/usage-index": "workspace:*",
     "@gltfi/gltf": "0.0.1",
     "audio-graph-js": "0.1.0",
     "@xyflow/react": "^12.11.2",

@@ -34,6 +34,8 @@ export const renderHostContractObligations: string[] = [
   "applyPointer does not create a HistoryStack entry (RH-021)",
   "setHighlight(indices) highlights exactly the given node indices (RH-022)",
   "setHighlight([]) clears all highlighting (RH-023)",
+  "setReferenceHighlight(indices) highlights exactly the given node indices, independent of setHighlight's own set (RH-027)",
+  "setReferenceHighlight([]) clears reference highlighting without touching setHighlight's set (RH-028)",
   "snapshot() after loadScene resolves to a PNG Blob at the canvas's current resolution (RH-024)"
 ];
 
@@ -484,6 +486,30 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       await loadFixture(host);
       host.setHighlight([FIXTURE_HIT_NODE_INDEX]);
       expect(() => host.setHighlight([])).not.toThrow();
+      teardown(host, container);
+    });
+
+    test("setReferenceHighlight(indices) highlights exactly the given node indices, independent of setHighlight's own set (RH-027)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await loadFixture(host);
+      host.setHighlight([FIXTURE_HIT_NODE_INDEX]);
+      expect(() => host.setReferenceHighlight([FIXTURE_DECOY_NODE_INDEX])).not.toThrow();
+      // Both tiers coexist — clearing one must not be required by, or
+      // implied by, setting the other.
+      expect(() => host.setHighlight([])).not.toThrow();
+      expect(() => host.setReferenceHighlight([FIXTURE_HIT_NODE_INDEX, FIXTURE_DECOY_NODE_INDEX])).not.toThrow();
+      teardown(host, container);
+    });
+
+    test("setReferenceHighlight([]) clears reference highlighting without touching setHighlight's set (RH-028)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await loadFixture(host);
+      host.setHighlight([FIXTURE_HIT_NODE_INDEX]);
+      host.setReferenceHighlight([FIXTURE_DECOY_NODE_INDEX]);
+      expect(() => host.setReferenceHighlight([])).not.toThrow();
+      // The plain selection set is untouched by the reference-highlight
+      // clear — re-clearing it is still just as valid a no-op-shaped call.
+      expect(() => host.setHighlight([FIXTURE_HIT_NODE_INDEX])).not.toThrow();
       teardown(host, container);
     });
 

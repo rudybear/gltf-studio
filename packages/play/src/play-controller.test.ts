@@ -24,6 +24,7 @@ function makeFakeRenderHost(overrides: Partial<RenderHost> = {}): RenderHost {
     onGizmoChange: () => () => {},
     applyPointer: () => {},
     setHighlight: () => {},
+    setReferenceHighlight: () => {},
     snapshot: async () => new Blob()
   };
   return { ...base, ...overrides };

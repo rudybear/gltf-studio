@@ -57,6 +57,24 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`)).toContainText("PadLeft");
   });
 
+  await test.step("Inspector 'Used in behavior' populates for PadLeft against the real 366-node graph, within budget (UX-1106/UX-1113)", async () => {
+    const start = Date.now();
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
+    // PadLeft (node 17) is addressed by exactly three real graph nodes in
+    // this asset (dumped from samples/r4-racer.glb's own GLB JSON chunk,
+    // not guessed): one event/onSelect and one event/onHoverIn/onHoverOut
+    // pair, each configured with `nodeIndex: 17`.
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior (3)");
+    await expect(page.getByTestId("inspector.usage.row.0")).toContainText("nodeIndex: 17");
+    const elapsedMs = Date.now() - start;
+    console.log(`[racer.spec] usage-mapping Inspector section for a real 366-node graph resolved in ${elapsedMs}ms`);
+    // Generous (this is UI click-to-assert wall time, not the pure
+    // buildUsageIndex() call packages/usage-index's own unit test measures
+    // in isolation at well under 1ms) — same "wide headroom on a possibly
+    // saturated CI runner" rationale as this file's other timing budgets.
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
   await test.step("viewport renders real pixels, not a blank canvas", async () => {
     await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
     await assertRegionRendersContent(page.getByTestId("viewport.mount"));
