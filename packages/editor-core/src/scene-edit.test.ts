@@ -79,11 +79,291 @@ describe("SceneEdit.setAudioEmitterProperty", () => {
   });
 });
 
-describe("SceneEdit structural stubs (deferred to M8)", () => {
-  it("removeNode/reparentNode throw SceneEditNotImplementedError", () => {
-    expect(() => SceneEdit.removeNode()).toThrow(SceneEditNotImplementedError);
+describe("SceneEdit structural stub (reparentNode, still deferred to M8 part 2)", () => {
+  it("reparentNode throws SceneEditNotImplementedError", () => {
     expect(() => SceneEdit.reparentNode()).toThrow(SceneEditNotImplementedError);
-    expect(() => SceneEdit.removeNode()).toThrow(/M8/);
+    expect(() => SceneEdit.reparentNode()).toThrow(/M8/);
+  });
+});
+
+// DOC-048 (M8 part 1): SceneEdit.removeNode — subtree deletion + full
+// reference fixup. Custom fixtures per test (not the shared `fixtureDocument`
+// default) so each scenario's node graph/references are easy to read inline.
+describe("SceneEdit.removeNode (DOC-048)", () => {
+  it("removes a leaf node with no children or references and round-trips", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [{ name: "Alpha" }, { name: "Beta" }]
+    });
+    const { command, parentIndex } = SceneEdit.removeNode(doc, 1);
+    expect(parentIndex).toBeNull(); // Beta was a scene-root node, not parented under anything.
+    expect(command.label).toBe("Delete node");
+    const after = expectRoundTrip(doc.json, command) as { nodes: unknown[]; scenes: Array<{ nodes: number[] }> };
+    expect(after.nodes).toHaveLength(1);
+    expect(after.nodes[0]).toMatchObject({ name: "Alpha" });
+    expect(after.scenes[0].nodes).toEqual([0]);
+  });
+
+  it("throws for an out-of-range node index", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.removeNode(doc, 99)).toThrow();
+  });
+
+  it("deletes a node's ENTIRE descendant subtree as one command, labeled with the subtree count", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 3] }],
+      nodes: [
+        { name: "Root", children: [1] }, // 0: removed (the target)
+        { name: "Mid", children: [2] }, // 1: removed (descendant)
+        { name: "Leaf" }, // 2: removed (descendant)
+        { name: "Untouched" } // 3: survives, but its scene-root index shifts down
+      ]
+    });
+    const { command, parentIndex } = SceneEdit.removeNode(doc, 0);
+    expect(parentIndex).toBeNull(); // Root had no parent.
+    expect(command.label).toBe("Delete 3 nodes");
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ name: string }>; scenes: Array<{ nodes: number[] }> };
+    expect(after.nodes).toHaveLength(1);
+    expect(after.nodes[0].name).toBe("Untouched");
+    expect(after.scenes[0].nodes).toEqual([0]); // Untouched's index shifted 3 -> 0.
+  });
+
+  it("removing a child returns the PARENT's post-removal index, for scene-tree selection-after-delete (specs/ux-scene-tree.md UX-214)", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [
+        { name: "Root", children: [1, 2] }, // 0
+        { name: "ChildA" }, // 1: removed
+        { name: "ChildB" } // 2: survives, shifts to index 1
+      ]
+    });
+    const { command, parentIndex } = SceneEdit.removeNode(doc, 1);
+    expect(parentIndex).toBe(0); // Root's own index (0) is below the removed index (1) -> unshifted.
+    const after = applyPatches(doc.json, command.patches) as { nodes: Array<{ name: string; children?: number[] }> };
+    expect(after.nodes[0].children).toEqual([1]); // ChildB, shifted from 2 -> 1.
+    expect(after.nodes[0].name).toBe("Root");
+  });
+
+  it("a deleted subtree containing an index BELOW an ancestor outside the subtree shifts the returned parentIndex down too", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [1] }],
+      nodes: [
+        { name: "GrandchildOutOfOrder" }, // 0: Target's child — deliberately a SMALLER index than its own ancestors
+        { name: "Parent", children: [2] }, // 1: survives, outside the deleted subtree
+        { name: "Target", children: [0] } // 2: the delete target; its subtree is {2, 0}
+      ]
+    });
+    const { command, parentIndex } = SceneEdit.removeNode(doc, 2);
+    // Parent's original index (1) minus the one deleted subtree member below it (index 0) -> 0.
+    expect(parentIndex).toBe(0);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ name: string; children?: number[] }> };
+    expect(after.nodes).toHaveLength(1);
+    expect(after.nodes[0]).toMatchObject({ name: "Parent" });
+    expect(after.nodes[0].children).toBeUndefined(); // its only child (Target) was the deleted subtree root.
+  });
+
+  /** @spec DOC-049 */
+  it("children/scenes.nodes fixup: drops the removed index from wherever it was parented, shifts every OTHER reference above it down by one", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 4] }],
+      nodes: [
+        { name: "A" }, // 0
+        { name: "Parent", children: [2, 3] }, // 1
+        { name: "B" }, // 2: removed
+        { name: "C" }, // 3: shifts to 2
+        { name: "D" } // 4: shifts to 3
+      ]
+    });
+    const { command } = SceneEdit.removeNode(doc, 2);
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ name: string; children?: number[] }>;
+      scenes: Array<{ nodes: number[] }>;
+    };
+    expect(after.nodes).toHaveLength(4);
+    expect(after.nodes[1]).toMatchObject({ name: "Parent", children: [2] }); // C, shifted 3 -> 2
+    expect(after.nodes[2].name).toBe("C");
+    expect(after.nodes[3].name).toBe("D");
+    expect(after.scenes[0].nodes).toEqual([0, 1, 3]); // D's scene-root entry, shifted 4 -> 3
+  });
+
+  /** @spec DOC-049 */
+  it("KHR_interactivity pointer/set|get|interpolate literal pointer strings: shifts a literal above the removed index, leaves a dangling literal (pointing at the removed node) untouched — and never touches a graph node's OWN {node} wiring (a different index space)", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 2] }],
+      nodes: [{ name: "A" }, { name: "ToRemove" }, { name: "C" }],
+      extensionsUsed: ["KHR_interactivity"],
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [],
+              declarations: [{ op: "pointer/set" }, { op: "math/add" }],
+              nodes: [
+                {
+                  declaration: 0,
+                  values: {
+                    // Graph-internal wiring to ANOTHER GRAPH NODE (index 1 in
+                    // the GRAPH's own `nodes` array, a completely separate
+                    // index space from the SCENE node being removed below) —
+                    // must be entirely untouched by a scene-node removal.
+                    fromOtherGraphNode: { node: 1, socket: "out" },
+                    scenePointerLiteral: { type: 0, value: ["/nodes/1/translation"] }, // literal pointing at the removed scene node -> left dangling
+                    scenePointerAbove: { type: 0, value: ["/nodes/2/translation"] } // literal pointing above -> shifts to 1
+                  }
+                },
+                { declaration: 1 } // graph node index 1 — the target of fromOtherGraphNode above
+              ]
+            }
+          ]
+        }
+      }
+    });
+    const { command } = SceneEdit.removeNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: {
+        KHR_interactivity: {
+          graphs: Array<{
+            nodes: Array<{ values?: { fromOtherGraphNode: { node: number }; scenePointerLiteral: { value: string[] }; scenePointerAbove: { value: string[] } } }>;
+          }>;
+        };
+      };
+    };
+    const graphNode = after.extensions.KHR_interactivity.graphs[0].nodes[0];
+    expect(graphNode.values!.fromOtherGraphNode.node).toBe(1); // untouched — a different (graph-node) index space entirely
+    expect(graphNode.values!.scenePointerLiteral.value[0]).toBe("/nodes/1/translation"); // left dangling (policy: not repaired)
+    expect(graphNode.values!.scenePointerAbove.value[0]).toBe("/nodes/1/translation"); // shifted 2 -> 1
+    // The graph itself still has both its own nodes — removing a SCENE node never touches graph.nodes' own length.
+    expect(after.extensions.KHR_interactivity.graphs[0].nodes).toHaveLength(2);
+  });
+
+  /** @spec DOC-049 */
+  it("an event/onSelect handler's literal configuration.nodeIndex: shifts when above the removed index, stays dangling when equal, never touches the -1 sentinel", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 2] }],
+      nodes: [{ name: "A" }, { name: "ToRemove" }, { name: "C" }],
+      extensionsUsed: ["KHR_interactivity"],
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [],
+              declarations: [{ op: "event/onSelect" }, { op: "event/onHoverOut" }],
+              nodes: [
+                { declaration: 0, configuration: { nodeIndex: { value: [1] } } }, // dangling: pointed at the removed node
+                { declaration: 0, configuration: { nodeIndex: { value: [2] } } }, // shifts 2 -> 1
+                { declaration: 1, configuration: { nodeIndex: { value: [-1] } } } // sentinel: never touched
+              ]
+            }
+          ]
+        }
+      }
+    });
+    const { command } = SceneEdit.removeNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_interactivity: { graphs: Array<{ nodes: Array<{ configuration: { nodeIndex: { value: number[] } } }> }> } };
+    };
+    const nodes = after.extensions.KHR_interactivity.graphs[0].nodes;
+    expect(nodes[0].configuration.nodeIndex.value[0]).toBe(1); // dangling, left as-is
+    expect(nodes[1].configuration.nodeIndex.value[0]).toBe(1); // shifted 2 -> 1
+    expect(nodes[2].configuration.nodeIndex.value[0]).toBe(-1); // sentinel, untouched
+  });
+
+  /** @spec DOC-050 */
+  it("a node with a KHR_audio_emitter attachment is removed cleanly — the emitters registry is untouched/orphaned, not garbage-collected", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [{ name: "A" }, { name: "Speaker", extensions: { KHR_audio_emitter: { emitter: 0 } } }],
+      extensionsUsed: ["KHR_audio_emitter"],
+      extensions: { KHR_audio_emitter: { emitters: [{ type: "positional", gain: 1 }] } }
+    });
+    const { command } = SceneEdit.removeNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: unknown[];
+      extensions: { KHR_audio_emitter: { emitters: unknown[] } };
+    };
+    expect(after.nodes).toHaveLength(1);
+    // The now-unreferenced emitter registry entry is left in place (orphaned resources stay, DOC-048).
+    expect(after.extensions.KHR_audio_emitter.emitters).toHaveLength(1);
+  });
+
+  /** @spec DOC-049 */
+  it("animation channels targeting the removed node are DROPPED; channels targeting a higher node shift down; channels targeting a lower node are untouched (DOC-048 policy)", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 2] }],
+      nodes: [{ name: "A" }, { name: "ToRemove" }, { name: "C" }],
+      animations: [
+        {
+          name: "Clip",
+          samplers: [{ input: 0, output: 1 }, { input: 0, output: 1 }],
+          channels: [
+            { sampler: 0, target: { node: 0, path: "translation" } }, // untouched: below the removed index
+            { sampler: 1, target: { node: 1, path: "rotation" } }, // dropped: targets the removed node exactly
+            { sampler: 0, target: { node: 2, path: "scale" } } // shifted: 2 -> 1
+          ]
+        }
+      ]
+    });
+    const { command } = SceneEdit.removeNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      animations: Array<{ channels: Array<{ sampler: number; target: { node: number; path: string } }> }>;
+    };
+    const channels = after.animations[0].channels;
+    expect(channels).toHaveLength(2);
+    expect(channels.find((c) => c.target.path === "translation")?.target).toEqual({ node: 0, path: "translation" });
+    expect(channels.some((c) => c.target.path === "rotation")).toBe(false); // dropped
+    expect(channels.find((c) => c.target.path === "scale")?.target).toEqual({ node: 1, path: "scale" });
+  });
+
+  /** @spec DOC-049 */
+  it("skins (defensive — this app never authors/renders them, but must not corrupt an IMPORTED asset's skin data): joints drop-or-shift, skeleton drop-on-match-or-shift", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 2, 3] }],
+      nodes: [{ name: "A" }, { name: "ToRemove" }, { name: "Joint" }, { name: "SkeletonRoot" }],
+      skins: [{ joints: [1, 2], skeleton: 1 }, { joints: [2, 3], skeleton: 3 }]
+    });
+    const { command } = SceneEdit.removeNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      skins: Array<{ joints: number[]; skeleton?: number }>;
+    };
+    expect(after.skins[0].joints).toEqual([1]); // 1 dropped, 2 shifted -> 1
+    expect(after.skins[0].skeleton).toBeUndefined(); // equaled the removed index -> property removed
+    expect(after.skins[1].joints).toEqual([1, 2]); // 2 -> 1, 3 -> 2
+    expect(after.skins[1].skeleton).toBe(2); // 3 -> 2
+  });
+
+  it("undo restores the exact pre-removal document, including a multi-node subtree deletion", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Root", children: [1, 2] }, { name: "ChildA" }, { name: "ChildB" }]
+    });
+    const { command } = SceneEdit.removeNode(doc, 0);
+    const after = applyPatches(doc.json, command.patches);
+    const undone = applyPatches(after, command.inverse);
+    expect(deepEqualJson(undone, doc.json)).toBe(true);
   });
 });
 

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { SCENE_NODE_DRAG_MIME } from "@gltf-studio/graph-canvas";
 import { SceneEdit, type Command } from "@gltf-studio/editor-core";
 import { useAppStore } from "../../store/app-store";
-import { flattenSceneTree, visibleRows, type GltfJsonShape } from "../../lib/gltf-scene";
+import { countSubtreeNodes, flattenSceneTree, visibleRows, type GltfJsonShape } from "../../lib/gltf-scene";
 import { NodeIcon } from "./NodeIcon";
 import { ContextMenu } from "../ContextMenu";
 
@@ -26,21 +26,29 @@ const MESH_SUBMENU_ENTRIES = [
  * is selected, else the scene root, then auto-selects the new node and
  * opens its inline rename (reusing the same `renamingNode`/`renameValue`
  * state UX-207's context-menu "Rename" action already drives) so the
- * default name is immediately editable. Full structural editing
- * (reparent/delete existing nodes) remains M8.
+ * default name is immediately editable. Reparenting an EXISTING node
+ * remains M8 part 2 (`SceneEdit.reparentNode`); deletion is real (below).
  *
- * UX-207/UX-208: right-clicking a row opens a Frame / Rename / "✦ Ask
- * Copilot about this…" menu at the cursor. Frame routes through the store's
- * `frameRequest` cross-component signal (Viewport.tsx owns the real
- * RenderHost, this component has no reach into it); Rename is a real inline
- * edit -> `SceneEdit.setName`; Ask Copilot switches the right panel to
- * Copilot and attaches an explicit chip naming this node.
+ * UX-207/UX-208/UX-214: right-clicking a row opens a Frame / Rename /
+ * "✦ Ask Copilot about this…" / Delete menu at the cursor. Frame routes
+ * through the store's `frameRequest` cross-component signal (Viewport.tsx
+ * owns the real RenderHost, this component has no reach into it); Rename is
+ * a real inline edit -> `SceneEdit.setName`; Ask Copilot switches the right
+ * panel to Copilot and attaches an explicit chip naming this node; Delete
+ * (UX-214, DOC-048) calls the store's `deleteNode` — one undoable
+ * `SceneEdit.removeNode` command deleting the row's ENTIRE subtree, its
+ * label naming the subtree's node count (`countSubtreeNodes`) whenever
+ * that's more than just the one row — then moves selection to the deleted
+ * node's former parent (or clears it for a scene-root). The same
+ * `deleteNode` action also backs the Delete/Backspace keyboard shortcut
+ * (`App.tsx`'s app-level keydown handler) when a scene node is selected.
  */
 export function SceneTree(): JSX.Element {
   const document = useAppStore((s) => s.document);
   const history = useAppStore((s) => s.history);
   const selectedNodeIndex = useAppStore((s) => s.selectedNodeIndex);
   const selectNode = useAppStore((s) => s.selectNode);
+  const deleteNode = useAppStore((s) => s.deleteNode);
   const collapsedNodes = useAppStore((s) => s.collapsedNodes);
   const toggleCollapsed = useAppStore((s) => s.toggleCollapsed);
   const showIndices = useAppStore((s) => s.showIndices);
@@ -298,6 +306,16 @@ export function SceneTree(): JSX.Element {
                 addCopilotContextChip({ kind: "explicit", label, pointer: `/nodes/${contextMenu.nodeIndex}` }, label);
                 requestCopilotComposerFocus();
               }
+            },
+            {
+              key: "delete",
+              // UX-214: subtree count only shown when deleting takes more
+              // than just this one row (DOC-048's whole-subtree policy).
+              label: (() => {
+                const count = countSubtreeNodes(document?.json as GltfJsonShape | undefined, contextMenu.nodeIndex);
+                return count > 1 ? `Delete (${count} nodes)` : "Delete";
+              })(),
+              onSelect: () => deleteNode(contextMenu.nodeIndex)
             }
           ]}
         />

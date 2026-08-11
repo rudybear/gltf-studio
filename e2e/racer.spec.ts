@@ -1,5 +1,6 @@
 import { PNG } from "pngjs";
 import { test, expect, type Page, type Locator } from "@playwright/test";
+import { validateGraph, type VGraph } from "@gltfi/verify";
 import { assertRegionRendersContent, assertRegionSpansMultipleLines, assertRegionsVisuallyDiffer } from "./visual-assert.js";
 
 /**
@@ -322,6 +323,57 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     // PadLeft's identical technique above).
     const playPick = await page.evaluate(() => window.__gltfStudioTest?.pick(0, 0) ?? null);
     expect(playPick).toBeNull(); // default (PLAY-mode) eligibility still excludes the pylon.
+    await page.getByTestId("playbar.stop").click();
+    await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+  });
+
+  await test.step("DOC-048 stress case: deleting a checkpoint pylon (referenced by nothing) at real scale shifts every one of the 366-node graph's node-index references correctly (pointer literals AND event/onSelect's configuration.nodeIndex); undo fully restores the document, and play works exactly as before afterward", async () => {
+    // Pylon00 (node 3) is scenery only — no graph node addresses it, so its
+    // OWN removal never needs the dangling-reference policy exercised here;
+    // this step is about every OTHER node's index shifting correctly at a
+    // scale (366 graph nodes) no unit test reasonably reproduces, including
+    // PadLeft's (17 -> 16) event/onSelect `configuration.nodeIndex` literal
+    // and Car's (15 -> 14) pointer/set `configuration.pointer` literals
+    // (both already selected/asserted earlier in this file at their ORIGINAL
+    // indices).
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`).click({ button: "right" });
+    await expect(page.getByTestId("scene-tree.context-menu.delete")).toBeVisible();
+    await page.getByTestId("scene-tree.context-menu.delete").click();
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+
+    const afterDelete = (await page.evaluate(() => window.__gltfStudioDocumentTest?.getJson())) as {
+      nodes: unknown[];
+      extensions?: { KHR_interactivity?: { graphs: Array<{ nodes: unknown[] }> } };
+    };
+    expect(afterDelete.nodes).toHaveLength(25); // 26 -> 25
+    const graph = afterDelete.extensions!.KHR_interactivity!.graphs[0];
+    expect(graph.nodes).toHaveLength(366); // scene-node deletion never touches the graph's OWN node count
+    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+
+    // Undo restores the pylon (and every shifted reference) exactly.
+    await page.getByTestId("topbar.undo").click();
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).toBeVisible();
+    const restored = (await page.evaluate(() => window.__gltfStudioDocumentTest?.getJson())) as { nodes: unknown[] };
+    expect(restored.nodes).toHaveLength(26);
+
+    // Play still genuinely works post-restore: PadLeft's real onSelect
+    // handler still fires at its restored original index (17) — the same
+    // interaction this file's own "play (interpreter)" step above already
+    // proved once; re-proving it here specifically guards against a
+    // delete+undo cycle leaving some STALE shifted reference behind despite
+    // the document otherwise looking restored.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
+    await page.getByTestId("viewport.camera-frame").click();
+    await page.getByTestId("playbar.play").click();
+    await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "playing");
+
+    const steerRow = page.getByTestId("viewport.play-overlay.variable.steer");
+    const mount = page.getByTestId("viewport.mount");
+    const box = (await mount.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(() => readVal(steerRow), { timeout: 3000 }).not.toBe("0");
+
     await page.getByTestId("playbar.stop").click();
     await expect(page.getByTestId("locked-banner")).toHaveCount(0);
   });

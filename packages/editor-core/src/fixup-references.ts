@@ -1,28 +1,49 @@
-// Shared index-shift reference-fixup helper (DOC-019, DOC-020, DOC-021).
-// Every command capable of shifting array indices (today: `GraphEdit.removeNode`;
-// future structural `SceneEdit` ops per DOC-025/M8) calls this ONE helper
-// rather than re-implementing its own fixup walk.
+// Shared index-shift reference-fixup helper (DOC-019, DOC-020, DOC-021,
+// extended by DOC-048 for `SceneEdit.removeNode`).
+// Every command capable of shifting array indices (`GraphEdit.removeNode`,
+// `SceneEdit.removeNode`) calls this ONE helper rather than re-implementing
+// its own fixup walk.
 //
-// Two kinds of embedded index reference exist in a KHR_interactivity-bearing
-// glTF document:
+// Five kinds of embedded index reference exist in a glTF document:
 //
 //   - `graphNodeRef`: a `{ node: number, socket?: string }` value/flow
 //     reference from one graph node to another *within the same graph*
-//     (DOC-019's core case — used by `GraphEdit.removeNode` today).
+//     (DOC-019's core case — used by `GraphEdit.removeNode`).
 //   - `jsonPointerLiteral`: a string leaf anywhere in the document that
 //     embeds a JSON-pointer-shaped index reference as text, e.g. a
 //     `pointer/get`/`pointer/set` node's literal template segment
 //     (`"/nodes/3/translation"`) rather than a dynamic `{0}` parameter
-//     (DOC-020's case — not yet exercised by any implemented command, since
-//     the glTF-node-array-shifting commands that would produce these are
-//     M8-stubbed `SceneEdit` structural ops, but the helper supports it now
-//     so those future callers need no new fixup logic).
+//     (DOC-020's case — used by `SceneEdit.removeNode`, DOC-048).
+//   - `graphConfigLiteral` (DOC-048): a raw number embedded (not wrapped in
+//     a `{node}` ref, not embedded in a pointer string) at a graph node's
+//     `configuration[field].value[0]` — e.g. `event/onSelect`/`onHoverIn`/
+//     `onHoverOut`'s `configuration.nodeIndex` (`packages/usage-index`'s
+//     `literalNumber` reads the identical field). The `-1` "no node"
+//     sentinel these ops use is never touched: `shiftedIndex` only ever acts
+//     on values `> removedIndex`, and `-1` never is.
+//   - `indexArray` (DOC-048): an array living at an EXACT path whose
+//     elements are (or, via `nodeFieldPath`, contain) a raw node-index
+//     number — `scenes[i].nodes`, `nodes[i].children`, `skins[i].joints`,
+//     and (with `nodeFieldPath: ["target","node"]`) `animations[i].channels`.
+//     Unlike the graph-internal kinds above, a dangling entry here (one
+//     equal to `removedIndex`) is DROPPED from the array rather than left
+//     in place — these are core structural glTF arrays a renderer walks
+//     directly, not editor-authored behavior-graph wiring a validator can
+//     flag, so leaving a truly out-of-range index would corrupt the asset
+//     rather than merely mark authored intent as stale.
+//   - `indexScalar` (DOC-048): a single raw node-index number field at an
+//     exact path — `skins[i].skeleton`. Same drop-on-match policy as
+//     `indexArray`, applied to a lone field instead of an array (the
+//     property itself is removed when its value equals `removedIndex`).
 import type { JsonPatchOp } from "@gltf-studio/engine-api";
 import { formatPointer, getIn } from "./json-pointer.js";
 
 export type ReferenceKind =
   | { kind: "graphNodeRef"; graphPath: ReadonlyArray<string | number> }
-  | { kind: "jsonPointerLiteral"; arrayName: string };
+  | { kind: "jsonPointerLiteral"; arrayName: string }
+  | { kind: "graphConfigLiteral"; graphPath: ReadonlyArray<string | number>; field: string }
+  | { kind: "indexArray"; path: ReadonlyArray<string | number>; nodeFieldPath?: ReadonlyArray<string | number> }
+  | { kind: "indexScalar"; path: ReadonlyArray<string | number> };
 
 export type FixupPatches = { patches: JsonPatchOp[]; inverse: JsonPatchOp[] };
 
@@ -61,7 +82,13 @@ export function fixupReferences(
     const result =
       refKind.kind === "graphNodeRef"
         ? fixupGraphNodeRefs(json, removedIndex, refKind.graphPath)
-        : fixupJsonPointerLiterals(json, removedIndex, refKind.arrayName);
+        : refKind.kind === "jsonPointerLiteral"
+          ? fixupJsonPointerLiterals(json, removedIndex, refKind.arrayName)
+          : refKind.kind === "graphConfigLiteral"
+            ? fixupGraphConfigLiteral(json, removedIndex, refKind.graphPath, refKind.field)
+            : refKind.kind === "indexArray"
+              ? fixupIndexArray(json, removedIndex, refKind.path, refKind.nodeFieldPath)
+              : fixupIndexScalar(json, removedIndex, refKind.path);
     patches.push(...result.patches);
     inverse.push(...result.inverse);
   }
@@ -135,6 +162,125 @@ function fixupJsonPointerLiterals(json: unknown, removedIndex: number, arrayName
     }
   });
   return { patches, inverse };
+}
+
+/**
+ * DOC-048: `graphConfigLiteral` — shifts a raw number embedded at
+ * `graph.nodes[i].configuration[field].value[0]` (e.g. `event/onSelect`'s
+ * `nodeIndex`), for every graph node that has one, regardless of that
+ * node's declaration/op — a document with a stray `configuration[field]`
+ * on some other op is simply a no-op match (`typeof raw !== "number"`
+ * already guards non-numeric/absent fields; there is no numeric field named
+ * `nodeIndex` anywhere else this helper's callers use it for). Mirrors
+ * `fixupGraphNodeRefs`'s per-graph-node walk, but reads a literal instead of
+ * a `{node}` ref.
+ */
+function fixupGraphConfigLiteral(
+  json: unknown,
+  removedIndex: number,
+  graphPath: ReadonlyArray<string | number>,
+  field: string
+): FixupPatches {
+  const graph = getIn(json, graphPath.map(String)) as
+    | { nodes?: Array<{ configuration?: Record<string, { value?: unknown[] } | undefined> }> }
+    | undefined;
+  if (!graph?.nodes) return { patches: [], inverse: [] };
+
+  const patches: JsonPatchOp[] = [];
+  const inverse: JsonPatchOp[] = [];
+  graph.nodes.forEach((node, nodeIndex) => {
+    const raw = node.configuration?.[field]?.value?.[0];
+    if (typeof raw !== "number") return;
+    const newIndex = shiftedIndex(raw, removedIndex);
+    if (newIndex === undefined) return; // below, or the -1/"any node" sentinel, or a dangling ref to the removed node itself — untouched.
+    const path = formatPointer([...graphPath, "nodes", nodeIndex, "configuration", field, "value", 0]);
+    patches.push({ op: "replace", path, value: newIndex });
+    inverse.push({ op: "replace", path, value: raw });
+  });
+  return { patches, inverse };
+}
+
+/** Immutably writes `value` at `path` inside `obj`, cloning only the touched spine (mirrors `json-pointer.ts`'s `updateSpine`, but over a plain in-memory value rather than an RFC 6902 path string). */
+function setNested(obj: unknown, path: ReadonlyArray<string>, value: unknown): unknown {
+  if (path.length === 0) return value;
+  const [head, ...rest] = path;
+  const record = (obj !== null && typeof obj === "object" ? (obj as Record<string, unknown>) : {}) as Record<string, unknown>;
+  return { ...record, [head]: setNested(record[head], rest, value) };
+}
+
+/**
+ * DOC-048: `indexArray` — the array at `path` holds, per element, either a
+ * raw node-index number directly (`nodeFieldPath` omitted — `scenes[i].nodes`,
+ * `nodes[i].children`, `skins[i].joints`) or an object whose node index lives
+ * at `element[...nodeFieldPath]` (`animations[i].channels`, `nodeFieldPath:
+ * ["target","node"]`). An element addressing `removedIndex` exactly is
+ * DROPPED (not left dangling — see this file's header comment); an element
+ * addressing something greater is shifted down by one in place. Emits ONE
+ * `replace` (or, when the array would become empty, one `remove` of the
+ * whole property — an empty `children`/`scenes[].nodes`/`skins[].joints`/
+ * `animations[].channels` is not how this codebase represents "none", it
+ * simply omits the property) covering every changed element, or no patch at
+ * all when nothing in the array actually changes.
+ */
+function fixupIndexArray(
+  json: unknown,
+  removedIndex: number,
+  path: ReadonlyArray<string | number>,
+  nodeFieldPath?: ReadonlyArray<string | number>
+): FixupPatches {
+  const current = getIn(json, path.map(String));
+  if (!Array.isArray(current)) return { patches: [], inverse: [] };
+
+  const readIndex = (element: unknown): number | undefined => {
+    const raw = nodeFieldPath === undefined ? element : getIn(element, nodeFieldPath.map(String));
+    return typeof raw === "number" ? raw : undefined;
+  };
+
+  let changed = false;
+  const next: unknown[] = [];
+  for (const element of current) {
+    const value = readIndex(element);
+    if (value === undefined) {
+      next.push(element);
+      continue;
+    }
+    if (value === removedIndex) {
+      changed = true; // dropped
+      continue;
+    }
+    const newValue = shiftedIndex(value, removedIndex);
+    if (newValue === undefined) {
+      next.push(element);
+      continue;
+    }
+    changed = true;
+    next.push(nodeFieldPath === undefined ? newValue : setNested(element, nodeFieldPath.map(String), newValue));
+  }
+
+  if (!changed) return { patches: [], inverse: [] };
+  const pointer = formatPointer(path);
+  if (next.length === 0) {
+    return { patches: [{ op: "remove", path: pointer }], inverse: [{ op: "add", path: pointer, value: current }] };
+  }
+  return { patches: [{ op: "replace", path: pointer, value: next }], inverse: [{ op: "replace", path: pointer, value: current }] };
+}
+
+/**
+ * DOC-048: `indexScalar` — a single raw node-index number field at `path`
+ * (`skins[i].skeleton`). Shifted down by one when greater than
+ * `removedIndex`; the property is REMOVED (not left dangling) when it
+ * equals `removedIndex` exactly, same drop-on-match policy as `indexArray`.
+ */
+function fixupIndexScalar(json: unknown, removedIndex: number, path: ReadonlyArray<string | number>): FixupPatches {
+  const current = getIn(json, path.map(String));
+  if (typeof current !== "number") return { patches: [], inverse: [] };
+  const pointer = formatPointer(path);
+  if (current === removedIndex) {
+    return { patches: [{ op: "remove", path: pointer }], inverse: [{ op: "add", path: pointer, value: current }] };
+  }
+  const newValue = shiftedIndex(current, removedIndex);
+  if (newValue === undefined) return { patches: [], inverse: [] };
+  return { patches: [{ op: "replace", path: pointer, value: newValue }], inverse: [{ op: "replace", path: pointer, value: current }] };
 }
 
 function walkStrings(value: unknown, path: (string | number)[], visit: (value: string, path: (string | number)[]) => void): void {

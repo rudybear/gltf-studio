@@ -1,26 +1,24 @@
 // SceneEdit command factories — v1 subset: property edits on existing scene
 // elements (`setTransform`, `setName`, `setMaterialProperty`,
-// `setAudioEmitterProperty`), PLUS (DOC-046) a minimal APPEND-ONLY subset of
-// structural factories (`addNode`, `addMesh`, `addMaterial`, `addAccessor`,
-// `addBufferView`, `addBuffer`) added ahead of schedule for
+// `setAudioEmitterProperty`), a minimal APPEND-ONLY subset of structural
+// factories (`addNode`, `addMesh`, `addMaterial`, `addAccessor`,
+// `addBufferView`, `addBuffer`, DOC-046) added ahead of schedule for
 // `@gltf-studio/agent-mock`'s procedural asset-generation template — see
 // docs/adr/0004-agentic-authoring-as-command-producer.md's "asset generation
 // pulls scene-structural mutation earlier than the M8 plan assumed"
-// consequence. These are deliberately narrow: they only ever APPEND a new
-// element (plus, for `addNode`, appending its index into the current
-// default scene's `nodes` array). Reparenting under an existing node,
-// deletion, and the reference-fixup pass those would require are all still
-// STUBBED (`removeNode`/`reparentNode` throw `SceneEditNotImplementedError`)
-// and remain deferred to milestone M8 in full (structural scene editing
-// needs its own reference-fixup pass over mesh/material/skin indices and
-// node-hierarchy `children` arrays — out of scope here; the shared
-// `fixupReferences` helper, fixup-references.ts, they will use already
-// exists, built for `GraphEdit.removeNode`). Appending never needs that
-// pass: nothing shifts when only adding to the end of an array.
+// consequence — PLUS (DOC-048, M8 part 1) `removeNode`: full structural
+// subtree deletion with a complete reference-fixup pass, built on the
+// shared `fixupReferences` helper (fixup-references.ts), extended by
+// DOC-048 with the scene-specific reference kinds `GraphEdit.removeNode`
+// never needed (raw index arrays/scalars, and a graph node's literal
+// `configuration.nodeIndex`). `reparentNode` remains the throwing M8 stub —
+// reparenting an EXISTING node (as opposed to `addNode`'s append-only
+// `parentNodeIndex` landing spot for a BRAND NEW node) is still deferred.
 import type { Command } from "./command.js";
 import { combineCommandParts, makeCommandId } from "./command.js";
 import { appendFragment, setPathFragment, type PatchPair } from "./edit-fragments.js";
-import { getIn } from "./json-pointer.js";
+import { fixupReferences, type ReferenceKind } from "./fixup-references.js";
+import { formatPointer, getIn } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
 import type { EditorDocument } from "./document.js";
 import { cubeGeometry, sphereGeometry, planeGeometry, encodeCubeBuffer, silentWavBuffer, type CubeGeometry } from "./primitives.js";
@@ -30,6 +28,104 @@ export class SceneEditNotImplementedError extends Error {
     super(`SceneEdit.${operation} is not implemented in M1 — structural scene editing is deferred to milestone M8.`);
     this.name = "SceneEditNotImplementedError";
   }
+}
+
+/**
+ * DOC-048: depth-first pre-order walk of `rootIndex` and every descendant
+ * reachable via `children` (cycle-guarded, same defensive convention
+ * `packages/app/src/lib/gltf-scene.ts`'s `flattenSceneTree` uses for a
+ * malformed cyclic graph) — the full set of node indices one
+ * `SceneEdit.removeNode(document, rootIndex)` call deletes (RECOMMENDED v1
+ * policy: delete the whole subtree as one command; see this file's header).
+ */
+function collectSubtreeIndices(json: unknown, rootIndex: number): number[] {
+  const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[] }> | undefined) ?? [];
+  const visited = new Set<number>();
+  const order: number[] = [];
+  function visit(index: number): void {
+    if (visited.has(index)) return;
+    visited.add(index);
+    order.push(index);
+    for (const child of nodes[index]?.children ?? []) visit(child);
+  }
+  visit(rootIndex);
+  return order;
+}
+
+/** DOC-048: the node whose `children` currently lists `childIndex`, or `null` when `childIndex` is a scene-root node (or unparented/unreferenced). First match wins — glTF's node graph is a forest, not expected to have more than one parent per node. */
+function findParentNodeIndex(json: unknown, childIndex: number): number | null {
+  const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[] }> | undefined) ?? [];
+  for (let i = 0; i < nodes.length; i += 1) {
+    if (nodes[i]?.children?.includes(childIndex)) return i;
+  }
+  return null;
+}
+
+/**
+ * DOC-048: every `ReferenceKind` `removeNode` must fix up for a single
+ * `target` node's removal, computed fresh against the CURRENT `json` at each
+ * step of a (possibly multi-node) subtree deletion — see `removeNode`'s own
+ * comment for why this is recomputed per step rather than once upfront.
+ * Covers: `scenes[].nodes` and every OTHER node's `children` (both
+ * `indexArray`, drop-on-match — `target`'s OWN `children` is skipped since
+ * that whole node object is about to be deleted anyway), `skins[].joints`/
+ * `skeleton` (defensive: this app never authors or renders skins, but an
+ * IMPORTED asset can carry them, and leaving a shifted-but-unfixed joint
+ * index would silently corrupt that asset), `animations[].channels` (drop
+ * the channel when it targets `target` exactly — DOC-048's resolved policy
+ * choice, "remove channels targeting deleted nodes" over retargeting to
+ * nothing), every `KHR_interactivity` graph node's literal
+ * `configuration.nodeIndex` (`event/onSelect`/`onHoverIn`/`onHoverOut` —
+ * NOT `graphNodeRef`: a graph node's `{node: N}` value/flow wiring
+ * addresses ANOTHER GRAPH NODE, a wholly separate index space from the
+ * scene node being deleted here — that's `GraphEdit.removeNode`'s own
+ * concern), and `KHR_interactivity` pointer-template literal strings
+ * anywhere in the document (`pointer/get|set|interpolate`'s
+ * `configuration.pointer`). `node.camera`/`node.extensions.
+ * KHR_lights_punctual.light`/`node.extensions.KHR_audio_emitter.emitter`
+ * need NO fixup here — they index the `cameras`/`lights`/`emitters`
+ * registries, not the `nodes` array, so they simply vanish with `target`'s
+ * own node object; those registries are intentionally not garbage-collected
+ * (this file's header comment / DOC-048).
+ */
+function referenceKindsForRemoval(json: unknown, target: number): ReferenceKind[] {
+  const refKinds: ReferenceKind[] = [];
+
+  const scenes = (getIn(json, ["scenes"]) as unknown[] | undefined) ?? [];
+  scenes.forEach((_, sceneIndex) => refKinds.push({ kind: "indexArray", path: ["scenes", sceneIndex, "nodes"] }));
+
+  const allNodes = (getIn(json, ["nodes"]) as unknown[] | undefined) ?? [];
+  allNodes.forEach((_, nodeIndex) => {
+    if (nodeIndex === target) return; // target's own children field is going away with it — nothing to fix up.
+    refKinds.push({ kind: "indexArray", path: ["nodes", nodeIndex, "children"] });
+  });
+
+  const skins = (getIn(json, ["skins"]) as unknown[] | undefined) ?? [];
+  skins.forEach((_, skinIndex) => {
+    refKinds.push({ kind: "indexArray", path: ["skins", skinIndex, "joints"] });
+    refKinds.push({ kind: "indexScalar", path: ["skins", skinIndex, "skeleton"] });
+  });
+
+  const animations = (getIn(json, ["animations"]) as unknown[] | undefined) ?? [];
+  animations.forEach((_, animationIndex) => {
+    refKinds.push({ kind: "indexArray", path: ["animations", animationIndex, "channels"], nodeFieldPath: ["target", "node"] });
+  });
+
+  // NOTE: deliberately NOT `graphNodeRef` here — that kind shifts a graph
+  // node's `{node: N}` value/flow wiring to ANOTHER GRAPH NODE, a completely
+  // separate index space from the SCENE node `removeNode` is deleting (it's
+  // `GraphEdit.removeNode`'s own concern, for deleting a GRAPH node). The
+  // only graph-internal field that ever holds a raw SCENE-node index is the
+  // literal `configuration.nodeIndex` handled below.
+  const graphs = (getIn(json, ["extensions", "KHR_interactivity", "graphs"]) as unknown[] | undefined) ?? [];
+  graphs.forEach((_, graphIndex) => {
+    const graphPath = ["extensions", "KHR_interactivity", "graphs", graphIndex];
+    refKinds.push({ kind: "graphConfigLiteral", graphPath, field: "nodeIndex" });
+  });
+
+  refKinds.push({ kind: "jsonPointerLiteral", arrayName: "nodes" });
+
+  return refKinds;
 }
 
 /**
@@ -460,12 +556,78 @@ export const SceneEdit = {
     };
   },
 
-  /** STUB (M8): structural node removal + reference fixup. */
-  removeNode(): never {
-    throw new SceneEditNotImplementedError("removeNode");
+  /**
+   * DOC-048 (M8 part 1): deletes `nodeIndex` AND its entire descendant
+   * subtree (RECOMMENDED v1 policy — see this file's header; a future
+   * "delete keeping children" variant is out of scope here) as ONE
+   * combined, undoable command, fixing up every reference elsewhere in the
+   * document that a shifted/removed node index would otherwise invalidate
+   * (`referenceKindsForRemoval`'s doc comment enumerates exactly which).
+   *
+   * Implementation: the subtree's node indices are collected once, up front
+   * (`collectSubtreeIndices`, against the pre-removal document — `children`
+   * arrays are still intact at that point), then removed ONE AT A TIME in
+   * DESCENDING index order. This ordering is what makes a multi-node
+   * subtree deletion correct without any index-translation bookkeeping
+   * across steps: removing the single largest remaining target index only
+   * ever shifts indices ABOVE it, and by construction every other pending
+   * target in this deletion is smaller — so no other pending target's
+   * numeric value is ever invalidated by an earlier step in the loop. Each
+   * individual step reads the CURRENT (progressively-patched) `json` to
+   * compute its own fixup + removal, mirroring `GraphEdit.removeNode`'s
+   * single-node "fixup patches before the remove op" ordering requirement
+   * (`fixup-references.ts`'s own doc comment) — and every step's `{patches,
+   * inverse}` is folded together via `combineCommandParts`, so undo unwinds
+   * the whole multi-node deletion in the exact reverse order it was applied,
+   * as one history entry.
+   *
+   * Returns `parentIndex`: the index the (former) parent of `nodeIndex`
+   * will have AFTER this command applies (or `null` when `nodeIndex` was a
+   * scene-root node, i.e. had no parent) — `specs/ux-scene-tree.md`'s
+   * `UX-214` "selection moves to the parent" policy needs this, since the
+   * parent's own index may itself have shifted down if any deleted subtree
+   * member's original index was smaller than the parent's.
+   */
+  removeNode(document: EditorDocument, nodeIndex: number): { command: Command; parentIndex: number | null } {
+    const nodesArray = getIn(document.json, ["nodes"]) as unknown[] | undefined;
+    if (!nodesArray || nodesArray[nodeIndex] === undefined) {
+      throw new Error(`SceneEdit.removeNode: no node at index ${nodeIndex}.`);
+    }
+
+    const originalParentIndex = findParentNodeIndex(document.json, nodeIndex);
+    const subtree = collectSubtreeIndices(document.json, nodeIndex);
+    const removalOrderDescending = subtree.slice().sort((a, b) => b - a);
+
+    let json = document.json;
+    const steps: PatchPair[] = [];
+    for (const target of removalOrderDescending) {
+      const refKinds = referenceKindsForRemoval(json, target);
+      const fixup = fixupReferences(json, target, refKinds);
+      const nodePath = ["nodes", target];
+      const removeFragment: PatchPair = {
+        patches: [{ op: "remove", path: formatPointer(nodePath) }],
+        inverse: [{ op: "add", path: formatPointer(nodePath), value: getIn(json, nodePath) }]
+      };
+      // Fixups MUST run before the remove op — see fixup-references.ts's
+      // "ORDERING REQUIREMENT": several of the fixup patches above address
+      // OTHER array elements by their pre-this-removal position.
+      const step = combineCommandParts([fixup, removeFragment]);
+      steps.push(step);
+      json = applyPatches(json, step.patches);
+    }
+
+    const combined = combineCommandParts(steps);
+    const removedBelowParentCount = originalParentIndex === null ? 0 : subtree.filter((i) => i < originalParentIndex).length;
+    const parentIndex = originalParentIndex === null ? null : originalParentIndex - removedBelowParentCount;
+
+    const label = subtree.length > 1 ? `Delete ${subtree.length} nodes` : "Delete node";
+    return {
+      parentIndex,
+      command: { id: makeCommandId("remove-node"), label, patches: combined.patches, inverse: combined.inverse }
+    };
   },
 
-  /** STUB (M8): structural node reparenting. */
+  /** STUB (M8 part 2): structural node reparenting — moving an EXISTING node under a different existing parent. Still deferred; `addNode`'s append-only `parentNodeIndex` (DOC-047) and `removeNode`'s whole-subtree deletion (DOC-048) do not need it. */
   reparentNode(): never {
     throw new SceneEditNotImplementedError("reparentNode");
   }

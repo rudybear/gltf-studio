@@ -124,6 +124,26 @@ export function flattenSceneTree(json: GltfJsonShape | undefined): SceneTreeRow[
 }
 
 /**
+ * specs/ux-scene-tree.md UX-214: the number of nodes `SceneEdit.removeNode`
+ * would delete for `nodeIndex` — itself plus every descendant reachable via
+ * `children` (DOC-048's whole-subtree-as-one-command policy) — so the
+ * context menu's "Delete" label can say "Delete (3 nodes)" rather than a
+ * plain "Delete" when there are children involved. Cycle-guarded the same
+ * way `flattenSceneTree` is, for a malformed cyclic graph.
+ */
+export function countSubtreeNodes(json: GltfJsonShape | undefined, nodeIndex: number): number {
+  const nodes = json?.nodes ?? [];
+  const visited = new Set<number>();
+  function visit(index: number): void {
+    if (visited.has(index)) return;
+    visited.add(index);
+    for (const child of nodes[index]?.children ?? []) visit(child);
+  }
+  visit(nodeIndex);
+  return visited.size;
+}
+
+/**
  * UX-201: hides every row whose ancestor chain includes a collapsed node.
  * `rows` is depth-first order, so a single "currently hiding everything
  * deeper than this depth" cursor suffices — nested collapsed subtrees
