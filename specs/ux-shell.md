@@ -301,6 +301,15 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   `e2e/viewport-real-click.spec.ts`'s pre-existing jitter-click and deliberate-orbit-drag
   regression coverage remains green, unmodified.
 
+- M8 part 1 (scene node deletion — `SceneTree.tsx`, `App.tsx`, `gltf-scene.ts`, `app-store.ts` — same
+  `packages/app/**` catch-all as the M8-lite note above; the substantive spec change lives in
+  `specs/ux-scene-tree.md`'s new `UX-214` and `specs/document-model.md`'s new `DOC-048..051`): the
+  scene-tree context menu gains a "Delete" action and an app-level Delete/Backspace keyboard
+  shortcut, both backed by the store's new `deleteNode` action (`SceneEdit.removeNode`, real as of
+  this change — previously a throwing M8 stub). No `ux-shell.md`-owned behavior changed beyond that
+  cross-reference; the shortcut reuses `dispatchCommand`'s existing play-mode freeze guard rather
+  than adding a new one.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one
