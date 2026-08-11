@@ -48,10 +48,17 @@ export interface UsageGraphValueRef {
 }
 export type UsageGraphNodeValue = UsageGraphValueLiteral | UsageGraphValueRef;
 
+export interface UsageGraphFlowRef {
+  node: number;
+  socket?: string;
+}
+
 export interface UsageGraphNode {
   declaration: number;
   configuration?: Record<string, { value?: Array<number | boolean | string> } | undefined>;
   values?: Record<string, UsageGraphNodeValue | undefined>;
+  /** Outgoing flow-out sockets (`@gltf-studio/graph-canvas`'s `map-graph.ts` reads the identical field). Only used here by `findEnclosingHandlerRoot`'s reverse walk. */
+  flows?: Record<string, UsageGraphFlowRef | undefined>;
 }
 
 export interface UsageGraphDeclaration {
@@ -265,3 +272,58 @@ export function buildUsageIndex(json: UsageDocJson): Map<number, UsageRef[]> {
 
 /** Convenience empty-array default for a component reading `index.get(nodeIndex)`. */
 export const NO_USAGE_REFS: UsageRef[] = [];
+
+const HANDLER_ROOT_OPS = new Set(["event/onStart", "event/onTick", "event/receive", "event/onSelect", "event/onHoverIn", "event/onHoverOut"]);
+
+/**
+ * specs/ux-usage-mapping.md UX-1108's Script-jump: a best-effort backward
+ * flow-predecessor walk from `nodeIndex` to the nearest event/* handler root
+ * that eventually flows into it. Used only to disambiguate WHICH of several
+ * identical text occurrences (`@gltf-studio/script-panel`'s cross-highlight
+ * pointer-path fallback, for a `pointer/set`/`pointer/interpolate` node with
+ * no `sourceNodeIds` entry of its own — see that module's header comment) is
+ * the one belonging to this reference's own graph context, when the exact
+ * same pointer path string happens to be set from more than one place in the
+ * graph. This is a disambiguation HINT, not a correctness guarantee (UX-1105's
+ * "honest gap" convention): a node reachable from more than one handler (a
+ * shared proc branch) resolves to whichever predecessor this bounded
+ * breadth-first walk visits first — a stable, deterministic choice, not a
+ * claim that it's the "right" one when the graph is genuinely ambiguous.
+ * Returns `null` when no handler root is reachable within the step budget
+ * (e.g. an orphaned/unreachable node) or when `nodeIndex` is itself a
+ * handler root already carries no predecessor to walk to.
+ */
+export function findEnclosingHandlerRoot(graph: UsageInteractivityGraph, nodeIndex: number): number | null {
+  const declarations = graph.declarations ?? [];
+  const nodes = graph.nodes ?? [];
+
+  const predecessors = new Map<number, number[]>();
+  nodes.forEach((node, sourceIndex) => {
+    for (const ref of Object.values(node.flows ?? {})) {
+      if (!ref || typeof ref.node !== "number") continue;
+      const list = predecessors.get(ref.node);
+      if (list) list.push(sourceIndex);
+      else predecessors.set(ref.node, [sourceIndex]);
+    }
+  });
+
+  const MAX_STEPS = 5000; // generous bound — well above even the racer demo's node count, guards against a malformed cyclic graph spinning forever.
+  const seen = new Set<number>([nodeIndex]);
+  let frontier = [nodeIndex];
+  let steps = 0;
+  while (frontier.length > 0 && steps < MAX_STEPS) {
+    const next: number[] = [];
+    for (const current of frontier) {
+      for (const predecessor of predecessors.get(current) ?? []) {
+        steps += 1;
+        if (seen.has(predecessor)) continue;
+        seen.add(predecessor);
+        const op = declarations[nodes[predecessor]?.declaration ?? -1]?.op;
+        if (op && HANDLER_ROOT_OPS.has(op)) return predecessor;
+        next.push(predecessor);
+      }
+    }
+    frontier = next;
+  }
+  return null;
+}

@@ -3,6 +3,7 @@ export type {
   UsageAnimationChannel,
   UsageDocJson,
   UsageGraphDeclaration,
+  UsageGraphFlowRef,
   UsageGraphNode,
   UsageGraphNodeValue,
   UsageGraphValueLiteral,
@@ -11,4 +12,4 @@ export type {
   UsageRef,
   UsageRefKind
 } from "./usage-index.js";
-export { buildUsageIndex, graphNodeSceneRef, usageRefPathText, NO_USAGE_REFS } from "./usage-index.js";
+export { buildUsageIndex, findEnclosingHandlerRoot, graphNodeSceneRef, usageRefPathText, NO_USAGE_REFS } from "./usage-index.js";
