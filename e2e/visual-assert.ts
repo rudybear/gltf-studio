@@ -137,6 +137,43 @@ export async function assertRegionSpansMultipleLines(locator: Locator, minSpanPx
   return stats;
 }
 
+/** The buffer's average RGB — a cheap, tolerant-of-anti-aliasing summary of "what color is this region, roughly," good enough to tell two visually-distinct regions (e.g. a decorated line vs. a plain one) apart without needing exact-pixel matching. */
+export function averageColor(buffer: Buffer): { r: number; g: number; b: number } {
+  const png = PNG.sync.read(buffer);
+  const { width, height, data } = png;
+  const n = width * height;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (let i = 0; i < n; i++) {
+    const idx = i << 2;
+    r += data[idx];
+    g += data[idx + 1];
+    b += data[idx + 2];
+  }
+  return { r: r / n, g: g / n, b: b / n };
+}
+
+/**
+ * Screenshots two locators/regions and asserts their average colors differ
+ * by at least `minDelta` (summed absolute per-channel difference) — the
+ * pixel-level version of "these two things don't look the same," used by
+ * script-panel jump-highlight coverage to confirm a decorated line's row of
+ * pixels is genuinely visually distinct from an undecorated one (rather
+ * than merely that SOME selection API reports a range, per this bug
+ * report's own root cause: an api-level assertion can pass while a real
+ * screen shows nothing different at all).
+ */
+export async function assertRegionsVisuallyDiffer(a: Buffer, b: Buffer, minDelta = 12): Promise<void> {
+  const colorA = averageColor(a);
+  const colorB = averageColor(b);
+  const delta = Math.abs(colorA.r - colorB.r) + Math.abs(colorA.g - colorB.g) + Math.abs(colorA.b - colorB.b);
+  expect(
+    delta,
+    `expected two regions' average colors to differ by at least ${minDelta} (combined RGB delta), saw ${delta.toFixed(1)} (A=${JSON.stringify(colorA)}, B=${JSON.stringify(colorB)})`
+  ).toBeGreaterThanOrEqual(minDelta);
+}
+
 /**
  * graph-canvas's port-row socket/label-overlap regression guard (see
  * specs/ux-graph-canvas.md's bug-fix note, and graph-canvas.css's

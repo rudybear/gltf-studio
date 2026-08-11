@@ -1,6 +1,6 @@
 import { PNG } from "pngjs";
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import { assertRegionRendersContent, assertRegionSpansMultipleLines } from "./visual-assert.js";
+import { assertRegionRendersContent, assertRegionSpansMultipleLines, assertRegionsVisuallyDiffer } from "./visual-assert.js";
 
 /**
  * R4 Racer (specs/ux-shell.md UX-119's second starter-gallery card,
@@ -196,6 +196,25 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     await expect
       .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null), { timeout: 15_000 })
       .toContain("/nodes/15/translation");
+
+    // specs/ux-script.md UX-712/UX-1108 (refined "character-precise,
+    // visibly-decorated script jump"): the API-level assertion above is
+    // exactly the kind that passed on the ORIGINAL (buggy) implementation
+    // too — this bug report's whole finding was that a real user saw
+    // nothing despite it. At this asset's real 366-node scale (hundreds of
+    // emitted lines, well beyond a small fixture's single screenful) a
+    // "reveal did nothing"/"decoration didn't survive a real editor mount"
+    // regression would be easy to miss without a genuine pixel check too.
+    const line = await page.evaluate(() => window.__gltfStudioScriptTest?.getJumpHighlightLineNumber() ?? null);
+    expect(line, "expected a jump-highlight decoration line once the → Script jump landed, even at this asset's real scale").not.toBeNull();
+    const lineRect = await page.evaluate((l) => window.__gltfStudioScriptTest!.getLineScreenRect(l!), line);
+    const baselineRect = await page.evaluate(() => window.__gltfStudioScriptTest!.getLineScreenRect(1));
+    if (!lineRect || !baselineRect) throw new Error("getLineScreenRect returned null for a line the Script tab just reported as rendered");
+    const [decoratedShot, baselineShot] = await Promise.all([
+      page.screenshot({ clip: { x: lineRect.left, y: lineRect.top, width: lineRect.width, height: lineRect.height } }),
+      page.screenshot({ clip: { x: baselineRect.left, y: baselineRect.top, width: baselineRect.width, height: baselineRect.height } })
+    ]);
+    await assertRegionsVisuallyDiffer(decoratedShot, baselineShot);
   });
 
   await test.step("play (interpreter): countdown->racing transition and onTick activity observable; steer pad click updates state; stop restores", async () => {

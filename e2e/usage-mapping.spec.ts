@@ -1,6 +1,7 @@
 import { PNG } from "pngjs";
 import { test, expect, type Page } from "@playwright/test";
-import { buildUsageMappingFixtureBytes, USAGE_MAPPING_FIXTURE_NAME, USAGE_FIXTURE_NODE } from "./usage-mapping-fixture.js";
+import { buildUsageMappingFixtureBytes, USAGE_MAPPING_FIXTURE_NAME, USAGE_FIXTURE_NODE, USAGE_FIXTURE_GRAPH_NODE } from "./usage-mapping-fixture.js";
+import { assertRegionsVisuallyDiffer } from "./visual-assert.js";
 
 /**
  * specs/ux-usage-mapping.md UX-11xx: the Inspector's "Used in behavior"
@@ -37,6 +38,39 @@ async function importFixture(page: Page): Promise<void> {
   });
   await expect(page.getByTestId("topbar.project-name")).toHaveText("usage-mapping-fixture");
   await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);
+}
+
+/**
+ * specs/ux-script.md UX-712/UX-1108 (refined "character-precise, visibly-
+ * decorated script jump"): a real screenshot of the exact on-screen pixels
+ * a given 1-based Monaco model line currently occupies, via
+ * `GltfStudioScriptTestHook.getLineScreenRect` (script-panel.tsx) — turns
+ * "line N" into the same kind of real, composited-pixel evidence
+ * `e2e/visual-assert.ts`'s helpers already demand elsewhere, rather than an
+ * API-level assertion this bug report's own root cause showed can pass
+ * while a real screen shows nothing different at all.
+ */
+async function screenshotLine(page: Page, lineNumber: number): Promise<Buffer> {
+  const rect = await page.evaluate((line) => window.__gltfStudioScriptTest?.getLineScreenRect(line) ?? null, lineNumber);
+  if (!rect) throw new Error(`getLineScreenRect(${lineNumber}) returned null — is the Script tab's Monaco editor mounted?`);
+  // `getLineScreenRect`'s {top,left,width,height} (a plain DOMRect-ish shape,
+  // matching `getBoundingClientRect()`'s own field names) needs remapping to
+  // Playwright's `clip` shape ({x,y,width,height}).
+  return page.screenshot({ clip: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } });
+}
+
+async function jumpHighlightLineNumber(page: Page): Promise<number | null> {
+  return page.evaluate(() => window.__gltfStudioScriptTest?.getJumpHighlightLineNumber() ?? null);
+}
+
+/** Toggles the app's theme override (`topbar.theme-toggle`) until `document.documentElement`'s `data-theme` reads `target` — robust regardless of whatever theme the run started in (system `prefers-color-scheme` isn't pinned by this suite). */
+async function setTheme(page: Page, target: "light" | "dark"): Promise<void> {
+  for (let i = 0; i < 2; i++) {
+    const current = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+    if (current === target) return;
+    await page.getByTestId("topbar.theme-toggle").click();
+  }
+  await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe(target);
 }
 
 test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
@@ -205,5 +239,177 @@ test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
     await expect
       .poll(async () => countPixelsNear(await page.getByTestId("viewport.mount").screenshot(), AMBER_REF))
       .toBeLessThan(highlightedAmber);
+  });
+});
+
+/**
+ * specs/ux-script.md UX-712 / specs/ux-usage-mapping.md UX-1108 (refined
+ * "character-precise, visibly-decorated script jump"): a follow-up bug
+ * report on the original UX-1108 fix found that "→ Script" visibly did
+ * nothing a user could actually see, even though the ORIGINAL fix's own
+ * e2e coverage (the "REPRO"/"warm path" tests above) passed — those only
+ * ever asserted `getSelectedText()`, an API-level read of Monaco's
+ * selection model that stays correct even when the on-screen rendering of
+ * that selection is Monaco's own near-invisible
+ * `editor.inactiveSelectionBackground` tint (the editor never had real DOM
+ * focus, since the jump arrives from a button OUTSIDE it). This suite adds
+ * the missing layer: real screenshots proving a persistent, focus-
+ * independent amber decoration is actually painted, plus its documented
+ * clear semantics (a new jump, a genuine edit, a click elsewhere in the
+ * buffer, or a ~5s fade with no further interaction) and its behavior
+ * across the Script tab's own debounced emit-view regeneration.
+ */
+test.describe("→ Script jump: visible, persistent decoration (specs/ux-script.md UX-712/UX-715, specs/ux-usage-mapping.md UX-1108 refined)", () => {
+  test.beforeEach(async ({ page }) => {
+    await importFixture(page);
+  });
+
+  async function jumpToPointerRow(page: Page): Promise<void> {
+    await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_01}`).click();
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior (1)");
+    await page.getByTestId("inspector.usage.row.0.to-script").click();
+    await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null), { timeout: 15_000 })
+      .toContain("/nodes/0/translation");
+  }
+
+  async function assertDecorationVisible(page: Page): Promise<number> {
+    const line = await jumpHighlightLineNumber(page);
+    expect(line, "expected a jump-highlight decoration line number once a jump has landed").not.toBeNull();
+    const decoratedShot = await screenshotLine(page, line!);
+    // Line 1 (the leading provenance comment, UX-705) is never a jump
+    // target for this fixture's pointer/set row — a stable, always-present
+    // "plain code" baseline to diff against.
+    const baselineShot = await screenshotLine(page, 1);
+    await assertRegionsVisuallyDiffer(decoratedShot, baselineShot);
+    return line!;
+  }
+
+  test("cold jump (Script tab never opened) paints a real, visually-distinct amber decoration — dark theme (default)", async ({ page }) => {
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+  });
+
+  test("the same decoration is visible in the light theme too", async ({ page }) => {
+    await setTheme(page, "light");
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+  });
+
+  test("warm jump (Script tab already open) paints the same visible decoration", async ({ page }) => {
+    await page.getByTestId("dock.tab.script").click();
+    await expect(page.getByTestId("script.panel")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? ""), { timeout: 15_000 })
+      .not.toBe("");
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+  });
+
+  test("the decoration survives the emit-view's own regeneration by re-resolving against the fresh text", async ({ page }) => {
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+
+    // A real, reachable graph edit that changes the emitted code (adding a
+    // handler root, always emitted regardless of reachability, per
+    // cross-highlight.ts's own header comment on `sourceNodeIds`) — done
+    // AWAY from the Script tab, exactly like the original bug report's own
+    // "debounced emit-view regeneration may replace the model after the
+    // jump" finding, not a direct edit of the Script buffer itself (that
+    // is the SEPARATE "clears on user edit" case, covered below).
+    await page.getByTestId("dock.tab.graph").click();
+    await page.getByTestId("gcanvas.palette.search").fill("event/onHoverIn");
+    await page.getByTestId("gcanvas.palette.op.event/onHoverIn").click();
+    // The fixture graph already has 3 nodes (ON_SELECT, POINTER_SET,
+    // ORPHAN_POINTER_SET — e2e/usage-mapping-fixture.ts) before this add.
+    await expect(page.locator('[data-testid^="gcanvas.node."]')).toHaveCount(4);
+
+    await page.getByTestId("dock.tab.script").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? ""), { timeout: 15_000 })
+      .toContain("rt.onHoverIn(");
+
+    // Per this fix's spec'd semantics: the reference still resolves (the
+    // pointer/set node itself was untouched), so the decoration is
+    // RE-APPLIED (not cleared) against the regenerated text — still over
+    // the exact same pointer path, still visibly distinct pixels, whether
+    // or not its line number happened to move.
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null))
+      .toContain("/nodes/0/translation");
+    await assertDecorationVisible(page);
+  });
+
+  test("the decoration clears (rather than pointing at stale/wrong text) once its reference stops resolving at all — e.g. the referencing graph node is deleted", async ({
+    page
+  }) => {
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+
+    await page.getByTestId("dock.tab.graph").click();
+    // A plain `.click()` on the node testid's bounding-box CENTER can land on
+    // this node's own `.gcanvas-op-pointer-row` (a pointer/set node's config
+    // buttons, which `stopPropagation()` — op-node.tsx) instead of selecting
+    // it; `.gcanvas-op-header` has no such interactive children and always
+    // reaches React Flow's own node-click/selection handling.
+    await page.getByTestId(`gcanvas.node.${USAGE_FIXTURE_GRAPH_NODE.POINTER_SET}`).locator(".gcanvas-op-header").click();
+    await page.keyboard.press("Delete");
+    // NOT asserted here: `gcanvas.node.${POINTER_SET}` reaching count 0 —
+    // deleting a node re-indexes every LATER node down by one (DOC-019's
+    // `fixupReferences`), so that exact testid can legitimately still exist
+    // afterward (a DIFFERENT, renumbered node now answering to it). The
+    // real assertions below (the emitted code losing the deleted node's own
+    // pointer path, the jump highlight clearing) are what actually matters
+    // here, not a particular node's on-screen index.
+
+    await page.getByTestId("dock.tab.script").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? ""), { timeout: 15_000 })
+      .not.toContain("/nodes/0/translation");
+    await expect.poll(() => jumpHighlightLineNumber(page)).toBeNull();
+    expect(await page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null)).toBeNull();
+  });
+
+  test("clicking elsewhere in the buffer clears the decoration", async ({ page }) => {
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+
+    const rect = await page.evaluate(() => window.__gltfStudioScriptTest!.getLineScreenRect(1)!);
+    await page.mouse.click(rect.left + 5, rect.top + rect.height / 2);
+
+    await expect.poll(() => jumpHighlightLineNumber(page)).toBeNull();
+  });
+
+  test("a real edit to the buffer clears the decoration", async ({ page }) => {
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+
+    // `script-panel.tsx`'s own test-only `setValue` seam (its doc comment:
+    // "drives the Monaco buffer the same way a real keystroke would") —
+    // this repo's established way to simulate "the user typed something"
+    // without a flaky raw-keyboard-into-Monaco interaction.
+    await page.getByTestId("script.edit-toggle").click();
+    const current = await page.evaluate(() => window.__gltfStudioScriptTest!.getCode());
+    await page.evaluate((text) => window.__gltfStudioScriptTest!.setValue(text), `// edited\n${current}`);
+
+    await expect.poll(() => jumpHighlightLineNumber(page)).toBeNull();
+  });
+
+  test("the decoration clears on its own after ~5s with no further interaction", async ({ page }) => {
+    test.slow(); // a real (not mocked) ~5s+ wait, deliberately — see below.
+    await jumpToPointerRow(page);
+    await assertDecorationVisible(page);
+    // A real, POLLED wait rather than one fixed `waitForTimeout` or
+    // Playwright's clock-mocking API: this fade timer lives alongside a
+    // debounced parse timer and several other `setTimeout`s in the same
+    // component tree, so mocking a shared page clock risks side effects on
+    // unrelated logic; polling (rather than a single fixed sleep) absorbs
+    // ordinary CPU-contention jitter from this suite's own parallel workers
+    // (playwright.config.ts's worker-count comment already documents this
+    // repo hitting real scheduling contention under parallel e2e workers)
+    // without just padding a flat sleep arbitrarily further.
+    await expect.poll(() => jumpHighlightLineNumber(page), { timeout: 10_000, intervals: [250] }).toBeNull();
+    expect(await page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null)).toBeNull();
   });
 });
