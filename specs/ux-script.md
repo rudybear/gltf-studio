@@ -58,13 +58,32 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
 
 ## Implementation notes
 
-- Usage mapping (`specs/ux-usage-mapping.md` `UX-1108`): the Inspector's "Used in behavior" → Script
-  row action reuses `UX-712`'s existing cross-highlight wiring as-is (it drives the exact same
-  `selectedGraphNodeIndex` this file's own `UX-712` already reacts to) — no change to this
-  package's own highlight logic. The one addition here is test-only: `window.__gltfStudioScriptTest`
-  (`GltfStudioScriptTestHook`) gains `getSelectedText()`, reading the Monaco editor's current
-  selection back out, so an e2e test can assert `UX-712`'s `editor.setSelection(range)` actually
-  selected the expected identifier rather than merely that some selection changed.
+- Usage mapping (`specs/ux-usage-mapping.md` `UX-1108`/`UX-1114`): the Inspector's "Used in
+  behavior" → Script row action originally reused `UX-712`'s existing `selectedGraphNodeIndex`-
+  driven cross-highlight as-is with no change to this package's own logic — that held for
+  `handler`/`proc`/`stateSlot`-kind nodes, but a bug report found it silently produced no highlight
+  at all for a `pointer/set`/`pointer/interpolate` row (`UX-1100`'s most common usage-index family),
+  since those ops get no `sourceNodeIds` identifier from `@gltfi/ir` in the first place. Two real
+  changes to this package followed:
+  - `cross-highlight.ts`'s `findHighlightForNode` gained an options bag (`pointerPath`,
+    `enclosingHandlerNodeIndex`): once its ordinary `sourceNodeIds` lookup resolves nothing, it
+    falls back to searching the emitted code for the literal pointer path text as a plain quoted
+    string (`@gltfi/emit-ts` emits it via `JSON.stringify`, verbatim) — disambiguating multiple
+    identical-path occurrences via the hinted handler's own textual function-body range (a
+    brace-matching scan that is string-literal-aware, since an unresolved `{name}` ref-kind
+    pointer-template placeholder can itself embed brace characters inside its own quoted text) when
+    given, else the first occurrence. `UX-712`'s OWN requirement text/behavior (a plain canvas-click
+    selection, no pointer-path text available to fall back to) is unchanged by this.
+  - `script-panel.tsx` gained a `focusRequest` prop (`app-store.ts`'s `scriptNodeFocusRequest`, see
+    `specs/ux-shell.md`'s M9 note) and a dedicated effect applying it once THIS component is
+    actually ready (Monaco mounted, emit view current for the request's own graph) — the Script tab
+    is `React.lazy`-mounted on the dock's first open (`UX-707`) with its own further inner Monaco
+    dynamic import, so a request fired before either exists needs to survive until they do, rather
+    than trusting effect-ordering timing alone to make selection-effect closures see fresh state.
+  `window.__gltfStudioScriptTest` (`GltfStudioScriptTestHook`) gains `getSelectedText()`, reading
+  the Monaco editor's current selection back out, so an e2e test can assert a cross-highlight
+  (either `UX-712`'s or `UX-1108`'s fallback) actually selected the expected text rather than merely
+  that some selection changed.
 
 ## Open questions
 

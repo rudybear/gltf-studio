@@ -233,11 +233,18 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   existing `addCopilotContextChip`/`requestCopilotComposerFocus` pair for its one real action, and
   `specs/ux-scene-tree.md` `UX-206`'s "real, clickable, toasts instead of mutating" convention for
   its Phase-2 stub entries.
-  Two new store fields back the → Graph / → Script jumps and the reverse reference highlight:
+  Three new store fields back the → Graph / → Script jumps and the reverse reference highlight:
   `graphNodeFocusRequest` (a `frameRequest`-shaped cross-component signal `BehaviorGraphPanel.tsx`
   forwards to `@gltf-studio/graph-canvas`'s new `GraphCanvas`/`GraphView` `focusRequest` prop, per
-  that package's own usage-mapping implementation note) and a plain (non-reactive)
-  `referenceHighlightSceneNodeIndex()` getter — same style as the pre-existing `historyEntries()` —
+  that package's own usage-mapping implementation note); `scriptNodeFocusRequest` (the same seq-
+  bumped shape, `ScriptTabPanel.tsx` forwards it to `@gltf-studio/script-panel`'s `ScriptPanel`
+  `focusRequest` prop — added once a bug report found the plain `selectedGraphNodeIndex`-only jump
+  silently highlighted nothing for a `pointer/set`/`pointer/interpolate` usage row; see
+  `specs/ux-usage-mapping.md`'s revised `UX-1108` and `specs/ux-script.md`'s own implementation note
+  for why a durable, seq-bumped STORE field is needed here specifically — unlike the Behavior graph
+  canvas, the Script tab is lazy-mounted and a fire-and-forget signal could be dropped before it
+  exists to receive it); and a plain (non-reactive) `referenceHighlightSceneNodeIndex()` getter —
+  same style as the pre-existing `historyEntries()` —
   that both `Viewport.tsx` and `SceneTree.tsx` independently `useMemo` (keyed on `document`,
   `selectedGraphNodeIndex`, `selectedGraphIndex`) to derive `UX-1110`'s amber reference-highlight
   target from the CURRENT Behavior-graph selection, via `@gltf-studio/usage-index`'s
@@ -254,6 +261,12 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   adds a confirmation toast — see `specs/ux-usage-mapping.md`'s own `OPEN(UX-usage-reveal-flash-tbd)`
   for why this does not ALSO add a second, separate transient-pulse animation the approved mockup's
   mock renderer used in place of a real camera it didn't have.
+  `UX-1114`'s disabled-state check (a `kind: "pointer"` row's → Script button, disabled with a
+  tooltip when unreachable from any handler) lives directly in `UsageSection.tsx` as a plain,
+  non-compiling JSON walk over the row's own graph (`@gltf-studio/usage-index`'s
+  `findEnclosingHandlerRoot` — the identical function `jumpUsageRefToScript` uses server-side, so
+  the enabled/disabled state and the jump's own disambiguation hint are one derivation, not two);
+  it does not invoke `@gltfi/emit-ts` just to decide a button's state.
 
 ## Open questions
 
