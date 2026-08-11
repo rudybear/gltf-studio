@@ -11,7 +11,7 @@
 // CDP screenshot API captures, not a DOM measurement or a rasterize-the-DOM
 // shim) and check that non-trivial content is genuinely rendered.
 import { PNG } from "pngjs";
-import { expect, type Locator } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 export type PixelStats = {
   width: number;
@@ -125,6 +125,18 @@ export async function assertRegionRendersContent(
  * this app's 12px font / ~18-19px line height, comfortably below what even
  * a badly-shrunk-but-still-multi-line editor would show).
  */
+export async function assertRegionSpansMultipleLines(locator: Locator, minSpanPx = 55): Promise<PixelStats> {
+  const buffer = await locator.screenshot();
+  const stats = analyzeScreenshot(buffer);
+  expect(stats.inkBoundingBox, "expected the region to render some non-background content at all").not.toBeNull();
+  const span = stats.inkBoundingBox!.maxY - stats.inkBoundingBox!.minY;
+  expect(
+    span,
+    `expected rendered content's vertical extent to exceed ${minSpanPx}px (a single-line collapse renders roughly 15-20px regardless of container height), saw ${span}px in a ${stats.height}px-tall region`
+  ).toBeGreaterThanOrEqual(minSpanPx);
+  return stats;
+}
+
 /** The buffer's average RGB — a cheap, tolerant-of-anti-aliasing summary of "what color is this region, roughly," good enough to tell two visually-distinct regions (e.g. a decorated line vs. a plain one) apart without needing exact-pixel matching. */
 export function averageColor(buffer: Buffer): { r: number; g: number; b: number } {
   const png = PNG.sync.read(buffer);
@@ -162,14 +174,91 @@ export async function assertRegionsVisuallyDiffer(a: Buffer, b: Buffer, minDelta
   ).toBeGreaterThanOrEqual(minDelta);
 }
 
-export async function assertRegionSpansMultipleLines(locator: Locator, minSpanPx = 55): Promise<PixelStats> {
-  const buffer = await locator.screenshot();
-  const stats = analyzeScreenshot(buffer);
-  expect(stats.inkBoundingBox, "expected the region to render some non-background content at all").not.toBeNull();
-  const span = stats.inkBoundingBox!.maxY - stats.inkBoundingBox!.minY;
+/**
+ * graph-canvas's port-row socket/label-overlap regression guard (see
+ * specs/ux-graph-canvas.md's bug-fix note, and graph-canvas.css's
+ * `.gcanvas-op-row-west`/`-east` padding comment): a React Flow `<Handle>`
+ * is `position: absolute`, pinned to its row's own edge independent of the
+ * row's flex layout — so a DOM `getBoundingClientRect()` non-intersection
+ * check between the handle and its `.gcanvas-port-name` label (what
+ * `handleLabelOverlap` in e2e/graph-canvas.spec.ts does) is necessary but
+ * not sufficient: two boxes can be geometrically disjoint while still
+ * sharing a border with zero visible gap (a 0px-tolerance pass that would
+ * look identical to a hairline overlap in a screenshot). This is the
+ * pixel-level half of that pattern: it screenshots the real composited row
+ * and scans a horizontal line at its vertical midpoint for at least one
+ * background-colored pixel strictly between the handle's near edge and the
+ * label's near edge — proof of an actual visible gap, not just
+ * non-overlapping math.
+ */
+export async function assertHandleLabelPixelGap(
+  page: Page,
+  handleTestId: string,
+  side: "west" | "east",
+  tolerance = 24
+): Promise<void> {
+  // The MiniMap (graph-view.tsx) is a fixed-corner overlay that — in a small
+  // graph rendered in this app's compact dock panel — can end up positioned
+  // directly on top of an arbitrary node/row (the same "reliably ends up on
+  // top of a small graph's port handles" hazard graph-canvas.css's own
+  // `.react-flow__minimap` comment already documents for pointer events);
+  // left visible, its own node-colored rectangles contaminate this helper's
+  // pixel scan with colors that have nothing to do with the row being
+  // checked. It's `pointer-events: none` already, so hiding it changes
+  // nothing about interaction — only what a screenshot of an unrelated row
+  // happens to have painted on top of it.
+  await page.addStyleTag({ content: ".react-flow__minimap { display: none !important; }" });
+
+  const layout = await page.evaluate((testid) => {
+    const handle = document.querySelector(`[data-testid="${testid}"]`);
+    if (!handle) throw new Error(`handle not found: ${testid}`);
+    const row = handle.closest(".gcanvas-op-row");
+    const label = row?.querySelector(".gcanvas-port-name");
+    if (!row || !label) throw new Error(`row/label not found for handle: ${testid}`);
+    const rb = row.getBoundingClientRect();
+    const hb = handle.getBoundingClientRect();
+    const lb = label.getBoundingClientRect();
+    return {
+      row: { left: rb.left, width: rb.width },
+      handle: { left: hb.left, right: hb.right },
+      label: { left: lb.left, right: lb.right }
+    };
+  }, handleTestId);
+
+  const rowHandle = await page.evaluateHandle(
+    (testid) => document.querySelector(`[data-testid="${testid}"]`)!.closest(".gcanvas-op-row")!,
+    handleTestId
+  );
+  const rowElement = rowHandle.asElement();
+  if (!rowElement) throw new Error(`could not resolve row element for handle: ${handleTestId}`);
+  const buffer = await rowElement.screenshot();
+  const png = PNG.sync.read(buffer);
+  const { width, height, data } = png;
+  // CSS-px -> screenshot-px scale (1 unless the page runs at a non-1 devicePixelRatio).
+  const scale = layout.row.width > 0 ? width / layout.row.width : 1;
+  const toLocalX = (pageX: number) => Math.round((pageX - layout.row.left) * scale);
+
+  const y = Math.min(height - 1, Math.max(0, Math.round(height / 2)));
+  const bgIdx = (width * y + 0) << 2;
+  const bg = { r: data[bgIdx], g: data[bgIdx + 1], b: data[bgIdx + 2] };
+  const isBackground = (x: number): boolean => {
+    const idx = (width * y + x) << 2;
+    return Math.abs(data[idx] - bg.r) <= tolerance && Math.abs(data[idx + 1] - bg.g) <= tolerance && Math.abs(data[idx + 2] - bg.b) <= tolerance;
+  };
+
+  const handleNear = side === "west" ? toLocalX(layout.handle.right) : toLocalX(layout.handle.left);
+  const labelNear = side === "west" ? toLocalX(layout.label.left) : toLocalX(layout.label.right);
+  const [lo, hi] = side === "west" ? [handleNear, labelNear] : [labelNear, handleNear];
+
+  let sawBackgroundColumn = false;
+  for (let x = Math.max(0, lo); x < Math.min(width, hi); x++) {
+    if (isBackground(x)) {
+      sawBackgroundColumn = true;
+      break;
+    }
+  }
   expect(
-    span,
-    `expected rendered content's vertical extent to exceed ${minSpanPx}px (a single-line collapse renders roughly 15-20px regardless of container height), saw ${span}px in a ${stats.height}px-tall region`
-  ).toBeGreaterThanOrEqual(minSpanPx);
-  return stats;
+    sawBackgroundColumn,
+    `expected at least one background-colored pixel column between the handle and the "${handleTestId}" label along the scanned midline (columns ${lo}..${hi} of a ${width}px-wide row screenshot) — a fully-inked gap means the handle is visually touching or overlapping the label`
+  ).toBe(true);
 }

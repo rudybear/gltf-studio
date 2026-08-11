@@ -153,6 +153,27 @@ non-zero size and calls `reactFlow.fitView()` at that point — gated to fire at
 the user's own pan/zoom, which would otherwise quietly violate `UX-103`'s own "graph canvas scroll
 position" example of state a tab switch must preserve.
 
+Follow-up (socket/label overlap, reported directly against the built app): every port row's Handle
+(`op-node.tsx`'s `<Handle>`, a React Flow port) sat with its near half directly under the first
+character of the label on input (west) rows and the last character on output (east) rows, in both
+themes, at every zoom level, on every node checked (flow and value ports, plain labels and literal
+chips) — a `<Handle>` is `position: absolute` (react-flow's own `.react-flow__handle-left`/`-right`
+CSS pins it via `left: 0`/`right: 0` to its row's padding-box edge), so it was never part of the
+row's flex flow and the row's own `gap` never applied to it; with no compensating padding on the row
+itself, the label's in-flow content started flush at that same edge. Fixed by adding `padding-left`
+(west) / `padding-right` (east) directly to `.gcanvas-op-row-west`/`-east` (`graph-canvas.css`) — 12px
+leaves an 8px visible gap past the handle's 4px near-half. Padding on the SAME element the Handle is
+positioned against only shifts the row's in-flow content, never the Handle's own anchor, so this
+cannot move where an edge visually terminates (confirmed by capturing a connected edge's rendered
+SVG path before and after the change: pixel-identical). Regression coverage in
+`e2e/graph-canvas.spec.ts`'s "port handle/label overlap regression" describe block: real
+`getBoundingClientRect()` non-intersection checks on an input row, an output row (including
+`event/onSelect`'s `selectionRayOrigin`, the longest value-out socket name in the whole op registry),
+and a literal-chip row (an unconnected non-editable-scalar value-in, e.g. `pointer/set`'s float3
+`value`), at zoom 1 and 1.5, plus a pixel-level scan (`e2e/visual-assert.ts`'s
+`assertHandleLabelPixelGap`) confirming a real background-colored gap exists between the handle and
+the label in both themes — not just that their boxes are technically disjoint.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

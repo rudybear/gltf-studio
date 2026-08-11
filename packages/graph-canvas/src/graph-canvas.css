@@ -317,12 +317,38 @@
   gap: 4px;
   white-space: nowrap;
   max-width: 100%;
+  min-width: 0;
 }
+/* The Handle (a React Flow <Handle>, always this row's first DOM child) is
+   `position: absolute` (react-flow's own `.react-flow__handle-left/-right`
+   CSS — see @xyflow/react/dist/style.css), so it is NOT part of this row's
+   flex flow and the row's own `gap` never applies to it: it is pinned via
+   `left: 0` / `right: 0` to this row's own padding-box edge (its nearest
+   `position: relative` ancestor), independent of whatever padding this row
+   has. `.gcanvas-handle`'s 8px width/height means it spans 4px to either
+   side of that edge, and — with no padding to compensate — the label used
+   to start flush at that same edge, putting its first (west row) or last
+   (east row) character directly under the handle's inner 4px. `padding-left`
+   on the west row / `padding-right` on the east row shifts only the row's
+   IN-FLOW content (the label/type/literal spans), leaving the
+   absolutely-positioned Handle exactly where it was — so this is purely a
+   label-legibility fix: it cannot move a Handle's rendered position, and
+   therefore cannot shift where an edge visually anchors (React Flow reads
+   each edge's endpoint from the Handle's own measured DOM position, not from
+   ELK's port geometry — see elk-layout.ts's `NODE_METRICS`/`westPorts`/
+   `eastPorts` doc comment). 12px leaves an 8px gap between the handle's
+   4px-wide near half and the label's first/last glyph (`gcanvas-handle`'s
+   8px size + 1.5px border, plus a little breathing room) at zoom 1; because
+   React Flow scales the whole node (including this padding) via the pane's
+   own CSS transform, that gap scales right along with zoom instead of
+   shrinking at higher zoom levels the way a fixed on-screen offset would. */
 .gcanvas-op-row-west {
   justify-content: flex-start;
+  padding-left: 12px;
 }
 .gcanvas-op-row-east {
   justify-content: flex-end;
+  padding-right: 12px;
 }
 .gcanvas-op-row .gcanvas-port-name,
 .gcanvas-op-row .gcanvas-port-type,
