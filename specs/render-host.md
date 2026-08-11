@@ -56,6 +56,7 @@ this file now owns the entire `RH` numbering space going forward.
 - [RH-018] (active) `GizmoMode` is exactly one of `"translate"`, `"rotate"`, or `"scale"`.
 - [RH-019] (active) Calling `attachGizmo(nodeIndex, mode)` while a gizmo is already attached (to the same or a different node, in the same or a different mode) replaces the previously attached gizmo; no separate detach call is required first.
 - [RH-025] (active) `RenderHost.detachGizmo()` removes any currently-attached gizmo (the counterpart to `attachGizmo` for the no-selection case, e.g. `specs/ux-viewport.md`'s `UX-303`); calling it when no gizmo is attached does not throw.
+- [RH-031] (active) `attachGizmo(nodeIndex, mode)` still throws if called before `mount()`/`loadScene()` (no scene loaded at all), but calling it with a `nodeIndex` that does not (yet) exist in the CURRENTLY loaded scene's node table detaches any existing gizmo and returns, rather than throwing — the same "skip what can't be resolved, don't error" tolerance `setHighlight`/`setReferenceHighlight` (`RH-022`/`RH-029`) already give an unresolvable index, needed because a caller can legitimately select a node in the same tick a structural edit that hasn't finished its async reload yet created it (`specs/ux-scene-tree.md`'s `UX-213`).
 
 ### applyPointer delegation and return contract
 
@@ -75,6 +76,10 @@ this file now owns the entire `RH` numbering space going forward.
 ### snapshot()
 
 - [RH-024] (active) `snapshot()` returns a `Promise` that resolves to a PNG-encoded `Blob` captured at the render canvas's current resolution.
+
+## Implementation notes
+
+- Bug fix (M8-lite, `specs/ux-scene-tree.md`'s add-menu real-content change): making the scene tree's "+ Add" menu auto-select a freshly created node (`UX-213`) surfaced a latent race — `Viewport.tsx`'s gizmo-attach effect re-runs on every `selectedNodeIndex` change, but a structural command's `patchScene` -> `loadScene` reload (`RH-011`..`RH-014`) is async, so the effect could fire against the STALE pre-reload node table a moment before the new index existed in it. `attachGizmo` used to throw in that case (`RH-031` above resolves it to a tolerant no-op instead, mirroring `setHighlight`'s convention) and `packages/app/src/components/viewport/Viewport.tsx` gained a `reloadSeq` counter (bumped once a `needs-reload` reload's `loadScene()` promise actually resolves) in the gizmo/selection-highlight/hover effects' dependency arrays, so they get a reactive reason to re-run once the new node genuinely exists — the gizmo/highlight still end up attached to the new node moments later, not just silently dropped.
 
 ## Open questions
 

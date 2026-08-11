@@ -230,9 +230,9 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   `@gltf-studio/usage-index` package's `buildUsageIndex` — memoized via `useMemo` keyed on
   `document.json`'s own identity (`UX-1113`), the same convention `@gltf-studio/graph-canvas`'s
   `mapGraph` already established. Its "Attach behavior…" zero-state menu reuses the app-store's
-  existing `addCopilotContextChip`/`requestCopilotComposerFocus` pair for its one real action, and
-  `specs/ux-scene-tree.md` `UX-206`'s "real, clickable, toasts instead of mutating" convention for
-  its Phase-2 stub entries.
+  existing `addCopilotContextChip`/`requestCopilotComposerFocus` pair for its one real action —
+  its zero-state menu is a stub in the same sense the add-menu's five entries were BEFORE the
+  M8-lite change below made those real (`specs/ux-scene-tree.md`'s `UX-206`).
   Three new store fields back the → Graph / → Script jumps and the reverse reference highlight:
   `graphNodeFocusRequest` (a `frameRequest`-shaped cross-component signal `BehaviorGraphPanel.tsx`
   forwards to `@gltf-studio/graph-canvas`'s new `GraphCanvas`/`GraphView` `focusRequest` prop, per
@@ -267,6 +267,14 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   `findEnclosingHandlerRoot` — the identical function `jumpUsageRefToScript` uses server-side, so
   the enabled/disabled state and the jump's own disambiguation hint are one derivation, not two);
   it does not invoke `@gltfi/emit-ts` just to decide a button's state.
+
+- M8-lite (scene tree "+ Add" menu creates real content, `SceneTree.tsx`, `app.css` — the
+  substantive spec change lives in `specs/ux-scene-tree.md`'s revised `UX-206`, this file's own
+  `packages/app/**` catch-all is what makes touching `SceneTree.tsx` also a `specs/ux-shell.md`
+  change): the add-menu's five entries (`UX-205`) now dispatch real `SceneEdit.add*Node` commands
+  (`specs/document-model.md`'s `DOC-047`) instead of toasting. No `ux-shell.md`-owned behavior
+  changed beyond that cross-reference; `UX-1xx`'s toast/history-entry/theme/dock requirements above
+  are unaffected.
 
 ## Open questions
 

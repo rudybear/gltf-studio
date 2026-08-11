@@ -448,7 +448,23 @@ export class ThreeRenderHost implements RenderHost {
     }
     const object = this.tables.nodeByIndex[nodeIndex];
     if (!object) {
-      throw new Error(`RenderHost.attachGizmo: no node at index ${nodeIndex}`);
+      // M8-lite fix (specs/ux-scene-tree.md UX-213's auto-select-the-new-node
+      // behavior surfaced this): a structural edit (e.g. the "+ Add" menu)
+      // dispatches its command and calls `selectNode` on the SAME tick, but
+      // `patchScene`'s resulting "needs-reload" `loadScene()` is async — this
+      // effect's own `selectedNodeIndex`-keyed re-run can fire against the
+      // STALE `tables` a moment before the new node's index exists in them.
+      // Throwing here (the old behavior) crashed the commit as an uncaught
+      // render-effect exception. `setHighlight`/`setReferenceHighlight`
+      // already treat an unknown index as "no-op the unresolvable entries,
+      // don't throw" (their own `tables.nodeByIndex[i]` lookups skip a
+      // `continue` rather than erroring) — mirrored here: detach whatever
+      // gizmo exists (there is nothing valid to keep it attached to) and
+      // return, rather than raise. `Viewport.tsx`'s reload-completion signal
+      // (`reloadSeq`) re-runs this effect once the new tables actually
+      // contain the node, so the gizmo still ends up attached moments later.
+      this.detachGizmo();
+      return;
     }
     if (!this.gizmo) {
       const gizmo = new TransformControls(this.camera, this.renderer.domElement);

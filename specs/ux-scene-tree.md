@@ -31,8 +31,9 @@ Prefix: `UX`. This file owns the `UX-2xx` block.
 
 ### Add menu
 
-- [UX-205] (active) The scene tree's "+ Add" control opens a menu with exactly five entries, in this order: Mesh, Light, Camera, Audio Emitter, Empty Group.
-- [UX-206] (active) v1 ships the add-menu's five entries as a stable affordance (`UX-205`); the entries' actual node-creation behavior may be a stub (e.g. a placeholder toast) pending the structural scene-edit commands (`SceneEdit.*`, ADR-0004) landing at M8 — this is called out explicitly so a stubbed menu is not mistaken for a missing requirement.
+- [UX-205] (active) The scene tree's "+ Add" control opens a menu with exactly five entries, in this order: Mesh, Light, Camera, Audio Emitter, Empty Group. "Mesh" expands its own submenu (Cube, Sphere, Plane) rather than creating directly; this still counts as one top-level entry for this requirement's "exactly five" count.
+- [UX-206] (active) M8-lite: choosing an add-menu entry creates real content via one of the append-only `SceneEdit.add*Node` factories (`specs/document-model.md`'s `DOC-047`) — Mesh's Cube/Sphere/Plane submenu options each add a small procedurally-generated primitive mesh (`packages/editor-core/src/primitives.ts`); Light adds a `KHR_lights_punctual` point light; Camera adds a perspective camera; Audio Emitter adds a `KHR_audio_emitter` positional emitter wired to a generated silent clip (so it is immediately auditionable, not a dead reference); Empty Group adds a plain, mesh/light/camera/emitter-less node. Each is ONE undoable history entry, even where it spans several document arrays (e.g. Mesh's buffer+bufferViews+accessors+material+mesh+node). This supersedes this requirement's earlier "may be a stub" wording — `SceneEdit.*`'s structural factories landed ahead of schedule (ADR-0004) precisely so this could go real before milestone M8; only reparenting/deleting an EXISTING node remains M8 (`SceneEdit.removeNode`/`reparentNode` still throw).
+- [UX-213] (active) M8-lite: a newly created add-menu node is appended as the LAST child of the currently-selected node when one is selected, else as the last root child of the current default scene (append-only: no reordering, no reparenting of anything that already existed); it is immediately selected (`UX-202`) and its default name opens in the same inline-rename text field `UX-207`'s context-menu "Rename" action uses, so the generic default name ("Cube", "Point Light", "Camera", "Audio Emitter", "Empty Group") is one keystroke away from being replaced.
 
 ### Right-click context menu
 
@@ -69,11 +70,52 @@ via the ordinary `dispatchCommand`/undo path, so this is not a stub). "✦ Ask C
 switches the right panel to Copilot and attaches an explicit `{kind:"explicit", pointer:"/nodes/{i}"}`
 chip naming the right-clicked node, per `UX-208`/`AG-015`.
 
+## Implementation notes (M8-lite: add-menu creates real content)
+
+`UX-206`/`UX-213` (user-reported bug: the scene panel's "+ Add" button "does nothing" — investigation
+found the menu itself opened fine; every entry's `onClick` just called `pushToast(...)`, which reads
+as "nothing happened" against the much stronger implicit expectation "clicking a scene-object add
+button adds a scene object"). Fix: `SceneTree.tsx`'s five entries now call one of four new
+`SceneEdit` composite factories (`specs/document-model.md`'s `DOC-047`,
+`packages/editor-core/src/scene-edit.ts`) — `addPrimitiveMeshNode`, `addLightNode`, `addCameraNode`,
+`addAudioEmitterNode` — or, for Empty Group, the pre-existing `addNode` directly. All four new
+factories (plus `addNode` itself) now accept `opts.parentNodeIndex`: when given, the new node's
+index is appended to that node's `children` array instead of the scene's root `nodes` array, as part
+of the SAME combined command — this is what makes `UX-213`'s "lands under the selection" real
+without touching anything that already exists (still append-only, per `DOC-046`'s original scope).
+`SceneTree.tsx` passes the current `selectedNodeIndex` (or `undefined`) as that option, then — after
+`dispatchCommand` — calls `selectNode(newIndex)` and opens the SAME `renamingNode`/`renameValue`
+inline-rename state `UX-207`'s context-menu "Rename" already drives, so the new row's default name
+is immediately editable (`UX-213`). "Mesh" toggles a small nested submenu (`.add-submenu` in
+`app.css`, reusing the top-level `.add-menu` positioning/dismissal styling) rather than creating
+immediately, so `sphereGeometry`/`planeGeometry` (`primitives.ts`, new, alongside the pre-existing
+`cubeGeometry`) both get a real menu entry rather than sitting unused. Both are the same
+"faceted/flat-shaded, un-shared per-face-vertex normals" style `cubeGeometry` established (needed
+because `packages/engine-three` never calls `computeVertexNormals()`) — `sphereGeometry` is a
+low-poly icosahedron (20 triangular faces, 3 unshared vertices each) rather than a UV-sphere, and
+`planeGeometry` is a single flat quad (its 4 corners ARE shared — one normal, no cross-face seam to
+un-share). `encodeCubeBuffer` (name kept for backward compatibility with
+`@gltf-studio/agent-mock`'s pre-existing add-cube template) works unchanged for both new shapes —
+its implementation only ever reads `geometry.{positions,normals,indices}`. The Audio Emitter entry's
+"silent/default source" question resolves in favor of generating one: `primitives.ts`'s new
+`silentWavBuffer()` produces a minimal zero-filled 8kHz/16-bit mono WAV `data:` URI, because a
+`KHR_audio_emitter` emitter with no `sources` at all — while structurally valid per the extension's
+Object Model — has nothing for the Inspector's Audio section or `audio-webaudio`'s own audition
+button to play, which would look just as "broken" as the pre-fix stub. Light/Audio Emitter both
+scaffold their extension's `extensionsUsed` entry and root registry (`extensions.
+KHR_lights_punctual.lights[]` / `extensions.KHR_audio_emitter.{audio,sources,emitters}[]`) the first
+time either is used in a document, via the same find-or-create pattern `GraphEdit.ensureGraph`
+(`DOC-041`) already established for `KHR_interactivity` — no new extension-scaffolding machinery was
+needed. `RenderHost.patchScene`'s existing structural-patch classification (`specs/render-host.md`)
+already routes every one of these appends (array adds, plus the non-pointer-value object values a
+first-time extension scaffold writes) to a full `loadScene` reload — the same path
+`@gltf-studio/agent-mock`'s add-cube template already exercised via Copilot, so no `RenderHost`/
+`Viewport.tsx` change was needed. Camera/Light nodes render correctly on reload for free: `three/
+addons/loaders/GLTFLoader.js` (already in use, `render-host.ts`) natively supports `KHR_lights_
+punctual` and core `camera` nodes without any extra registration.
+
 ## Open questions
 
-- OPEN(UX-add-menu-creation-tbd): `UX-206` intentionally leaves open exactly which add-menu
-  entries are wired to real document mutation before M8 lands and which remain stubs; the menu's
-  presence and entry set are frozen, its backing behavior is not.
 - OPEN(UX-asset-audio-tab-tbd): the approved mockup leaves the Audio Clips tab's rows unwired
   (no click behavior) because clip assets aren't part of the glTF node/mesh/material/accessor
   addressing model the Data tab (`specs/ux-data-tab.md`) currently resolves; whether/how Audio
