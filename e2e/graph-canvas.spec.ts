@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
-import { FIXTURE_GLB_PATH } from "./global-setup.js";
-import { assertRegionRendersContent } from "./visual-assert.js";
+import { FIXTURE_GLB_PATH, FIXTURE_PLAY_GLB_PATH } from "./global-setup.js";
+import { assertRegionRendersContent, assertHandleLabelPixelGap } from "./visual-assert.js";
 
 /**
  * M4 behavior-graph canvas (specs/ux-graph-canvas.md UX-5xx): the lifted
@@ -49,6 +49,33 @@ async function importFixture(page: Page): Promise<void> {
 async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
   const json = await page.evaluate(() => window.__gltfStudioGraphTest!.getDocumentJson());
   return (json as { extensions: { KHR_interactivity: { graphs: RawInteractivityGraph[] } } }).extensions.KHR_interactivity.graphs[0];
+}
+
+/**
+ * DOM-geometry half of the socket/label-overlap regression guard (bug-fix
+ * note below): reads the REAL, rendered `getBoundingClientRect()` of a port
+ * row's Handle (`gcanvas.handle.<nodeIndex>.<portId>`, a React Flow
+ * `<Handle>`) and its `.gcanvas-port-name` label, in the row
+ * `.closest(".gcanvas-op-row")` resolves to — not ELK's estimated geometry,
+ * not a CSS value, the actual composited box a real screen reader/user
+ * would see. See `assertHandleLabelPixelGap` (./visual-assert.ts) for the
+ * companion pixel-level half of this pattern.
+ */
+async function handleLabelOverlap(
+  page: Page,
+  handleTestId: string
+): Promise<{ intersects: boolean; text: string | null; handle: DOMRect; label: DOMRect }> {
+  return page.evaluate((testid) => {
+    const handle = document.querySelector(`[data-testid="${testid}"]`);
+    if (!handle) throw new Error(`handle not found: ${testid}`);
+    const row = handle.closest(".gcanvas-op-row");
+    const label = row?.querySelector(".gcanvas-port-name");
+    if (!label) throw new Error(`label not found in row for handle: ${testid}`);
+    const hb = handle.getBoundingClientRect();
+    const lb = label.getBoundingClientRect();
+    const intersects = hb.left < lb.right && hb.right > lb.left && hb.top < lb.bottom && hb.bottom > lb.top;
+    return { intersects, text: label.textContent, handle: hb.toJSON(), label: lb.toJSON() };
+  }, handleTestId);
 }
 
 test.describe("behavior-graph canvas", () => {
@@ -258,6 +285,100 @@ test.describe("behavior-graph canvas", () => {
   // content once opened, not merely that node testids exist in the DOM.
   test("the canvas renders non-trivial visible content once opened, not just DOM nodes (visual sanity check)", async ({ page }) => {
     await assertRegionRendersContent(page.getByTestId("gcanvas.canvas"), { minNonBackgroundFraction: 0.02 });
+  });
+});
+
+// Regression for the socket/label-overlap bug (specs/ux-graph-canvas.md's bug-fix note): a React
+// Flow <Handle> is `position: absolute`, pinned to its row's own edge independent of the row's flex
+// layout, so the row's flex `gap` never applied to it — with no compensating padding, the handle's
+// near half sat directly under the label's first (west/input row) or last (east/output row)
+// character. Fixed via `padding-left`/`padding-right` on `.gcanvas-op-row-west`/`-east`
+// (graph-canvas.css) — padding on THIS SAME element the Handle is absolutely positioned against
+// shifts only the row's in-flow content, never the Handle's own `left: 0`/`right: 0` anchor (which
+// resolves against the row's un-padded padding-box edge), so this cannot move where an edge visually
+// terminates (elk-layout.ts's `westPorts`/`eastPorts`/`NODE_METRICS` control ELK's own EXTERNAL
+// routing estimate, not a real Handle's on-screen position — React Flow always measures that from
+// the Handle's own DOM bounds).
+test.describe("behavior-graph canvas — port handle/label overlap regression", () => {
+  test.beforeEach(async ({ page }) => {
+    await importFixture(page);
+  });
+
+  test("an input (west) row's handle and its label bounding boxes never intersect, at zoom 1 and zoom 1.5", async ({ page }) => {
+    for (const zoom of [1, 1.5]) {
+      await page.evaluate((z) => window.__gltfStudioGraphCanvasTest!.setViewport({ x: 60, y: 60, zoom: z }), zoom);
+      await page.waitForTimeout(150);
+
+      for (const handleTestId of ["gcanvas.handle.1.value-in:a", "gcanvas.handle.1.value-in:b"]) {
+        const { intersects, text } = await handleLabelOverlap(page, handleTestId);
+        expect(intersects, `${handleTestId} ("${text}") handle/label overlap at zoom ${zoom}`).toBe(false);
+      }
+    }
+  });
+
+  test("an output (east) row's handle and its label bounding boxes never intersect, including the longest real registry socket name, at zoom 1 and zoom 1.5", async ({
+    page
+  }) => {
+    // event/onSelect (KHR_interactivity registry): its value-out ports include
+    // "selectionRayOrigin" (18 chars) — the longest output-socket name in the whole op registry, and
+    // "selectedNodeIndex"/"controllerIndex" close behind, giving several real long labels in one node
+    // rather than a synthetic string.
+    await page.getByTestId("gcanvas.palette.search").fill("event/onSelect");
+    await page.getByTestId("gcanvas.palette.op.event/onSelect").click();
+    await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+
+    for (const zoom of [1, 1.5]) {
+      await page.evaluate((z) => window.__gltfStudioGraphCanvasTest!.setViewport({ x: 60, y: 60, zoom: z }), zoom);
+      await page.waitForTimeout(150);
+
+      for (const handleTestId of [
+        "gcanvas.handle.2.flow-out:out",
+        "gcanvas.handle.2.value-out:selectedNode",
+        "gcanvas.handle.2.value-out:selectedNodeIndex",
+        "gcanvas.handle.2.value-out:controllerIndex",
+        "gcanvas.handle.2.value-out:selectionPoint",
+        "gcanvas.handle.2.value-out:selectionRayOrigin",
+        "gcanvas.handle.2.value-out:event"
+      ]) {
+        const { intersects, text } = await handleLabelOverlap(page, handleTestId);
+        expect(intersects, `${handleTestId} ("${text}") handle/label overlap at zoom ${zoom}`).toBe(false);
+      }
+    }
+  });
+
+  test("a value-in row showing a literal chip (an unconnected non-editable-scalar type, not an <input>) doesn't overlap its handle", async ({
+    page
+  }) => {
+    // simple-scene.glb's own fixture graph only carries editable-scalar (float) literals, which
+    // render as an <input>, not the read-only ".gcanvas-port-literal" chip this row kind is about —
+    // play-scene.glb's node 6 (pointer/set, e2e/global-setup.ts's PLAY_GRAPH) has a real float3
+    // literal (`values.value = [0.5, 0, 0]`) on its unconnected "value" port, which is exactly this
+    // case: float3 isn't in op-node.tsx's EDITABLE_SCALAR_TYPES, so it renders "= [0.5,0,0]" as a
+    // plain chip beside the port name.
+    await page.goto("/");
+    await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_PLAY_GLB_PATH);
+    await expect(page.getByTestId("topbar.project-name")).toHaveText("play-scene");
+    await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
+    await expect(page.getByTestId("gcanvas.node.6")).toBeVisible();
+    await page.evaluate(() => window.__gltfStudioGraphCanvasTest!.setViewport({ x: 60, y: 60, zoom: 1 }));
+    await page.waitForTimeout(150);
+
+    const details = page.getByTestId("gcanvas.node.6");
+    await expect(details).toContainText("0.5");
+
+    const { intersects, text } = await handleLabelOverlap(page, "gcanvas.handle.6.value-in:value");
+    expect(intersects, `literal-chip row ("${text}") handle/label overlap`).toBe(false);
+  });
+
+  test("pixel-level sanity: a real screenshot shows a visible background gap between an input and an output handle and their labels, in both themes", async ({
+    page
+  }) => {
+    for (const colorScheme of ["dark", "light"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await importFixture(page);
+      await assertHandleLabelPixelGap(page, "gcanvas.handle.1.value-in:a", "west");
+      await assertHandleLabelPixelGap(page, "gcanvas.handle.1.value-out:value", "east");
+    }
   });
 });
 
