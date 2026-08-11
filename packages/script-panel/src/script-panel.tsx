@@ -29,6 +29,24 @@ export type ScriptPanelProps = {
   dispatchCommand: (command: Command) => void;
   /** Behavior-graph-canvas selection (app-store's `selectedGraphNodeIndex`) — drives UX-712 cross-highlight. */
   selectedNodeIndex: number | null;
+  /**
+   * specs/ux-usage-mapping.md UX-1108: the Inspector's → Script jump,
+   * app-store's `scriptNodeFocusRequest` — a durable, seq-bumped request
+   * (NOT a one-shot event) so a jump fired before this component/Monaco
+   * even exists yet is still honored once ready (see the focus-application
+   * effect below), and carrying an explicit `pointerPath` fallback needle
+   * for `pointer/set`/`pointer/interpolate` nodes, which have no
+   * `sourceNodeIds` identifier for the plain `selectedNodeIndex`-driven
+   * UX-712 effect to resolve on its own (`cross-highlight.ts`'s header
+   * comment).
+   */
+  focusRequest?: {
+    graphIndex: number;
+    nodeIndex: number;
+    pointerPath: string | null;
+    enclosingHandlerNodeIndex: number | null;
+    seq: number;
+  } | null;
   onLog?: (level: "info" | "warn" | "error", text: string) => void;
   onToast?: (text: string) => void;
 };
@@ -73,7 +91,7 @@ function extractDiagnosticLine(message: string): number | null {
   return Number.isFinite(line) && line > 0 ? line : null;
 }
 
-export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, onLog, onToast }: ScriptPanelProps): JSX.Element {
+export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, focusRequest, onLog, onToast }: ScriptPanelProps): JSX.Element {
   const graphs = getIn(document.json, ["extensions", "KHR_interactivity", "graphs"]) as Graph[] | undefined;
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
   const rawGraph = hasGraph ? graphs![graphIndex] : undefined;
@@ -95,6 +113,8 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   const lastCleanModuleRef = useRef<IRModule | null>(null);
   const codeRef = useRef(code);
   const loggedErrorKeyRef = useRef<string>("");
+  /** UX-1108: the last `focusRequest.seq` this effect has already acted on — prevents re-applying the same jump on every unrelated re-render (e.g. a later `monacoReady`/`code` change after the jump already landed), while still re-firing for a genuinely NEW request even if it targets the same node/graph (seq always changes, `app-store.ts`'s `requestScriptNodeFocus` bumps it unconditionally). */
+  const lastAppliedFocusSeqRef = useRef<number>(0);
 
   useEffect(() => {
     codeRef.current = code;
@@ -266,7 +286,11 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     editor.setValue(code);
   }, [code, monacoReady]);
 
-  // UX-712: best-effort cross-highlight from a Behavior-graph-canvas selection.
+  // UX-712: best-effort cross-highlight from a Behavior-graph-canvas
+  // selection made DIRECTLY on the canvas (no `focusRequest` involved) —
+  // handler/proc/stateSlot-kind nodes only, resolved via `sourceNodeIds`
+  // alone (no pointer-path fallback here: a plain canvas click carries no
+  // pointer-path text to fall back to, only a bare `nodeIndex`).
   useEffect(() => {
     const editor = editorRef.current;
     const monacoApi = monacoRef.current;
@@ -278,7 +302,46 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     const range = new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column);
     editor.revealRangeInCenter(range);
     editor.setSelection(range);
-  }, [selectedNodeIndex, monacoReady]);
+  }, [selectedNodeIndex, monacoReady, currentModule, names, code]);
+
+  // UX-1108: applies a durable → Script jump request once THIS component is
+  // actually ready to act on it (Monaco mounted AND the emit view current
+  // for the request's own graph) — the queuing fix for the cold-start race
+  // (this panel is `React.lazy`-mounted on the Script tab's first open,
+  // `BottomDock.tsx`, and Monaco itself loads via a further inner dynamic
+  // import above; a request fired before either exists must not be dropped).
+  // Re-runs on every readiness-relevant dependency change rather than only
+  // on `focusRequest` itself changing, so a request that arrives before
+  // `monacoReady`/`currentModule`/`names` are set gets a second (third, ...)
+  // chance the moment they do — `lastAppliedFocusSeqRef` makes each actual
+  // application idempotent (never re-selects on an unrelated later re-run).
+  useEffect(() => {
+    if (!focusRequest || focusRequest.seq === lastAppliedFocusSeqRef.current) return;
+    if (focusRequest.graphIndex !== graphIndex) return; // the graph-switch this same jump requested hasn't propagated to this prop yet — wait for it (this effect re-runs when `graphIndex` changes).
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi || !monacoReady || !currentModule || !names) return; // not ready yet — stays queued, re-evaluated when these become ready.
+
+    lastAppliedFocusSeqRef.current = focusRequest.seq;
+    const match = findHighlightForNode(currentModule, names, code, focusRequest.nodeIndex, {
+      pointerPath: focusRequest.pointerPath,
+      enclosingHandlerNodeIndex: focusRequest.enclosingHandlerNodeIndex
+    });
+    if (!match) {
+      // A genuinely unmappable reference (e.g. the Inspector's disabled-
+      // button case was somehow bypassed, or the graph changed underneath
+      // the request) — logged, not silently swallowed, per this file's own
+      // "an unhandled failure here looks like unrelated symptoms" lesson
+      // (see the Monaco-mount effect's own comment above).
+      onLog?.("warn", `Script: no corresponding line found for the selected node in graph ${focusRequest.graphIndex}.`);
+      return;
+    }
+    const start = offsetToLineColumn(code, match.offset);
+    const end = offsetToLineColumn(code, match.offset + match.length);
+    const range = new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column);
+    editor.revealRangeInCenter(range);
+    editor.setSelection(range);
+  }, [focusRequest, graphIndex, monacoReady, currentModule, names, code, onLog]);
 
   // e2e test hook (see GltfStudioScriptTestHook doc comment above).
   useEffect(() => {

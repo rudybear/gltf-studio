@@ -87,6 +87,57 @@ test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
       .toBe("onSelect");
   });
 
+  test("REPRO: → Script jump on a pointer/set row (cold, script tab never opened) selects a real range in the emitted code", async ({ page }) => {
+    await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_01}`).click();
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior (1)");
+    await page.getByTestId("inspector.usage.row.0.to-script").click();
+
+    await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);
+    await expect(page.getByTestId("script.panel")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? ""), { timeout: 15_000 })
+      .toContain("/nodes/0/translation");
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null), { timeout: 15_000 })
+      .toContain("/nodes/0/translation");
+  });
+
+  test("→ Script jump on a pointer/set row still works once the Script tab was already opened once (warm path, UX-1108)", async ({ page }) => {
+    // Open the Script tab manually FIRST — Monaco mounts/loads on this open,
+    // not on the jump below — before ever touching the usage row, so this
+    // exercises the durable focus-request effect's already-ready branch
+    // rather than its cold-mount queuing branch (which the REPRO/cold test
+    // above covers).
+    await page.getByTestId("dock.tab.script").click();
+    await expect(page.getByTestId("script.panel")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? ""), { timeout: 15_000 })
+      .not.toBe("");
+
+    await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_01}`).click();
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior (1)");
+    await page.getByTestId("inspector.usage.row.0.to-script").click();
+
+    await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null), { timeout: 15_000 })
+      .toContain("/nodes/0/translation");
+  });
+
+  test("→ Script is disabled with a tooltip for a pointer/set row whose graph node is unreachable from any event handler (UX-1114)", async ({ page }) => {
+    await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_04}`).click();
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior (1)");
+    const row = page.getByTestId("inspector.usage.row.0");
+    await expect(row).toContainText("pointer/set");
+    const toScript = page.getByTestId("inspector.usage.row.0.to-script");
+    await expect(toScript).toBeDisabled();
+    await expect(toScript).toHaveAttribute("title", /isn't reachable/i);
+    // → Graph is unaffected by this — the graph canvas doesn't need an
+    // identifier, only the node's existence, so it stays enabled and usable
+    // for an orphaned node exactly as it is for any other.
+    await expect(page.getByTestId("inspector.usage.row.0.to-graph")).toBeEnabled();
+  });
+
   test("zero-reference node shows the Attach-behavior stub; Ask Copilot opens with context; Phase-2 entries toast (UX-1109)", async ({ page }) => {
     await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_03}`).click();
     await expect(page.getByTestId("inspector.usage.section")).toContainText("Not referenced in behavior");

@@ -36,7 +36,7 @@ import { assertRegionRendersContent, assertRegionSpansMultipleLines } from "./vi
  * unchanged.
  */
 
-const SCENE_NODE = { PAD_LEFT: 17, PYLON: 3 } as const;
+const SCENE_NODE = { PAD_LEFT: 17, PYLON: 3, CAR: 15 } as const;
 
 type Point = { x: number; y: number };
 
@@ -168,6 +168,34 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     expect(code).toContain("rt.onSelect(");
     expect(code).toContain("rt.setDelay(");
     await assertRegionSpansMultipleLines(page.getByTestId("script.panel"));
+  });
+
+  await test.step("→ Script jump on a pointer/set usage row resolves against the real 366-node graph's decompile (specs/ux-usage-mapping.md UX-1108, the pointer/* row family cross-highlight.ts's sourceNodeIds table alone can't resolve — see the pointerPath fallback)", async () => {
+    // Car (node 15) is driven by two real pointer/set nodes in this asset
+    // (dumped from samples/r4-racer.glb's own GLB JSON chunk, not guessed):
+    // graph node 316 sets /nodes/15/translation, 317 sets /nodes/15/rotation
+    // — neither gets a `sourceNodeIds` entry (they're plain inlined
+    // statements, not a handler/proc/stateSlot/temp), so this only resolves
+    // via the pointer-path text-search fallback this fix adds.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.CAR}`).click();
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.CAR}`)).toHaveClass(/selected/);
+    await expect(page.getByTestId("inspector.usage.section")).toContainText("Used in behavior");
+    const row = page.getByTestId("inspector.usage.row.0");
+    await expect(row).toContainText("pointer/set");
+    await expect(row).toContainText("/nodes/15/translation");
+    const toScript = page.getByTestId("inspector.usage.row.0.to-script");
+    await expect(toScript).toBeEnabled(); // reachable from onTick — not the disabled/orphaned case
+    await toScript.click();
+
+    await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);
+    // The Script tab was already opened once by the previous step (a WARM
+    // re-jump, exercising the same durable focus-request effect's already-
+    // ready branch against a genuinely large emitted document, where a
+    // naive "scroll to the top" or "select nothing" bug would be easy to
+    // miss on a small fixture but obvious here).
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest?.getSelectedText() ?? null), { timeout: 15_000 })
+      .toContain("/nodes/15/translation");
   });
 
   await test.step("play (interpreter): countdown->racing transition and onTick activity observable; steer pad click updates state; stop restores", async () => {

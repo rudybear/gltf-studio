@@ -129,6 +129,10 @@ ul {
 .btn:hover:not(:disabled) {
   background: var(--bg-3);
 }
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .btn.icon-only {
   padding: 4px 7px;
 }

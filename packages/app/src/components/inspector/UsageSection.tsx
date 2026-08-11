@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { buildUsageIndex, NO_USAGE_REFS, type UsageDocJson, type UsageRef } from "@gltf-studio/usage-index";
+import { buildUsageIndex, findEnclosingHandlerRoot, NO_USAGE_REFS, type UsageDocJson, type UsageRef } from "@gltf-studio/usage-index";
 import { useAppStore } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
 
@@ -29,6 +29,30 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
 
   const usageIndex = useMemo(() => buildUsageIndex(json as UsageDocJson), [json]);
   const refs: UsageRef[] = usageIndex.get(nodeIndex) ?? NO_USAGE_REFS;
+
+  /**
+   * UX-1108's disabled-state case: a `pointer/set`/`pointer/interpolate` ref
+   * whose graph node isn't reachable (via `findEnclosingHandlerRoot`'s
+   * backward flow walk) from ANY event/* handler is dead in the graph —
+   * `@gltfi/ir`'s `importGraph` never visits/emits an unreachable node at
+   * all, so → Script's pointer-path text-search fallback (app-store.ts's
+   * `jumpUsageRefToScript`) is GUARANTEED to find nothing for it, not just
+   * "might." Checked here with the same cheap, non-compiling JSON walk
+   * `jumpUsageRefToScript` itself uses for its disambiguation hint — no
+   * `@gltfi/emit-ts` invocation needed just to decide a button's enabled
+   * state. `event-handler`/`animation`-kind refs are left enabled
+   * unconditionally: `event/onSelect|onHoverIn|onHoverOut` handler roots
+   * always get a `sourceNodeIds` entry (cross-highlight.ts always resolves
+   * them), and `animation/*` refs are out of this pass's scope (tracked as
+   * a known gap in specs/ux-usage-mapping.md rather than silently assumed
+   * fine).
+   */
+  function hasScriptFootprint(ref: UsageRef): boolean {
+    if (ref.kind !== "pointer") return true;
+    const graph = (json as UsageDocJson).extensions?.KHR_interactivity?.graphs?.[ref.graphIndex];
+    if (!graph) return true; // shouldn't happen (this ref was itself derived from this graph) — fail open rather than disabling on a shape surprise
+    return findEnclosingHandlerRoot(graph, ref.graphNodeIndex) !== null;
+  }
 
   function askCopilotAboutThisNode(): void {
     setAttachMenuOpen(false);
@@ -72,31 +96,31 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
             </ul>
           </div>
         ) : (
-          refs.map((ref, i) => (
-            <div className="usage-row" data-testid={`inspector.usage.row.${i}`} key={`${ref.graphIndex}:${ref.graphNodeIndex}`}>
-              <span className="usage-op-badge mono">{ref.op}</span>
-              <span className="usage-path mono">{ref.pathText}</span>
-              <span className="dim usage-graph-name">Graph {ref.graphIndex}</span>
-              <div className="usage-row-actions">
-                <button
-                  type="button"
-                  className="btn small"
-                  data-testid={`inspector.usage.row.${i}.to-graph`}
-                  onClick={() => jumpUsageRefToGraph({ graphIndex: ref.graphIndex, graphNodeIndex: ref.graphNodeIndex })}
-                >
-                  → Graph
-                </button>
-                <button
-                  type="button"
-                  className="btn small"
-                  data-testid={`inspector.usage.row.${i}.to-script`}
-                  onClick={() => jumpUsageRefToScript({ graphIndex: ref.graphIndex, graphNodeIndex: ref.graphNodeIndex })}
-                >
-                  → Script
-                </button>
+          refs.map((ref, i) => {
+            const scriptFootprint = hasScriptFootprint(ref);
+            return (
+              <div className="usage-row" data-testid={`inspector.usage.row.${i}`} key={`${ref.graphIndex}:${ref.graphNodeIndex}`}>
+                <span className="usage-op-badge mono">{ref.op}</span>
+                <span className="usage-path mono">{ref.pathText}</span>
+                <span className="dim usage-graph-name">Graph {ref.graphIndex}</span>
+                <div className="usage-row-actions">
+                  <button type="button" className="btn small" data-testid={`inspector.usage.row.${i}.to-graph`} onClick={() => jumpUsageRefToGraph(ref)}>
+                    → Graph
+                  </button>
+                  <button
+                    type="button"
+                    className="btn small"
+                    data-testid={`inspector.usage.row.${i}.to-script`}
+                    disabled={!scriptFootprint}
+                    title={scriptFootprint ? undefined : "This graph node isn't reachable from any event trigger, so it has no line in the generated script."}
+                    onClick={() => jumpUsageRefToScript(ref)}
+                  >
+                    → Script
+                  </button>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

@@ -25,6 +25,7 @@ export function ScriptTabPanel(): JSX.Element {
   const selectedGraphNodeIndex = useAppStore((s) => s.selectedGraphNodeIndex);
   const selectedGraphIndex = useAppStore((s) => s.selectedGraphIndex);
   const setSelectedGraphIndex = useAppStore((s) => s.setSelectedGraphIndex);
+  const scriptNodeFocusRequest = useAppStore((s) => s.scriptNodeFocusRequest);
   const log = useAppStore((s) => s.log);
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -63,6 +64,7 @@ export function ScriptTabPanel(): JSX.Element {
           graphIndex={graphCount > 1 ? selectedGraphIndex : 0}
           dispatchCommand={dispatchCommand}
           selectedNodeIndex={selectedGraphNodeIndex}
+          focusRequest={scriptNodeFocusRequest}
           onLog={log}
           onToast={pushToast}
         />

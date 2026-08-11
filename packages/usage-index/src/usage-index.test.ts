@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseContainer } from "@gltfi/gltf";
-import { buildUsageIndex, graphNodeSceneRef, usageRefPathText, type UsageDocJson, type UsageGraphNode } from "./usage-index.js";
+import { buildUsageIndex, findEnclosingHandlerRoot, graphNodeSceneRef, usageRefPathText, type UsageDocJson, type UsageGraphNode, type UsageInteractivityGraph } from "./usage-index.js";
 
 const RACER_GLB_PATH = fileURLToPath(new URL("../../../samples/r4-racer.glb", import.meta.url));
 
@@ -148,5 +148,66 @@ describe("buildUsageIndex racer-scale sanity (UX-1113)", () => {
     // assertion leaves wide headroom rather than chasing a tight number;
     // see the PR description for the measured figure on a dev machine.
     expect(elapsedMs).toBeLessThan(200);
+  });
+});
+
+describe("findEnclosingHandlerRoot (specs/ux-usage-mapping.md UX-1108/UX-1114)", () => {
+  function graphOf(nodes: UsageGraphNode[], declarations: Array<{ op: string }>): UsageInteractivityGraph {
+    return { declarations, nodes };
+  }
+
+  it("walks backward through a single flow-connected hop to the event/* handler root", () => {
+    const graph = graphOf(
+      [
+        { declaration: 0, configuration: { nodeIndex: { value: [1] } }, flows: { out: { node: 1, socket: "in" } } }, // 0: event/onSelect
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/0/translation"] } }, flows: {} } // 1: pointer/set
+      ],
+      [{ op: "event/onSelect" }, { op: "pointer/set" }]
+    );
+    expect(findEnclosingHandlerRoot(graph, 1)).toBe(0);
+  });
+
+  it("walks backward through more than one hop (a passthrough node between the handler and the target)", () => {
+    const graph = graphOf(
+      [
+        { declaration: 0, flows: { out: { node: 1, socket: "in" } } }, // 0: event/onStart
+        { declaration: 2, flows: { out: { node: 2, socket: "in" } } }, // 1: some passthrough op
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/0/translation"] } }, flows: {} } // 2: pointer/set
+      ],
+      [{ op: "event/onStart" }, { op: "pointer/set" }, { op: "flow/sequence" }]
+    );
+    expect(findEnclosingHandlerRoot(graph, 2)).toBe(0);
+  });
+
+  it("returns null for a node with no incoming flow at all (orphaned — UX-1114's disabled-state case)", () => {
+    const graph = graphOf(
+      [{ declaration: 0, configuration: { pointer: { value: ["/nodes/0/translation"] } }, flows: {} }],
+      [{ op: "pointer/set" }]
+    );
+    expect(findEnclosingHandlerRoot(graph, 0)).toBeNull();
+  });
+
+  it("returns null when every upstream predecessor is itself a non-handler op (reachable, but from nothing that ever fires)", () => {
+    const graph = graphOf(
+      [
+        { declaration: 0, flows: { out: { node: 1, socket: "in" } } }, // 0: a non-handler op with no predecessor of its own
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/0/translation"] } }, flows: {} } // 1: pointer/set
+      ],
+      [{ op: "flow/sequence" }, { op: "pointer/set" }]
+    );
+    expect(findEnclosingHandlerRoot(graph, 1)).toBeNull();
+  });
+
+  it("picks whichever reachable handler the breadth-first walk visits first when two are both upstream (documented as a disambiguation heuristic, not a correctness guarantee)", () => {
+    const graph = graphOf(
+      [
+        { declaration: 0, configuration: { nodeIndex: { value: [1] } }, flows: { out: { node: 2, socket: "in" } } }, // 0: event/onSelect
+        { declaration: 0, configuration: { nodeIndex: { value: [1] } }, flows: { out: { node: 2, socket: "in" } } }, // 1: event/onSelect (a second handler also flowing into node 2)
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/0/translation"] } }, flows: {} } // 2: pointer/set
+      ],
+      [{ op: "event/onSelect" }, { op: "pointer/set" }]
+    );
+    const result = findEnclosingHandlerRoot(graph, 2);
+    expect([0, 1]).toContain(result);
   });
 });

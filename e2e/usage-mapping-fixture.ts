@@ -2,14 +2,21 @@
 // — deliberately NOT the shared global-setup.ts fixture (other specs pin
 // exact node counts/indices against it, see e2e/inspector-fixture.ts's own
 // header note for the same reasoning) and not e2e/inspector-fixture.ts
-// either (that one carries no KHR_interactivity graph at all). Three flat
-// scene nodes, a small real behavior graph with exactly two references:
+// either (that one carries no KHR_interactivity graph at all). Four flat
+// scene nodes, a small real behavior graph:
 //   0 "Prop_01" — targeted by graph node 1 (pointer/set -> /nodes/0/translation)
 //   1 "Prop_02" — targeted by graph node 0 (event/onSelect, nodeIndex: 1),
 //                 flow-connected into node 1's pointer/set (a real, if
 //                 trivial, handler -> effect graph, not two disconnected nodes)
 //   2 "Prop_03" — zero references (specs/ux-usage-mapping.md UX-1109's
 //                 zero-ref/"Attach behavior…" stub state)
+//   3 "Prop_04" — targeted by graph node 2 (pointer/set -> /nodes/3/translation)
+//                 with an EMPTY `flows` object and no other node's `flows`
+//                 pointing at it: an orphaned pointer/set, unreachable from
+//                 any event/* handler — `@gltfi/ir`'s `importGraph` never
+//                 visits/emits a node like this at all, so it's the
+//                 dedicated fixture for UX-1108's → Script disabled-button
+//                 case (`findEnclosingHandlerRoot` returns `null`).
 // Prop_01/Prop_02 each get a small real triangle mesh (same geometry as
 // e2e/inspector-fixture.ts's, translated apart) so the viewport's
 // selection/reference-highlight BoxHelper outlines (RH-022/RH-029) have
@@ -23,9 +30,9 @@ const CHUNK_TYPE_JSON = 0x4e4f534a;
 
 export const USAGE_MAPPING_FIXTURE_NAME = "usage-mapping-fixture.glb";
 
-export const USAGE_FIXTURE_NODE = { PROP_01: 0, PROP_02: 1, PROP_03: 2 } as const;
+export const USAGE_FIXTURE_NODE = { PROP_01: 0, PROP_02: 1, PROP_03: 2, PROP_04: 3 } as const;
 /** Graph-node indices within `extensions.KHR_interactivity.graphs[0].nodes[]`. */
-export const USAGE_FIXTURE_GRAPH_NODE = { ON_SELECT: 0, POINTER_SET: 1 } as const;
+export const USAGE_FIXTURE_GRAPH_NODE = { ON_SELECT: 0, POINTER_SET: 1, ORPHAN_POINTER_SET: 2 } as const;
 
 function base64FromBytes(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
@@ -43,11 +50,12 @@ function buildUsageMappingFixtureJson(): Record<string, unknown> {
   return {
     asset: { version: "2.0", generator: "gltf-studio e2e usage-mapping fixture" },
     scene: 0,
-    scenes: [{ nodes: [0, 1, 2] }],
+    scenes: [{ nodes: [0, 1, 2, 3] }],
     nodes: [
       { name: "Prop_01", mesh: 0, translation: [-2, 0, 0] },
       { name: "Prop_02", mesh: 0, translation: [2, 0, 0] },
-      { name: "Prop_03" }
+      { name: "Prop_03" },
+      { name: "Prop_04" }
     ],
     meshes: [
       {
@@ -88,6 +96,13 @@ function buildUsageMappingFixtureJson(): Record<string, unknown> {
                 values: { value: { type: 0, value: [0, 0, 0] } },
                 flows: {},
                 extras: { gltfi: { x: 320, y: 20 } }
+              },
+              {
+                declaration: 1,
+                configuration: { pointer: { value: ["/nodes/3/translation"] }, type: { value: [0] } },
+                values: { value: { type: 0, value: [0, 0, 0] } },
+                flows: {},
+                extras: { gltfi: { x: 320, y: 160 } }
               }
             ]
           }

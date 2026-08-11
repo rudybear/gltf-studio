@@ -23,7 +23,7 @@ import {
   type EditorDocument
 } from "@gltf-studio/editor-core";
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
-import { graphNodeSceneRef, type UsageDocJson, type UsageGraphNode } from "@gltf-studio/usage-index";
+import { findEnclosingHandlerRoot, graphNodeSceneRef, type UsageDocJson, type UsageGraphNode, type UsageInteractivityGraph, type UsageRef } from "@gltf-studio/usage-index";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import { createPlayController } from "@gltf-studio/play";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
@@ -252,6 +252,8 @@ export interface AppState {
   frameRequest: { nodeIndex: number | null; seq: number } | null;
   /** UX-1107: same cross-component-signal pattern as `frameRequest` above, for the Behavior graph canvas instead of the viewport — `BehaviorGraphPanel.tsx` forwards it to `GraphCanvas`'s `focusRequest` prop. */
   graphNodeFocusRequest: { nodeIndex: number; seq: number } | null;
+  /** UX-1108: see `requestScriptNodeFocus`'s doc comment — a durable (not fire-and-forget) version of the `graphNodeFocusRequest` pattern above, forwarded by `ScriptTabPanel.tsx` to `ScriptPanel`'s `focusRequest` prop. */
+  scriptNodeFocusRequest: { graphIndex: number; nodeIndex: number; pointerPath: string | null; enclosingHandlerNodeIndex: number | null; seq: number } | null;
   /** Same cross-component-signal pattern: bumped by an inline "✦ Ask Copilot" affordance so `Copilot.tsx`'s composer can autofocus once the right panel switches to it. */
   copilotComposerFocusSeq: number;
 
@@ -330,6 +332,22 @@ export interface AppState {
   /** UX-1107 (specs/ux-usage-mapping.md): requests the Behavior graph canvas center/pan to the given graph node — see `@gltf-studio/graph-canvas`'s `GraphView` `focusRequest` doc comment. Same cross-component-signal pattern as `requestFrame` below. */
   requestGraphNodeFocus(nodeIndex: number): void;
   /**
+   * UX-1108 (specs/ux-usage-mapping.md): same cross-component-signal
+   * pattern as `requestGraphNodeFocus`, for the Script tab instead of the
+   * Behavior graph canvas — `ScriptTabPanel.tsx` forwards it to
+   * `ScriptPanel`'s `focusRequest` prop. Unlike the graph canvas (always
+   * mounted, just hidden — `BottomDock.tsx`), the Script tab is
+   * `React.lazy`-mounted on first open and Monaco loads via its own inner
+   * dynamic import, so the receiving end can't assume it's ready the
+   * instant this is called: `scriptNodeFocusRequest` is a durable, seq-
+   * bumped STORE field (not a one-shot event) precisely so a request fired
+   * before the panel/editor exists yet is naturally still there — and still
+   * acted on — once `ScriptPanel`'s own effect decides it's actually ready
+   * (Monaco mounted AND the emit view current for this graph), rather than
+   * being silently dropped by a component that wasn't listening yet.
+   */
+  requestScriptNodeFocus(request: { graphIndex: number; nodeIndex: number; pointerPath: string | null; enclosingHandlerNodeIndex: number | null }): void;
+  /**
    * UX-1106..1108: the Inspector "Used in behavior" section's → Graph / →
    * Script row actions. Both switch to the ref's own owning graph first
    * (a no-op when it's already `selectedGraphIndex`), then select that
@@ -338,12 +356,17 @@ export interface AppState {
    * and the Script tab's cross-highlight (`specs/ux-script.md` UX-712)
    * already react to, so neither jump needs its own bespoke open-details
    * or flash mechanism. → Graph additionally requests a canvas focus
-   * (the target node may not already be on-screen); → Script has no such
-   * need (Monaco's own selection-revealing scroll, wired in script-panel,
-   * already handles that for text).
+   * (the target node may not already be on-screen); → Script requests its
+   * own focus too (`requestScriptNodeFocus` above) — for a `kind: "pointer"`
+   * ref (`pointer/set`/`pointer/interpolate`, which carries no
+   * `sourceNodeIds` identifier at all — see `cross-highlight.ts`'s header
+   * comment) this is the ONLY way the corresponding line ever gets found;
+   * for an `event-handler`/`animation` ref it's a defense-in-depth
+   * hardening of the same cross-highlight `selectedGraphNodeIndex` already
+   * drives, removing reliance on effect-ordering timing alone.
    */
-  jumpUsageRefToGraph(ref: { graphIndex: number; graphNodeIndex: number }): void;
-  jumpUsageRefToScript(ref: { graphIndex: number; graphNodeIndex: number }): void;
+  jumpUsageRefToGraph(ref: UsageRef): void;
+  jumpUsageRefToScript(ref: UsageRef): void;
   /**
    * UX-1110: derives the reference-highlight scene-node index from the
    * current Behavior-graph selection (`selectedGraphIndex`/
@@ -558,6 +581,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tryInPlayEntryId: null,
   frameRequest: null,
   graphNodeFocusRequest: null,
+  scriptNodeFocusRequest: null,
   copilotComposerFocusSeq: 0,
 
   themeOverride: null,
@@ -915,6 +939,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ graphNodeFocusRequest: { nodeIndex, seq: (state.graphNodeFocusRequest?.seq ?? 0) + 1 } }));
   },
 
+  requestScriptNodeFocus(request) {
+    set((state) => ({ scriptNodeFocusRequest: { ...request, seq: (state.scriptNodeFocusRequest?.seq ?? 0) + 1 } }));
+  },
+
   jumpUsageRefToGraph(ref) {
     const { selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode, requestGraphNodeFocus } = get();
     setActiveDockTab("graph");
@@ -924,13 +952,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   jumpUsageRefToScript(ref) {
-    const { selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode } = get();
+    const { history, selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode, requestScriptNodeFocus } = get();
     setActiveDockTab("script");
     if (ref.graphIndex !== selectedGraphIndex) setSelectedGraphIndex(ref.graphIndex);
     // specs/ux-script.md UX-712 already flashes the corresponding identifier
-    // purely off this same `selectedGraphNodeIndex` field — no separate
-    // flash mechanism needed here.
+    // purely off this same `selectedGraphNodeIndex` field for handler/proc/
+    // stateSlot-kind nodes — but a `kind: "pointer"` ref (pointer/set|
+    // interpolate) carries no such identifier at all (cross-highlight.ts's
+    // header comment), so its literal pointer path text is threaded through
+    // as an explicit fallback needle, plus a cheap best-effort "which
+    // handler does this trace back to" hint (`findEnclosingHandlerRoot`) for
+    // disambiguating multiple identical-path occurrences in the same graph.
     selectGraphNode(ref.graphNodeIndex);
+    let pointerPath: string | null = null;
+    let enclosingHandlerNodeIndex: number | null = null;
+    if (ref.kind === "pointer" && history) {
+      pointerPath = ref.pathText;
+      const graph = getIn(history.document.json, ["extensions", "KHR_interactivity", "graphs", ref.graphIndex]) as UsageInteractivityGraph | undefined;
+      if (graph) enclosingHandlerNodeIndex = findEnclosingHandlerRoot(graph, ref.graphNodeIndex);
+    }
+    requestScriptNodeFocus({ graphIndex: ref.graphIndex, nodeIndex: ref.graphNodeIndex, pointerPath, enclosingHandlerNodeIndex });
   },
 
   referenceHighlightSceneNodeIndex() {

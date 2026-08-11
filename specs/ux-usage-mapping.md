@@ -31,8 +31,9 @@ Prefix: `UX`. This file owns the `UX-11xx` block.
 
 - [UX-1106] (active) The Inspector shows a "Used in behavior" section for every selected scene node (not gated on node type or on having a mesh/material/audio section), headed "Used in behavior" with no count when empty, "Used in behavior (N)" otherwise; it shows exactly one row per usage-index (`UX-1100..1105`) reference to the selected node.
 - [UX-1107] (active) Each row shows: the referencing op id, the row's path/config text (the pointer path, `nodeIndex: N`, or `animation: N (name)`, matching whichever family produced it), which graph it belongs to ("Graph {graphIndex}"), and two actions — "→ Graph" and "→ Script". "→ Graph" switches the bottom dock to the Behavior graph tab, switches the graph selector to the reference's own graph when it differs from the one currently shown, selects that graph node (opening its details card per `specs/ux-graph-canvas.md`'s `UX-507`), and pans/zooms the canvas to it (a programmatic focus request, since the target node may not already be on-screen — distinct from selection itself).
-- [UX-1108] (active) "→ Script" switches the bottom dock to the Script tab, switches to the reference's own graph when it differs from the one currently shown, and selects that graph node — reusing the exact same selection state `specs/ux-script.md`'s `UX-712` cross-highlight already reacts to, so the corresponding emitted-code identifier scrolls into view and flashes with no separate mechanism.
+- [UX-1108] (active) "→ Script" switches the bottom dock to the Script tab, switches to the reference's own graph when it differs from the one currently shown, and selects that graph node — the same selection state `specs/ux-script.md`'s `UX-712` cross-highlight reacts to for a `handler`/`proc`/`stateSlot`-kind node. It ALSO issues a durable, queued focus request (`UX-1114`) rather than relying purely on that selection state, because the Script tab is `React.lazy`-mounted on first open with its own inner Monaco dynamic import (`specs/ux-script.md`'s `UX-707`) — a request fired before either exists must still be honored once they are, not silently dropped. For a `kind: "pointer"` reference (`pointer/set`/`pointer/interpolate`, `UX-1100`) the request additionally carries the row's own literal pointer path text as an explicit fallback: `@gltfi/ir`'s `importGraph` gives these ops no `handler`/`proc`/`stateSlot`/`temp` identifier at all (they're inlined directly as an `rt.ptrSet(...)`/`rt.ptrInterp(...)` statement), so `UX-712`'s plain identifier-table lookup can never resolve them on its own — the pointer path is the one thing that DOES survive verbatim into the emitted text (`@gltfi/emit-ts` emits it via `JSON.stringify`), so the Script tab searches for that exact quoted string instead. When the same literal pointer path is set from more than one place in the same graph, the jump prefers the occurrence inside the handler this specific reference's own flow traces back to (a cheap backward flow-predecessor walk, `findEnclosingHandlerRoot`) and otherwise falls back to the first occurrence in the emitted document — a best-effort disambiguation, not a proof of correctness in a genuinely multi-writer graph.
 - [UX-1109] (active) A selected node with zero usage-index references shows "Not referenced in behavior" plus an "Attach behavior…" control. Choosing it opens a small menu with: "✦ Ask Copilot about this node" (real — switches the right panel to Copilot and attaches an explicit context chip naming the node, the same inline-affordance contract `specs/ux-copilot.md`'s `UX-1008`/`UX-1009` already establish elsewhere), plus Phase-2 entries (e.g. "Add pointer/set to graph") that are present but not yet wired to a real command — choosing one shows a toast explaining it arrives in a later phase, the same honest-stub convention `specs/ux-scene-tree.md`'s `UX-206` add-menu already established (a real, clickable, visually de-emphasized button — never a silently inert control).
+- [UX-1114] (active) A `kind: "pointer"` row's "→ Script" button is disabled with an explanatory tooltip, rather than a click that switches tabs and visibly highlights nothing, when its graph node is unreachable from any `event/*` handler (`findEnclosingHandlerRoot` returns none) — such a node is dead in the graph (`@gltfi/ir`'s `importGraph` never visits/emits an unreachable node), so `UX-1108`'s pointer-path fallback is GUARANTEED to find nothing for it, not merely likely to. "→ Graph" on the same row is unaffected (it needs only the node's existence, never an emitted identifier) and stays enabled. `event-handler`/`animation`-kind rows are not covered by this disabled-state check (tracked as a gap below, not silently assumed fine).
 
 ### Two-tier highlight vocabulary
 
@@ -59,13 +60,26 @@ both `packages/app` and `packages/graph-canvas` in the dependency graph). Unit-t
 a correct reference count and a generous time budget (`UX-1113`) — measured well under a
 millisecond on a dev machine; see the PR description for the exact figure.
 
-`packages/app`'s `UsageSection.tsx` (Inspector, `UX-1106..1109`) and the reference-highlight wiring
+`packages/app`'s `UsageSection.tsx` (Inspector, `UX-1106..1109`, `UX-1114`) and the reference-highlight wiring
 (`UX-1110..1112`, `Viewport.tsx`/`SceneTree.tsx`) are documented in `specs/ux-shell.md`'s own
 usage-mapping implementation note (that file, not this one, owns `packages/app/**`); the graph-
 canvas-side additions (`focusRequest`, `NodeDetails`' "Reveal in viewport") are documented in
 `specs/ux-graph-canvas.md`'s own usage-mapping implementation note; the `RenderHost` reference-
 highlight tier the viewport wiring calls (`setReferenceHighlight`) is `RH-029`/`RH-030` in
 `specs/render-host.md`.
+
+`UX-1108`/`UX-1114`'s pointer-path fallback and disabled-state check share one primitive,
+`findEnclosingHandlerRoot` (exported from `packages/usage-index`, not the Inspector or the Script
+tab): a bounded backward walk over a graph node's own `flows` predecessors up to the nearest
+`event/*` handler root, or `null` if none is reachable. `app-store.ts`'s `jumpUsageRefToScript` uses
+it (via `history.document.json`, no `@gltfi/emit-ts` invocation needed) to attach an
+`enclosingHandlerNodeIndex` hint to the durable `scriptNodeFocusRequest`; `UsageSection.tsx` uses
+the exact same function directly against the row's own graph to decide `UX-1114`'s enabled/disabled
+state — one derivation, not two independently-maintained copies of "is this node reachable," the
+same convention `usage-index`'s own header comment already establishes for `graphNodeSceneRef`.
+`packages/script-panel`'s `cross-highlight.ts` (`specs/ux-script.md`'s `UX-712` owns that package)
+does the actual text search: `findHighlightForNode`'s `pointerPath`/`enclosingHandlerNodeIndex`
+options, tried only once its ordinary `sourceNodeIds` lookup comes up empty.
 
 ## Open questions
 
@@ -86,3 +100,21 @@ highlight tier the viewport wiring calls (`setReferenceHighlight`) is `RH-029`/`
   detail. Whether a future pass still wants a brief pulse IN ADDITION to the camera move (e.g. for
   the case where the referenced node is already fully on-screen and framing alone is not obviously
   noticeable) is left open.
+- OPEN(UX-usage-script-jump-animation-gap): `UX-1114`'s disabled-state check only covers
+  `kind: "pointer"` rows. `animation/start|stop|stopAt` nodes (`UX-1102`) get no `sourceNodeIds`
+  entry either (same `@gltfi/ir` "inlined statement, no identifier" shape as `pointer/set`), so
+  their own "→ Script" jump is very likely just as unresolvable today as `pointer/*` rows were
+  before this pass — but it's untested and unfixed here (no real asset in this repo's e2e fixtures
+  currently exercises `animation/start`, per the open question above), and their button stays
+  unconditionally enabled rather than checked. A future pass should either extend the pointer-path-
+  style fallback to the animation index literal or add the same reachability check to `UX-1114`.
+- OPEN(UX-usage-script-jump-multi-occurrence): `UX-1108`'s handler-context disambiguation
+  (`findEnclosingHandlerRoot` + a textual brace-matching scan of the handler's own emitted function
+  body, `cross-highlight.ts`) is a heuristic, not a proof: a pointer path set from two different
+  places INSIDE the same handler (not just two different handlers) is still ambiguous by text alone
+  and resolves to whichever occurrence the scan finds first inside that handler's body. Considered
+  and rejected as out of scope for this pass: teaching `@gltfi/ir`'s `importGraph` to stamp a
+  `sourceNodeIds`-style origin onto every statement (not just the four kinds it tracks today) would
+  remove the need for text search entirely, but touches a vendored package this repo does not
+  maintain (`vendor/gltfi-ir-*.tgz`, `scripts/refresh-vendor.mjs`) and was judged not worth
+  requesting for a same-tier disambiguation nicety.
