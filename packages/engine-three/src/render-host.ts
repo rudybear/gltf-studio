@@ -393,6 +393,23 @@ export class ThreeRenderHost implements RenderHost {
    * "clicking objects in the viewport doesn't select them"). A no-op when
    * `mount()` hasn't run yet (no `controls` to toggle).
    */
+  /**
+   * Not part of the RenderHost interface either (same DECISION note as
+   * `setControlsEnabled` above) — lets Viewport.tsx's click-vs-drag
+   * threshold logic tell a genuine orbit drag apart from a TransformControls
+   * gizmo drag before deciding whether to re-enable OrbitControls mid-
+   * gesture. Backed directly by TransformControls' own public `dragging`
+   * (three.js sets it `true` synchronously in its native pointerdown handler
+   * on the canvas — which, same as OrbitControls', always runs before this
+   * component's own React pointer handlers on the ancestor `#viewport-mount`
+   * div, per bubble order — and back to `false` on its native pointerup), so
+   * it's always current by the time a bubbled pointermove/pointerup handler
+   * checks it. `false` when no gizmo is attached at all.
+   */
+  isGizmoDragging(): boolean {
+    return this.gizmo?.dragging ?? false;
+  }
+
   setControlsEnabled(enabled: boolean): void {
     if (this.controls) {
       this.controls.enabled = enabled;
@@ -695,6 +712,43 @@ export class ThreeRenderHost implements RenderHost {
   /** three.js-specific GPU-resource counters, for leak-discipline tests (RH-008) and a future viewport HUD. */
   getRendererStats(): RendererStats | null {
     return this.renderer ? { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures } : null;
+  }
+
+  /**
+   * Test-only (see specs/render-host.md's M2 DECISION note): hit-tests NDC
+   * coordinates against the currently-attached gizmo's OWN picker geometry
+   * via TransformControls' own public `pointerHover` — the exact raycast it
+   * runs on every real pointermove without a button held — and returns
+   * whichever axis/plane it reports (e.g. "X", "XY"), or null if nothing is
+   * attached or hit. A pure query: `pointerHover` never touches
+   * `controls.enabled` (only a real `pointerdown` starting a drag does), so
+   * calling this has no side effect on OrbitControls.
+   *
+   * Lets e2e (see e2e/viewport-gizmo-camera-lock.spec.ts) locate a real
+   * gizmo handle's screen position deterministically instead of by
+   * trial-and-error real drags — which matters here specifically because a
+   * MISSED trial-and-error drag is a genuine OrbitControls orbit, and
+   * OrbitControls' own `enableDamping` (see `mount()`) means its rotation
+   * momentum outlives the gesture, decaying gradually over many subsequent
+   * frames regardless of `controls.enabled` — polluting the camera pose a
+   * LATER, successful attempt's "the camera did not move" assertion would
+   * otherwise measure against.
+   */
+  hitTestGizmoHandle(ndcX: number, ndcY: number): string | null {
+    if (!this.gizmo) return null;
+    // @types/three's `TransformControls.pointerHover` signature is typed as
+    // `(pointer: PointerEvent | null) => void`, but the real implementation
+    // (TransformControls.js's own `_getPointer`) always normalizes the
+    // native event to a plain `{x, y, button}` (NDC + button index) BEFORE
+    // calling this public method — that plain shape, not a real
+    // PointerEvent's properties, is genuinely all it reads. An upstream
+    // typing gap, not a real type mismatch.
+    (this.gizmo as unknown as { pointerHover(pointer: { x: number; y: number; button: number }): void }).pointerHover({
+      x: ndcX,
+      y: ndcY,
+      button: -1
+    });
+    return this.gizmo.axis;
   }
 
   /**

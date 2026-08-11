@@ -276,6 +276,31 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   changed beyond that cross-reference; `UX-1xx`'s toast/history-entry/theme/dock requirements above
   are unaffected.
 
+- Follow-up (user-reported bug, "when I select and move gizmo it applies rotation to the
+  camera — moving the gizmo also orbited the viewport", `Viewport.tsx`,
+  `packages/engine-three/src/render-host.ts` — the substantive mechanism lives in
+  `specs/render-host.md`'s own DECISION note on `isGizmoDragging`, this file's own
+  `packages/app/**` catch-all is what makes touching `Viewport.tsx` also a `specs/ux-shell.md`
+  change): a regression the earlier "can't select objects in the viewport" fix (above) itself
+  introduced. That fix's `onPointerMove` re-enables `OrbitControls` as soon as a gesture's
+  cumulative movement crosses the 5px click/drag threshold, with no regard for whether a
+  `TransformControls` gizmo (`specs/ux-viewport.md`'s `UX-305`) owned the gesture — a real gizmo
+  drag crosses 5px almost immediately, re-arming `OrbitControls` out from under
+  `TransformControls`' own `dragging-changed`-driven disable and leaving both the dragged object
+  and the orbiting camera moving together for the rest of the drag. Fixed by gating that
+  re-enable on `ThreeRenderHost.isGizmoDragging()` (backed directly by `TransformControls`' own
+  public `dragging` flag), so `OrbitControls` stays disabled for the gizmo's entire drag
+  regardless of pointer distance, while an ordinary (non-gizmo) drag still re-arms it exactly as
+  before. `e2e/viewport-gizmo-camera-lock.spec.ts` (new) drives a real CDP mouse drag onto an
+  actual gizmo handle (located via a new `hitTestGizmoHandle` test hook, itself a
+  side-effect-free wrapper around `TransformControls`' own `pointerHover` — deliberately not
+  trial-and-error real drags, since a missed one would be a genuine orbit whose `OrbitControls`
+  damping momentum would outlive the gesture and pollute the very comparison being tested) and
+  asserts the camera pose is unchanged while the object's transform changes and exactly one
+  history commit is pushed — verified to fail on the pre-fix code and pass after.
+  `e2e/viewport-real-click.spec.ts`'s pre-existing jitter-click and deliberate-orbit-drag
+  regression coverage remains green, unmodified.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

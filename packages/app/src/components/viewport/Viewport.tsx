@@ -80,6 +80,8 @@ export interface GltfStudioTestHook {
   isReady(): boolean;
   /** Test-only passthrough to RenderHost.pick() at PLAY mode's default eligibility (no ignoreEligibility) — lets e2e assert the play-mode pick gate directly without needing an actual onSelect side effect to observe (see e2e/racer.spec.ts). */
   pick(x: number, y: number): PickResult | null;
+  /** Test-only passthrough to `ThreeRenderHost.hitTestGizmoHandle` — lets e2e locate a real gizmo handle's screen position deterministically instead of by trial-and-error real drags (see e2e/viewport-gizmo-camera-lock.spec.ts's own doc comment on why that matters). */
+  hitTestGizmoHandle(ndcX: number, ndcY: number): string | null;
 }
 
 declare global {
@@ -144,6 +146,25 @@ export function Viewport(): JSX.Element {
   //     selection/context-menu handling for a gesture that DID cross the
   //     threshold — a deliberate orbit drag still fires a native "click" at
   //     the drop point, which must not also change the selection there.
+  //
+  // Regression this threshold logic itself introduced (the "moving the gizmo
+  // also rotates the camera" bug): `onPointerMove`'s threshold-crossed
+  // re-enable used to fire unconditionally, with no regard for WHO owns the
+  // gesture. A gizmo (TransformControls) drag that moves the mouse more than
+  // `CLICK_DRAG_THRESHOLD_PX` — nearly every real gizmo drag — crossed this
+  // same threshold and re-armed OrbitControls out from under
+  // TransformControls' own `dragging-changed`-driven disable
+  // (render-host.ts's `attachGizmo`), so both the dragged object AND the
+  // camera moved together for the rest of the gesture. Fixed by gating the
+  // re-enable on `!hostRef.current?.isGizmoDragging()` below — standard
+  // three.js discipline is "OrbitControls.enabled = false for the entire
+  // gizmo drag", not just its first few pixels. A gizmo drag starts on the
+  // canvas's own native pointerdown (TransformControls' listener, which —
+  // same bubble-order reasoning as the comment on `onPointerDown` below —
+  // always runs before this component's React handlers), so
+  // `isGizmoDragging()` already reflects reality by the time any bubbled
+  // `onPointerMove` here checks it, regardless of how few or many pixels the
+  // gesture has moved.
   const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
   const thresholdCrossed = useRef(false);
   const CLICK_DRAG_THRESHOLD_PX = 5;
@@ -189,7 +210,8 @@ export function Viewport(): JSX.Element {
       getCameraPose: () => host.getCameraPose(),
       simulateGizmoDrag: (delta) => host.simulateGizmoDrag(delta),
       isReady: () => host.isReady(),
-      pick: (x, y) => host.pick(x, y)
+      pick: (x, y) => host.pick(x, y),
+      hitTestGizmoHandle: (ndcX, ndcY) => host.hitTestGizmoHandle(ndcX, ndcY)
     };
     return () => {
       delete window.__gltfStudioTest;
@@ -463,7 +485,17 @@ export function Viewport(): JSX.Element {
     // drag orbits/pans normally. Below the threshold this intentionally does
     // nothing, leaving OrbitControls disabled — see the fix's doc comment
     // above `pointerDownPos`.
-    if (pointerDownPos.current && !thresholdCrossed.current && wasDrag(e)) {
+    //
+    // EXCEPT when a gizmo (TransformControls) owns this gesture: re-enabling
+    // OrbitControls here would fight the drag it's already performing on the
+    // selected object (see `pointerDownPos`'s doc comment for the regression
+    // this guard fixes). `thresholdCrossed` is deliberately left `false` in
+    // that case too — if the gizmo drag ends (mouse released back over empty
+    // space having somehow left the object still attached, or any other edge
+    // case) while the button is still logically down, later movement should
+    // re-evaluate `isGizmoDragging()` again rather than being permanently
+    // latched from an earlier check.
+    if (pointerDownPos.current && !thresholdCrossed.current && wasDrag(e) && !hostRef.current?.isGizmoDragging()) {
       thresholdCrossed.current = true;
       hostRef.current?.setControlsEnabled(true);
     }
