@@ -75,6 +75,34 @@
   text-align: center;
 }
 
+/* specs/ux-script.md UX-712/UX-1108 (refined "character-precise, visibly-
+   decorated script jump"): a persistent, FOCUS-INDEPENDENT amber decoration
+   marking exactly where a graph-node-selection cross-highlight or a → Script
+   jump (specs/ux-usage-mapping.md UX-1108) landed. Monaco's own native
+   selection tint looks fine while the editor has real DOM focus, but is
+   rendered via the much fainter `editor.inactiveSelectionBackground` the
+   instant focus moves elsewhere — for a jump ARRIVING from outside the
+   editor (the Inspector's "-> Script" button), that's the state a user is
+   actually looking at unless something else forces focus first, which is
+   exactly the bug this decoration exists to route around: it is styled
+   directly (not via Monaco's theme/selection machinery) so it looks the
+   same whether or not the editor currently has focus. Uses the SAME amber
+   `--warn`/`--ref-soft` reference-color pair `app.css`'s UX-1110 scene-
+   tree/viewport reference highlight already uses, so "this is what
+   behavior referenced" reads as one consistent visual language across the
+   whole app rather than a different color per surface. */
+.gi-jump-highlight-range {
+  background: var(--ref-soft, rgba(217, 164, 65, 0.16));
+  border-bottom: 2px solid var(--warn, #d9a441);
+}
+.gi-jump-highlight-line {
+  background: var(--ref-soft, rgba(217, 164, 65, 0.1));
+}
+.gi-jump-highlight-gutter {
+  border-left: 3px solid var(--warn, #d9a441);
+  margin-left: 3px;
+}
+
 .script-diagnostics {
   flex: 0 0 auto;
   margin: 0;

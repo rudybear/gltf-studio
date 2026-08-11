@@ -40,7 +40,7 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
 - [UX-709] (active) While the buffer is in edit mode, every content change is parsed off the UI thread (a Worker wrapping `@gltfi/parse-ts`'s `parseModule`), debounced (~300ms of no further keystrokes) and staleness-guarded (a parse started before a newer edit never overwrites that newer edit's result); a failing parse's diagnostics are shown both as gutter/inline markers at their reported location and as lines in the Console tab (reusing the same console surface `specs/ux-shell.md` already gives every other diagnostic source).
 - [UX-710] (active) Resolves OPEN(UX-script-diverge-sim-tbd) in favor of real detection, retiring the approved mockup's "Simulate divergence" stand-in control (never adopted as a v1 affordance): on every clean parse, the parsed script is exported back to a graph (`@gltfi/ir`'s `exportGraph`) and compared against the document's current graph via `@gltfi/verify`'s `equivalentGraphs` (UX-703's own citation of `AG-007`) — that comparison, not any manual toggle, is what drives EQUIV/DIVERGED while editing. A currently-failing parse (UX-709) leaves the badge at its last-known state rather than flipping it, since there is no new graph to compare yet.
 - [UX-711] (active) The Apply → Graph action (UX-702) is enabled only when the most recent parse is clean (UX-709); activating it replaces the document's graph with the freshly exported one via `editor-core`'s `GraphEdit.replaceGraph` (`DOC-043`) as a single history-stack entry labeled "Apply script", after which the badge re-evaluates to EQUIV and the Emit-view content regenerates from the (now-authoritative) graph.
-- [UX-712] (active) Selecting a graph node on the Behavior graph canvas, when the Script tab can determine a corresponding emitted identifier for that node (via `@gltfi/emit-ts`'s returned `names` and the IR module's own source-node bookkeeping), scrolls to and highlights that identifier's text occurrence in the Script tab's buffer. This mapping is identifier-level (a name-based text search), not a source-range-accurate cross-reference — nodes with no determinable corresponding identifier (e.g. fully inlined/constant-folded away, or contributing only to a nested temporary) silently produce no highlight rather than a wrong one.
+- [UX-712] (active) Selecting a graph node on the Behavior graph canvas, when the Script tab can determine a corresponding emitted identifier for that node (via `@gltfi/emit-ts`'s returned `names` and the IR module's own source-node bookkeeping), scrolls to and highlights that identifier's text occurrence in the Script tab's buffer per UX-715's exact jump/decoration mechanics. This mapping is identifier-level (a name-based text search), not a source-range-accurate cross-reference — nodes with no determinable corresponding identifier (e.g. fully inlined/constant-folded away, or contributing only to a nested temporary) silently produce no highlight rather than a wrong one.
 - [UX-713] (active) Supersedes UX-704: while `DIVERGED`, the badge (UX-703) carries a tooltip summarizing `@gltfi/verify`'s `compareDeclarations` output (the list of structural differences between the document graph and the edited script's exported graph) — this is the tab's honest ceiling for "divergence is never communicated by the badge alone" given the real toolchain reports structural differences, not source-text positions; no per-line marking is implemented (see UX-704's retirement note for why one wouldn't be genuine).
 
 ### No-graph empty state
@@ -55,6 +55,44 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
   itself just a stand-in message, which is the same category of dishonesty a genuinely-collapsed
   (0-height) editor is. This is UX-700/UX-707's necessary precondition, not a new mode: every other
   UX-7xx requirement in this file continues to assume a graph is present.
+
+### Persistent, focus-independent jump highlighting
+
+- [UX-715] (active) Found and fixed alongside a follow-up bug report on `specs/ux-usage-mapping.md`'s
+  `UX-1108` (the Inspector's "→ Script" jump): a jump landing per UX-712/UX-1108 is, in addition to
+  scrolling/highlighting, REQUIRED to be something a user can actually SEE regardless of where
+  keyboard focus already was — the original implementation only ever set Monaco's own native
+  selection, which renders via the editor's much fainter `inactiveSelectionBackground` the instant
+  the editor lacks real DOM focus (exactly the state a jump ARRIVING from a button outside the
+  editor, e.g. the Inspector's "→ Script", starts in), so the fix that shipped it passed its own
+  e2e coverage (an API-level `getSelectedText()` read) while a real user saw nothing change on
+  screen. A landed jump now does all of the following as one unit:
+  1. `revealRangeInCenter`s the matched range and calls `editor.focus()` — the editor actually
+     receives real keyboard focus, not just a selection object nobody is looking at.
+  2. Sets Monaco's native selection to the full matched range, with the caret ("position") at the
+     range's START rather than Monaco's own default (the range's end) — an explicit, deliberate
+     choice (not left to whichever end `setSelection` happens to default to) — while still selecting
+     the whole range, so `getSelectedText()`-style API assertions keep seeing the full matched text.
+  3. Paints a PERSISTENT decoration distinct from that native selection: an exact-range inline
+     treatment plus a whole-line background tint and a gutter-bar marker, all in the same amber
+     `--warn`/`--ref-soft` reference-color pair `specs/ux-usage-mapping.md`'s `UX-1110` scene-
+     tree/viewport reference highlight already uses (one consistent "this is what behavior
+     referenced" visual language app-wide) — styled independently of Monaco's own theme/focus state,
+     so it looks the same whether or not the editor currently has focus, which is the actual fix for
+     this bug report's root cause.
+  The decoration (and the selection alongside it) persist across the Script tab's own debounced
+  emit-view regeneration (UX-700's "regenerated whenever the document's graph changes"): on every
+  regeneration, the SAME jump target is RE-RESOLVED against the freshly emitted text and the
+  decoration/selection move to wherever it now resolves — without re-revealing the viewport or
+  re-focusing the editor a second time (a regen is not a new jump; only steps 1-3 above, triggered by
+  an actual new selection/request, ever steal focus or scroll) — or clear outright if the target no
+  longer resolves at all (e.g. its graph node was deleted), since a decoration pointing at
+  unrelated/wrong text would be worse than none. The highlight clears entirely (decoration removed,
+  selection collapsed to a plain caret) on any of: a NEW jump superseding it; a genuine edit to the
+  buffer's content (not this component's own programmatic regeneration); a click or keyboard-driven
+  cursor move elsewhere in the buffer; or, with no further interaction at all, exactly 5 seconds after
+  it last landed — an INSTANTANEOUS clear at that mark, not an animated fade (a deliberate
+  simplification; see the open question below).
 
 ## Implementation notes
 
@@ -85,6 +123,50 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
   (either `UX-712`'s or `UX-1108`'s fallback) actually selected the expected text rather than merely
   that some selection changed.
 
+- UX-715 (the persistent, focus-independent jump decoration): `script-panel.tsx`'s `applyJumpHighlight`
+  is the ONE place a jump actually lands — both the plain `UX-712` canvas-selection effect and the
+  `UX-1108` `focusRequest` effect call it (rather than each hand-rolling their own
+  reveal/select/decorate), so the two flows can never drift into different visual behavior. It calls
+  `setJumpSelection` (reveal + native selection with the caret-at-start `Selection` construction
+  UX-715 describes), `editor.focus()`, then replaces the decoration collection
+  (`editor.createDecorationsCollection`, `buildJumpDecorations` — the exact-range + whole-line +
+  gutter-bar triple, styled via `script-panel.css`'s `.gi-jump-highlight-range` /
+  `-line` / `-gutter` classes) and (re)arms a plain `setTimeout(JUMP_HIGHLIGHT_FADE_MS)` that calls
+  the shared `clearJumpHighlight` teardown.
+  - Surviving a regen: a separate effect (deps `[code, currentModule, names]`, distinct from the
+    jump-triggering effects above so an UNRELATED regen never re-reveals/re-focuses) re-runs
+    `findHighlightForNode` against the freshly emitted `code` for whatever `lastHighlightTargetRef`
+    currently holds, and either repaints the decoration + calls `setJumpSelection` again (selection
+    only — no `revealRangeInCenter`/`focus()` on this path) at the newly-resolved location, or calls
+    `clearJumpHighlight` if the target no longer resolves at all.
+  - Clear triggers: the shared `contentSub`/`cursorSub` listeners (Monaco-mount effect) implement
+    "clears on user edit"/"clears on click-elsewhere" respectively — both need to tell a GENUINE
+    user-driven event apart from an event this component's OWN code just caused as a side effect of
+    the regen path above (a full `editor.setValue()` triggers both a content-changed AND an
+    incidental cursor-reset-to-1,1 notification as side effects, and `setJumpSelection`'s own
+    deliberate reselection right after that triggers a further cursor event). Two single-purpose
+    refs cover this, not one shared flag doing double duty (a real bug found and fixed during this
+    same pass, see below): `isProgrammaticContentSetRef` — armed before `editor.setValue(code)`,
+    reset via a DEFERRED `queueMicrotask` rather than synchronously right after that call (Monaco's
+    relative firing order between its content-changed and cursor-changed notifications for one
+    `setValue`, and whether either is even synchronous within that call's own stack frame, are not
+    documented guarantees this code can rely on — an earlier synchronous-reset attempt raced one or
+    the other listener and lost often enough to silently wipe a just-regenerated highlight); and
+    `expectedSelectionRef` — a genuinely one-shot "the IMMEDIATELY NEXT cursor event is this
+    component's own echo of a `setJumpSelection` call, not a click" arm, consumed (nulled)
+    unconditionally on the very next `onDidChangeCursorSelection` regardless of whether it actually
+    matched (an earlier version left it un-consumed on a non-match, which — combined with checking it
+    for "is a highlight even active" instead of `lastHighlightTargetRef` — silently disabled
+    click-elsewhere detection entirely after the first jump).
+  - `GltfStudioScriptTestHook` gains `getJumpHighlightLineNumber()` (the active decoration's own
+    tracked range, read back via `IEditorDecorationsCollection.getRanges()`, or `null` when none is
+    active) and `getLineScreenRect(lineNumber)` (that line's current on-screen CSS-pixel rectangle,
+    via `editor.getScrolledVisiblePosition` + the editor DOM node's own `getBoundingClientRect`) —
+    together these let an e2e test turn "a decoration is active on line N" into the same kind of real
+    composited-pixel screenshot assertion `e2e/visual-assert.ts` already established elsewhere,
+    rather than only ever re-checking `getSelectedText()` (an API-level read that, per this bug
+    report's own root cause, can pass while a real screen shows nothing different at all).
+
 ## Open questions
 
 - OPEN(UX-script-sugar-tbd): **the approved mockup renders script lines using an aspirational
@@ -98,3 +180,11 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
 Both other open questions this file originally carried — whether a future round makes this tab a
 real editable surface, and whether the mockup's "Simulate divergence" stand-in ever becomes a real
 affordance — are resolved as of M5: see UX-707 and UX-710 respectively.
+
+- OPEN(UX-script-jump-fade-tbd): `UX-715`'s ~5s auto-clear removes the jump decoration
+  instantaneously at that mark rather than animating an actual fade-out — the same pragmatic call
+  `specs/ux-usage-mapping.md`'s own `OPEN(UX-usage-reveal-flash-tbd)` made for a different highlight
+  (ship the real, honest behavior now; a genuine CSS opacity transition is a candidate polish pass,
+  not a claimed feature). Whether a future pass wants a real fade (and whether that's worth Monaco
+  decoration re-application mid-transition, since decorations are plain DOM elements a CSS
+  transition COULD target) is left open.

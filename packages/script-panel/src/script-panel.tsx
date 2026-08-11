@@ -16,11 +16,22 @@ import type { EmitNames } from "@gltfi/emit-ts";
 import type * as Monaco from "monaco-editor";
 import { buildEmitView, namesForModule } from "./emit-view.js";
 import { checkEquivalence, type EquivalenceResult } from "./equivalence.js";
-import { findHighlightForNode, offsetToLineColumn } from "./cross-highlight.js";
+import { findHighlightForNode, offsetToLineColumn, type FindHighlightOptions, type HighlightMatch } from "./cross-highlight.js";
 import { ParseClient } from "./parse-client.js";
 
 const PARSE_DEBOUNCE_MS = 300;
 const MARKER_OWNER = "gltf-studio-script";
+/**
+ * specs/ux-script.md UX-712/UX-1108 (refined): how long the persistent
+ * "you jumped here" decoration stays visible with no further interaction
+ * before it clears itself — a plain, undocumented-forever highlight would
+ * eventually just look like permanent (and increasingly meaningless, once
+ * the user has moved on) chrome; 5s is enough to register as "this is what
+ * that action pointed at" without outliving the moment. A deliberately
+ * simple instantaneous clear at this mark, not an animated fade — see
+ * `clearJumpHighlight`'s doc comment.
+ */
+const JUMP_HIGHLIGHT_FADE_MS = 5000;
 
 export type ScriptPanelProps = {
   document: EditorDocument;
@@ -68,6 +79,26 @@ export interface GltfStudioScriptTestHook {
   getCode(): string;
   /** e2e-only (specs/ux-usage-mapping.md UX-1108): the Monaco editor's current text selection, or `null` when nothing is selected — lets a test assert UX-712's cross-highlight actually selected the expected identifier, not just that SOME selection changed. */
   getSelectedText(): string | null;
+  /**
+   * e2e-only (specs/ux-script.md UX-712/UX-1108 refined): the 1-based line
+   * number the persistent jump-highlight decoration currently occupies, or
+   * `null` when no jump-highlight decoration is active (never jumped yet,
+   * already cleared by an edit/click-elsewhere, faded after
+   * `JUMP_HIGHLIGHT_FADE_MS`, or the jumped-to reference no longer resolves
+   * after a regen). A real visual e2e test needs this to compute WHICH
+   * on-screen pixels to sample — `getSelectedText()` alone proves the API
+   * state is right but, per this fix's own bug report, can pass while a
+   * user visually sees nothing.
+   */
+  getJumpHighlightLineNumber(): number | null;
+  /**
+   * e2e-only: the on-screen (viewport-relative CSS px) rectangle a given
+   * 1-based model line currently renders at, or `null` if that line isn't
+   * currently laid out (e.g. the model is empty). Lets a visual e2e test
+   * turn "line N" into a `page.screenshot({ clip })`/pixel-sampling region
+   * without reimplementing Monaco's own line-to-pixel geometry.
+   */
+  getLineScreenRect(lineNumber: number): { top: number; left: number; width: number; height: number } | null;
 }
 
 declare global {
@@ -115,6 +146,175 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   const loggedErrorKeyRef = useRef<string>("");
   /** UX-1108: the last `focusRequest.seq` this effect has already acted on — prevents re-applying the same jump on every unrelated re-render (e.g. a later `monacoReady`/`code` change after the jump already landed), while still re-firing for a genuinely NEW request even if it targets the same node/graph (seq always changes, `app-store.ts`'s `requestScriptNodeFocus` bumps it unconditionally). */
   const lastAppliedFocusSeqRef = useRef<number>(0);
+  /** UX-712's own analogue of `lastAppliedFocusSeqRef` above: the last plain canvas-selection `selectedNodeIndex` this effect has already jumped to — without this, the effect (which also depends on `code`/`currentModule`/`names` so it can re-jump to a NEWLY-selected node the instant those become ready) would otherwise re-reveal/re-focus/re-select on every unrelated emit-view regen for as long as the SAME node stays selected, which is exactly the "yanks the user's view/focus around" failure mode this fix is about ending, not reintroducing on a second code path. `undefined` (never `null`, which IS a legitimate "nothing selected" value) as the "never applied yet" sentinel. */
+  const lastAppliedSelectionNodeRef = useRef<number | null | undefined>(undefined);
+  /**
+   * specs/ux-script.md UX-712/UX-1108 (refined "character-precise, visibly-
+   * decorated script jump"): a persistent, focus-independent decoration
+   * marking the exact character range a jump last landed on — Monaco's OWN
+   * selection highlight (`editor.setSelection` below) looks fine while the
+   * editor has real DOM focus, but renders via the much fainter
+   * `editor.inactiveSelectionBackground` the instant focus is anywhere else,
+   * which — for a jump ARRIVING from outside the editor (the Inspector's
+   * "-> Script" button) — is exactly the state a user is actually looking
+   * at unless something else forces focus first. This ref holds the
+   * `IEditorDecorationsCollection` so it can be `.clear()`ed/replaced by
+   * later jumps, edits, clicks-elsewhere, or the fade timer below.
+   */
+  const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  /** Handle for the `JUMP_HIGHLIGHT_FADE_MS` auto-clear timer, so a NEW jump (or any other clear trigger) can cancel a still-pending fade from a PREVIOUS one rather than letting it fire late and clear the new jump's decoration out from under it. */
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * What the currently-active decoration (if any) actually points at —
+   * re-used by the "regen re-resolve" effect below to re-run
+   * `findHighlightForNode` against freshly emitted `code` and move the
+   * decoration to wherever that same reference now lands (or clear it, if
+   * it no longer resolves at all — e.g. the referencing node was deleted).
+   * `null` whenever no jump-highlight decoration is currently active — the
+   * single source of truth `clearJumpHighlight`/`applyJumpHighlight` below
+   * both keep in sync with `decorationsRef`, rather than tracking "is a
+   * highlight showing" as a second, independently-maintained boolean.
+   */
+  const lastHighlightTargetRef = useRef<{ nodeIndex: number; options?: FindHighlightOptions } | null>(null);
+  /**
+   * The exact `Selection` `applyJumpHighlight` below just asked Monaco to
+   * set, so the cursor-selection listener that implements "clears on
+   * click-elsewhere" can recognize that VERY event (its own `setSelection`
+   * call firing `onDidChangeCursorSelection`) as self-inflicted rather than
+   * a real click, and only clear on the NEXT (genuinely user-driven) change.
+   * `null` once that self-inflicted event has been seen once, or whenever
+   * no jump-highlight decoration is active at all.
+   */
+  const expectedSelectionRef = useRef<{ startLine: number; startCol: number; endLine: number; endCol: number } | null>(null);
+  /**
+   * Set for the duration of THIS component's own programmatic
+   * `editor.setValue(code)` call (the "keep the buffer in sync with
+   * externally-driven `code`" effect below) so the shared
+   * `onDidChangeModelContent` listener can tell that content change apart
+   * from a genuine user keystroke — only the latter should clear the jump
+   * highlight per this fix's "(4) ... clears on user edit" semantics; a
+   * regen-driven `setValue` is handled by the separate re-resolve effect
+   * instead (moving/keeping the decoration, not discarding it).
+   */
+  const isProgrammaticContentSetRef = useRef(false);
+
+  /**
+   * specs/ux-script.md UX-712/UX-1108: clears the persistent jump-highlight
+   * decoration (if any) and everything tracking it — the one place all four
+   * clear triggers (a NEW jump superseding it, a genuine user edit, a click
+   * elsewhere in the buffer, and the `JUMP_HIGHLIGHT_FADE_MS` timer) funnel
+   * through, so "is a highlight currently active" has exactly one source of
+   * truth (`lastHighlightTargetRef`) rather than drifting across several.
+   */
+  function clearJumpHighlight(): void {
+    decorationsRef.current?.clear();
+    decorationsRef.current = null;
+    if (fadeTimerRef.current) {
+      clearTimeout(fadeTimerRef.current);
+      fadeTimerRef.current = null;
+    }
+    lastHighlightTargetRef.current = null;
+    expectedSelectionRef.current = null;
+    // Also collapses Monaco's own (native) selection down to a plain caret
+    // at wherever it currently sits — otherwise, for the FADE trigger
+    // specifically (no real user interaction happens at all), the jump's
+    // original full-range selection would just sit there un-cleared
+    // forever once the amber decoration vanishes, which reads as only
+    // HALF cleared. A no-op for the click-elsewhere/user-edit triggers
+    // (the click/keystroke that caused THIS call already moved the real
+    // selection to wherever it is now — collapsing it to its own current
+    // position changes nothing observable).
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    const currentSelection = editor?.getSelection();
+    if (editor && monacoApi && currentSelection) {
+      editor.setSelection(new monacoApi.Selection(currentSelection.positionLineNumber, currentSelection.positionColumn, currentSelection.positionLineNumber, currentSelection.positionColumn));
+    }
+  }
+
+  /** The actual decoration pair `applyJumpHighlight` and the regen re-resolve effect below both build: an exact-range inline treatment (the precise matched characters) plus a whole-line tint + gutter bar (so the highlight reads at a glance even for a short/scrolled-off-screen-horizontally identifier) — both using the SAME amber `--warn`/`--ref-soft` reference color UX-1110's scene-tree/viewport reference highlight already uses, so "this is what behavior referenced" is one consistent visual language across the app rather than a different color per surface. */
+  function buildJumpDecorations(monacoApi: typeof Monaco, range: Monaco.Range): Monaco.editor.IModelDeltaDecoration[] {
+    return [
+      {
+        range,
+        options: {
+          className: "gi-jump-highlight-range",
+          stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+        }
+      },
+      {
+        range: new monacoApi.Range(range.startLineNumber, 1, range.endLineNumber, 1),
+        options: {
+          isWholeLine: true,
+          className: "gi-jump-highlight-line",
+          linesDecorationsClassName: "gi-jump-highlight-gutter",
+          stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+        }
+      }
+    ];
+  }
+
+  /**
+   * Sets Monaco's own (native) selection to `range` with the caret at its
+   * START (`applyJumpHighlight`'s own doc comment explains the anchor/
+   * position split) and re-arms `expectedSelectionRef` so the click-
+   * elsewhere listener recognizes THIS call's own resulting
+   * `onDidChangeCursorSelection` event as self-inflicted rather than a real
+   * click — shared by `applyJumpHighlight` (a fresh jump) and the regen
+   * re-resolve effect below (which keeps the selection honest across a
+   * regen too, so `getSelectedText()` stays a meaningful check post-regen,
+   * not just the decoration) so click-elsewhere detection keeps working no
+   * matter which of the two last touched the selection.
+   */
+  function setJumpSelection(editor: Monaco.editor.IStandaloneCodeEditor, monacoApi: typeof Monaco, start: { lineNumber: number; column: number }, end: { lineNumber: number; column: number }): void {
+    // Armed BEFORE calling `setSelection` — Monaco fires
+    // `onDidChangeCursorSelection` SYNCHRONOUSLY from within that call, so
+    // setting this AFTER would let the listener see the OLD (stale/absent)
+    // expectation and misidentify this very call's own resulting event as
+    // a real click-elsewhere instead of the echo it actually is.
+    expectedSelectionRef.current = { startLine: start.lineNumber, startCol: start.column, endLine: end.lineNumber, endCol: end.column };
+    const selection = new monacoApi.Selection(end.lineNumber, end.column, start.lineNumber, start.column);
+    editor.setSelection(selection);
+  }
+
+  /**
+   * Applies a FRESH jump (specs/ux-script.md UX-712/UX-1108, refined):
+   * reveals the range centered in the viewport, focuses the editor and
+   * places the caret at the range's START while keeping the full range
+   * itself selected (`setJumpSelection`'s own doc comment explains the
+   * anchor/position split — the e2e `getSelectedText()` hook keeps seeing
+   * the full matched text), and paints the persistent amber decoration
+   * (`buildJumpDecorations`) that does NOT depend on that focus/selection
+   * state to stay visible. Called only when a NEW jump actually happens (a
+   * new `selectedNodeIndex` or a new `focusRequest.seq`) — never merely
+   * because an unrelated emit-view regen re-ran this component's effects
+   * (see the re-resolve effect below for that case, which repositions the
+   * decoration alone, without re-stealing focus/re-scrolling on every such
+   * regen).
+   */
+  function applyJumpHighlight(match: HighlightMatch, target: { nodeIndex: number; options?: FindHighlightOptions }, currentCode: string): void {
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi) return;
+
+    const start = offsetToLineColumn(currentCode, match.offset);
+    const end = offsetToLineColumn(currentCode, match.offset + match.length);
+    const range = new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column);
+
+    editor.revealRangeInCenter(range);
+    setJumpSelection(editor, monacoApi, start, end);
+    editor.focus();
+
+    decorationsRef.current?.clear();
+    decorationsRef.current = editor.createDecorationsCollection(buildJumpDecorations(monacoApi, range));
+    lastHighlightTargetRef.current = target;
+
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    fadeTimerRef.current = setTimeout(() => {
+      fadeTimerRef.current = null;
+      clearJumpHighlight();
+    }, JUMP_HIGHLIGHT_FADE_MS);
+  }
 
   useEffect(() => {
     codeRef.current = code;
@@ -228,6 +428,7 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   useEffect(() => {
     let cancelled = false;
     let contentSub: Monaco.IDisposable | undefined;
+    let cursorSub: Monaco.IDisposable | undefined;
     (async () => {
       try {
         const { loadMonaco } = await import("./monaco-setup.js");
@@ -249,6 +450,54 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
           codeRef.current = value;
           setCode(value);
           scheduleParse(value);
+          // specs/ux-script.md UX-712/UX-1108 (refined) "(4) ... clears on
+          // user edit": a content change NOT caused by this component's own
+          // programmatic `setValue` (`isProgrammaticContentSetRef`, armed
+          // around the "keep buffer in sync with `code`" effect's own call
+          // AND kept armed through the regen re-resolve effect's own
+          // reselection right after it — see that ref's own doc comment)
+          // is a genuine keystroke — the jump highlight no longer reliably
+          // corresponds to anything once the buffer diverges from what was
+          // actually jumped to. Deliberately just READS the flag rather
+          // than consuming (resetting) it here: this listener and the
+          // cursor one below both need to see the SAME "this whole regen
+          // is still in flight" window, and Monaco's relative firing order
+          // between its content-changed and cursor-changed notifications
+          // for one `setValue` call is not a documented guarantee — whichever
+          // of the two consumed it first would have made the other
+          // misfire. A deferred (microtask) reset in the setter effect
+          // itself is the single point that clears it, once, after both
+          // listeners (and any effect using `setJumpSelection` afterward)
+          // have had their turn.
+          if (!isProgrammaticContentSetRef.current) clearJumpHighlight();
+        });
+        // "(4) ... clears on ... click-elsewhere": any cursor/selection
+        // change that ISN'T either (a) caused by this component's own
+        // programmatic content regeneration (`isProgrammaticContentSetRef`
+        // — a full `setValue` incidentally resets the cursor to 1,1 as a
+        // side effect, which is not a real click and must not be treated
+        // as one) or (b) the very one `applyJumpHighlight`/the regen
+        // re-resolve effect's own `setJumpSelection` just made
+        // (`expectedSelectionRef`, a one-shot "ignore the immediately next
+        // event" arm — see its own doc comment) clears the highlight.
+        // Comparing the raw selection shape (rather than trusting e.g.
+        // `event.reason`) works regardless of exactly which internal
+        // Monaco code path a given programmatic-vs-mouse-vs-keyboard cursor
+        // move reports.
+        cursorSub = editor.onDidChangeCursorSelection((event) => {
+          if (isProgrammaticContentSetRef.current) return; // this whole event is a side effect of a regen in flight — not a click
+          const pendingEcho = expectedSelectionRef.current;
+          if (pendingEcho) {
+            expectedSelectionRef.current = null; // consume — only the IMMEDIATELY next event is ever checked against it
+            const sel = event.selection;
+            const isOwnSetSelectionEcho =
+              sel.selectionStartLineNumber === pendingEcho.endLine &&
+              sel.selectionStartColumn === pendingEcho.endCol &&
+              sel.positionLineNumber === pendingEcho.startLine &&
+              sel.positionColumn === pendingEcho.startCol;
+            if (isOwnSetSelectionEcho) return; // this WAS the self-inflicted echo — not a click, nothing to clear
+          }
+          if (lastHighlightTargetRef.current !== null) clearJumpHighlight();
         });
         setMonacoReady(true);
       } catch (err) {
@@ -264,7 +513,12 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     })();
     return () => {
       cancelled = true;
+      if (fadeTimerRef.current) {
+        clearTimeout(fadeTimerRef.current);
+        fadeTimerRef.current = null;
+      }
       contentSub?.dispose();
+      cursorSub?.dispose();
       editorRef.current?.getModel()?.dispose();
       editorRef.current?.dispose();
       editorRef.current = null;
@@ -279,29 +533,58 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   // Keep the Monaco buffer's text in sync with externally-driven `code`
   // changes (view-mode regeneration, mode toggles) — a no-op when `code`
   // changed BECAUSE of the editor's own `onDidChangeModelContent` above
-  // (its value already matches).
+  // (its value already matches). Arms `isProgrammaticContentSetRef` right
+  // before `setValue` so the content-change AND cursor-selection listeners
+  // can both tell every event `setValue` itself triggers (a real content-
+  // changed notification, PLUS an incidental cursor-reset-to-1,1 as a side
+  // effect of replacing the whole buffer) apart from a genuine user
+  // keystroke/click (UX-712/UX-1108's "clears on user edit"/"click-
+  // elsewhere"). Reset via a DEFERRED microtask, not synchronously right
+  // after this call, and NOT by either listener consuming it themselves:
+  // this same `code` change also re-runs the regen re-resolve effect
+  // (declared later in this component, so it runs AFTER this one within
+  // the same synchronous effect-flush) which calls `setJumpSelection` —
+  // that call's OWN resulting cursor event must ALSO still see this flag
+  // as armed, or it would look like a real click-elsewhere and wipe the
+  // very highlight that effect just recomputed. A microtask fires only
+  // once every effect in this flush (this one included) has already run,
+  // so it clears the flag exactly once, after everyone who needed to see
+  // it armed has had their turn — earlier synchronous-reset and listener-
+  // self-consumption attempts here both raced one of the two listeners
+  // and lost often enough to silently wipe highlights on real regens.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || editor.getValue() === code) return;
+    isProgrammaticContentSetRef.current = true;
     editor.setValue(code);
+    queueMicrotask(() => {
+      isProgrammaticContentSetRef.current = false;
+    });
   }, [code, monacoReady]);
 
   // UX-712: best-effort cross-highlight from a Behavior-graph-canvas
   // selection made DIRECTLY on the canvas (no `focusRequest` involved) —
   // handler/proc/stateSlot-kind nodes only, resolved via `sourceNodeIds`
   // alone (no pointer-path fallback here: a plain canvas click carries no
-  // pointer-path text to fall back to, only a bare `nodeIndex`).
+  // pointer-path text to fall back to, only a bare `nodeIndex`). Guarded by
+  // `lastAppliedSelectionNodeRef` so this only actually JUMPS (reveal +
+  // focus + persistent decoration, `applyJumpHighlight`) on a genuinely NEW
+  // `selectedNodeIndex` — this effect's OTHER deps (`code`/`currentModule`/
+  // `names`) exist so a selection made before those are ready still gets
+  // applied the moment they are, not so every later unrelated emit-view
+  // regen re-steals focus/re-scrolls for as long as the same node stays
+  // selected (the separate re-resolve effect below repositions the
+  // decoration alone for that case).
   useEffect(() => {
     const editor = editorRef.current;
     const monacoApi = monacoRef.current;
-    if (!editor || !monacoApi || selectedNodeIndex === null || !currentModule || !names) return;
+    if (!editor || !monacoApi || !currentModule || !names) return;
+    if (selectedNodeIndex === lastAppliedSelectionNodeRef.current) return;
+    lastAppliedSelectionNodeRef.current = selectedNodeIndex;
+    if (selectedNodeIndex === null) return;
     const match = findHighlightForNode(currentModule, names, code, selectedNodeIndex);
-    if (!match) return;
-    const start = offsetToLineColumn(code, match.offset);
-    const end = offsetToLineColumn(code, match.offset + match.length);
-    const range = new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column);
-    editor.revealRangeInCenter(range);
-    editor.setSelection(range);
+    if (!match) return; // UX-712's documented fidelity gap (temp-kind/unmappable nodes) — no highlight, but an EXISTING one (e.g. from a prior UX-1108 jump) is deliberately left alone rather than clobbered by an unrelated selection that itself produced nothing.
+    applyJumpHighlight(match, { nodeIndex: selectedNodeIndex }, code);
   }, [selectedNodeIndex, monacoReady, currentModule, names, code]);
 
   // UX-1108: applies a durable → Script jump request once THIS component is
@@ -314,7 +597,9 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   // on `focusRequest` itself changing, so a request that arrives before
   // `monacoReady`/`currentModule`/`names` are set gets a second (third, ...)
   // chance the moment they do — `lastAppliedFocusSeqRef` makes each actual
-  // application idempotent (never re-selects on an unrelated later re-run).
+  // application idempotent (never re-jumps on an unrelated later re-run,
+  // for the same reason `lastAppliedSelectionNodeRef` guards the UX-712
+  // effect above).
   useEffect(() => {
     if (!focusRequest || focusRequest.seq === lastAppliedFocusSeqRef.current) return;
     if (focusRequest.graphIndex !== graphIndex) return; // the graph-switch this same jump requested hasn't propagated to this prop yet — wait for it (this effect re-runs when `graphIndex` changes).
@@ -323,25 +608,68 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     if (!editor || !monacoApi || !monacoReady || !currentModule || !names) return; // not ready yet — stays queued, re-evaluated when these become ready.
 
     lastAppliedFocusSeqRef.current = focusRequest.seq;
-    const match = findHighlightForNode(currentModule, names, code, focusRequest.nodeIndex, {
-      pointerPath: focusRequest.pointerPath,
-      enclosingHandlerNodeIndex: focusRequest.enclosingHandlerNodeIndex
-    });
+    const options: FindHighlightOptions = { pointerPath: focusRequest.pointerPath, enclosingHandlerNodeIndex: focusRequest.enclosingHandlerNodeIndex };
+    const match = findHighlightForNode(currentModule, names, code, focusRequest.nodeIndex, options);
     if (!match) {
       // A genuinely unmappable reference (e.g. the Inspector's disabled-
       // button case was somehow bypassed, or the graph changed underneath
       // the request) — logged, not silently swallowed, per this file's own
       // "an unhandled failure here looks like unrelated symptoms" lesson
-      // (see the Monaco-mount effect's own comment above).
+      // (see the Monaco-mount effect's own comment above). Also clears any
+      // STALE highlight from a previous, different jump rather than leaving
+      // it looking like it answers this one.
       onLog?.("warn", `Script: no corresponding line found for the selected node in graph ${focusRequest.graphIndex}.`);
+      clearJumpHighlight();
+      return;
+    }
+    applyJumpHighlight(match, { nodeIndex: focusRequest.nodeIndex, options }, code);
+  }, [focusRequest, graphIndex, monacoReady, currentModule, names, code, onLog]);
+
+  // specs/ux-script.md UX-712/UX-1108 (refined): re-resolves the ACTIVE jump
+  // highlight's target (`lastHighlightTargetRef`) against freshly emitted
+  // `code` whenever it changes for ANY reason (a document edit elsewhere
+  // regenerating the view-mode emit, a mode toggle, ...) — this is the fix
+  // for this bug report's finding (b): the previous implementation had
+  // nothing here at all, so `editor.setValue(code)` (the "keep the buffer
+  // in sync" effect above) silently wiped the selection/decoration on the
+  // very next regen after a jump landed. Moves BOTH the persistent
+  // decoration and the plain Monaco selection (`setJumpSelection`) to the
+  // freshly-resolved location — keeping the selection honest too (not just
+  // the decoration) is what keeps `getSelectedText()` a meaningful
+  // assertion after a regen, not merely the visual layer. Deliberately does
+  // NOT re-reveal the viewport or re-focus the editor, though — only
+  // `applyJumpHighlight` (a genuinely NEW jump) does that; a silent
+  // `setSelection` alone causes no scroll/focus side effect on its own, so
+  // this still never yanks the user's screen/focus around on an unrelated
+  // regen. If the reference no longer resolves at all (e.g. the
+  // referencing graph node was deleted), the highlight is cleared outright
+  // — a stale decoration/selection pointing at unrelated/wrong text would
+  // be worse than none.
+  useEffect(() => {
+    const target = lastHighlightTargetRef.current;
+    if (!target || !currentModule || !names) return;
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi) return;
+    const match = findHighlightForNode(currentModule, names, code, target.nodeIndex, target.options);
+    if (!match) {
+      clearJumpHighlight();
       return;
     }
     const start = offsetToLineColumn(code, match.offset);
     const end = offsetToLineColumn(code, match.offset + match.length);
     const range = new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column);
-    editor.revealRangeInCenter(range);
-    editor.setSelection(range);
-  }, [focusRequest, graphIndex, monacoReady, currentModule, names, code, onLog]);
+    decorationsRef.current?.clear();
+    decorationsRef.current = editor.createDecorationsCollection(buildJumpDecorations(monacoApi, range));
+    setJumpSelection(editor, monacoApi, start, end);
+    // Not resetting `fadeTimerRef` here on purpose: a regen doesn't reset
+    // the fade clock — an unrelated document edit shouldn't extend how long
+    // an already-stale-looking highlight lingers. `target` (a ref) is
+    // deliberately excluded from the dependency array below: this effect
+    // re-runs when `code`/`currentModule`/`names` change, not when the
+    // ref's own content changes (a plain ref mutation triggers no
+    // re-render to run an effect from in the first place).
+  }, [code, currentModule, names]);
 
   // e2e test hook (see GltfStudioScriptTestHook doc comment above).
   useEffect(() => {
@@ -353,6 +681,23 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
         const selection = editor?.getSelection();
         if (!editor || !selection || selection.isEmpty()) return null;
         return editor.getModel()?.getValueInRange(selection) ?? null;
+      },
+      getJumpHighlightLineNumber: () => {
+        const target = lastHighlightTargetRef.current;
+        const decorations = decorationsRef.current;
+        const editor = editorRef.current;
+        if (!target || !decorations || !editor) return null;
+        const ranges = decorations.getRanges();
+        return ranges.length > 0 ? ranges[0]!.startLineNumber : null;
+      },
+      getLineScreenRect: (lineNumber: number) => {
+        const editor = editorRef.current;
+        const domNode = editor?.getDomNode();
+        if (!editor || !domNode) return null;
+        const visible = editor.getScrolledVisiblePosition({ lineNumber, column: 1 });
+        if (!visible) return null;
+        const rect = domNode.getBoundingClientRect();
+        return { top: rect.top + visible.top, left: rect.left, width: rect.width, height: visible.height };
       }
     };
     return () => {
