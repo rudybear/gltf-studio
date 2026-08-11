@@ -170,6 +170,11 @@ export function Viewport(): JSX.Element {
   // selection can arrive (e.g. a scene-tree click) before that async load
   // finishes. Gated on below so that race never reaches attachGizmo.
   const [sceneReady, setSceneReady] = useState(false);
+  // M8-lite fix (specs/ux-scene-tree.md UX-213, see the `history.onApply`
+  // effect below): bumped once a `patchScene`-triggered in-place reload's
+  // async `loadScene` resolves, so `tables`-dependent effects (gizmo attach)
+  // get a reactive reason to re-run against the fresh node table.
+  const [reloadSeq, setReloadSeq] = useState(0);
 
   // Mount/dispose lifecycle, once per component instance (RH-004..RH-010
   // make re-mount/dispose safe regardless, e.g. under React StrictMode's
@@ -235,7 +240,17 @@ export function Viewport(): JSX.Element {
     const unsubscribe = history.onApply((patches) => {
       const outcome = host.patchScene(patches);
       if (outcome === "needs-reload") {
-        void host.loadScene(sceneSourceOf(history.document));
+        // M8-lite fix (specs/ux-scene-tree.md UX-213): bump `reloadSeq` once
+        // this in-place reload's async `loadScene` actually resolves, so
+        // effects that depend on the CURRENT node table (gizmo attach, most
+        // notably) re-run against the fresh tables rather than staying
+        // stale until some unrelated later re-render. Without this, a
+        // command that both adds a node AND selects it in the same tick
+        // (e.g. the "+ Add" menu) raced `RenderHost.attachGizmo` against
+        // tables that didn't contain the new node yet.
+        void host.loadScene(sceneSourceOf(history.document)).then(() => {
+          if (!cancelled) setReloadSeq((n) => n + 1);
+        });
       }
     });
     return () => {
@@ -248,15 +263,19 @@ export function Viewport(): JSX.Element {
   // field, so ANY surface that sets it (scene tree, asset rows, or this
   // component's own pick handler below) ends up here. Safe to call before
   // the scene finishes loading (a no-op until `tables` exists) — re-run once
-  // `sceneReady` flips so a selection made during the load isn't dropped.
+  // `sceneReady` flips so a selection made during the load isn't dropped;
+  // also re-run on `reloadSeq` (M8-lite, UX-213) so a node selected in the
+  // SAME tick it was created (the add-menu) still gets its outline once the
+  // in-place structural reload's tables actually contain it, rather than
+  // silently no-op'ing forever against the stale pre-reload tables.
   useEffect(() => {
     hostRef.current?.setHighlight(selectedNodeIndex !== null ? [selectedNodeIndex] : []);
-  }, [selectedNodeIndex, history, sceneReady]);
+  }, [selectedNodeIndex, history, sceneReady, reloadSeq]);
 
   // Hover outline (UX-301): dashed, and never shown for the current selection.
   useEffect(() => {
     hostRef.current?.setHover(hoveredNodeIndex !== null ? [hoveredNodeIndex] : []);
-  }, [hoveredNodeIndex, history, sceneReady]);
+  }, [hoveredNodeIndex, history, sceneReady, reloadSeq]);
 
   // UX-1110 (specs/ux-usage-mapping.md): the amber reference highlight, a
   // THIRD tier independent of selection/hover — derived from the Behavior
@@ -312,7 +331,7 @@ export function Viewport(): JSX.Element {
     } else {
       host.detachGizmo();
     }
-  }, [selectedNodeIndex, gizmoMode, history, sceneReady, playState, tryInPlayEntryId]);
+  }, [selectedNodeIndex, gizmoMode, history, sceneReady, playState, tryInPlayEntryId, reloadSeq]);
 
   // Gizmo drag/commit (UX-305, RH-003): the "drag" phase is already live —
   // TransformControls writes straight to the object's transform, which the

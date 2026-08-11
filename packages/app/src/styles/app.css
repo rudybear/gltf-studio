@@ -393,6 +393,9 @@ input.field {
 .add-menu.open {
   display: block;
 }
+.add-menu li {
+  position: relative;
+}
 .add-menu li button {
   width: 100%;
   text-align: left;
@@ -403,6 +406,13 @@ input.field {
 }
 .add-menu li button:hover {
   background: var(--bg-3);
+}
+.add-submenu {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  margin-left: 2px;
+  margin-bottom: 0;
 }
 .empty-note {
   padding: 10px 8px;
