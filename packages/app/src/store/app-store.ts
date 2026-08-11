@@ -19,6 +19,7 @@ import {
   GraphEdit,
   HistoryStack,
   save,
+  SceneEdit,
   type Command,
   type EditorDocument
 } from "@gltf-studio/editor-core";
@@ -327,6 +328,8 @@ export interface AppState {
   /** UX-310: ends play mode, restoring the pre-play scene snapshot (PC-003/PC-007) and unfreezing the document. */
   stopPlay(): Promise<void>;
   selectNode(index: number | null): void;
+  /** specs/ux-scene-tree.md UX-214 (DOC-048): deletes `nodeIndex` (and its whole subtree) as one undoable command, then moves selection to its former parent (or clears it for a scene-root). */
+  deleteNode(nodeIndex: number): void;
   selectGraphNode(index: number | null): void;
   setSelectedGraphIndex(index: number): void;
   /** UX-1107 (specs/ux-usage-mapping.md): requests the Behavior graph canvas center/pan to the given graph node — see `@gltf-studio/graph-canvas`'s `GraphView` `focusRequest` doc comment. Same cross-component-signal pattern as `requestFrame` below. */
@@ -925,6 +928,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       // UX-202/UX-805: passive update — does not force-switch the dock tab.
       get().navigateData(`/nodes/${index}`);
     }
+  },
+
+  /**
+   * specs/ux-scene-tree.md UX-214 (DOC-048): deletes `nodeIndex` and its
+   * entire descendant subtree as one undoable `SceneEdit.removeNode`
+   * command, then moves selection to the node's former parent — or clears
+   * it when the deleted node was a scene-root — per UX-214's
+   * "selection-after-delete" policy. `dispatchCommand` already carries the
+   * play-mode freeze guard (rejects + toasts while playing, DOC-031); this
+   * shares it rather than duplicating the check. Shared by the scene-tree
+   * context menu's "Delete" action and the app-level Delete/Backspace
+   * keyboard shortcut (`App.tsx`).
+   */
+  deleteNode(nodeIndex) {
+    const { history, dispatchCommand, selectNode } = get();
+    if (!history) return;
+    const { command, parentIndex } = SceneEdit.removeNode(history.document, nodeIndex);
+    dispatchCommand(command);
+    selectNode(parentIndex);
   },
 
   selectGraphNode(index) {

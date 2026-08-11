@@ -7,9 +7,30 @@
 // renumbered since the last save (DOC-025). Byte-preservation outside dirty
 // roots (DOC-026) then falls directly out of `locateJsonSpan`/`applyEdits`
 // only ever rewriting the spans we explicitly located.
+//
+// DOC-048 fix: per-root splicing on its own is NOT sufficient to detect
+// every renumbering DOC-025 means to catch. `dirtyRoots` (DOC-004) only ever
+// records the canonical splice root of each patch's OWN path — a structural
+// `remove` at `/nodes/{i}` (`SceneEdit.removeNode`/`GraphEdit.removeNode`)
+// implicitly shifts every LATER array element down by one (RFC 6902 array
+// semantics), but that shift produces no patch of its own and so marks no
+// dirty root for the elements it silently moved. Before this fix, splicing
+// ONLY the explicitly-dirty root(s) against the PRISTINE text in that case
+// would successfully `locateJsonSpan` a stale-but-existing span (e.g. the
+// removed element's old neighbor) and overwrite just that one slot, leaving
+// the array's now-stale tail element(s) byte-untouched — silently
+// DUPLICATING content rather than throwing or falling back. Caught by the
+// DOC-034 property test the first time `removeSceneNode` actually shrank a
+// top-level array (append-only structural ops never exercised this, since
+// appending never shifts an EXISTING element). Fixed generally, without
+// needing to enumerate every specific shift-shaped command, by verifying
+// the spliced result actually reparses to `document.json` before trusting
+// it (see `trySplice`'s own comment) — any mismatch degrades to the
+// existing whole-document `reserialize` fallback instead of shipping wrong
+// bytes.
 import { applyEdits, locateJsonSpan, writeContainer, type Container } from "@gltfi/gltf";
 import type { EditorDocument } from "./document.js";
-import { getIn, typedPathFromPointer } from "./json-pointer.js";
+import { deepEqualJson, getIn, typedPathFromPointer } from "./json-pointer.js";
 
 export interface SaveReport {
   /** Dirty-root JSON pointers that were successfully byte-spliced (empty when `reserialized` is true). */
@@ -53,6 +74,23 @@ function trySplice(document: EditorDocument, dirtyRoots: string[]): SaveResult |
   }
 
   const newJsonText = applyEdits(jsonText, edits);
+
+  // DOC-048 safety net (see this file's header comment): a per-root splice
+  // that LOOKS successful (every root found a span) can still produce wrong
+  // bytes when some OTHER element of the same array silently shifted
+  // without earning its own dirty-root entry. Verify by reparsing and
+  // deep-equality-checking against the true in-memory json before trusting
+  // this splice — degrade to the whole-document reserialize fallback
+  // instead of ever returning a result that would violate DOC-034's own
+  // "reparsing saved bytes deep-equals the in-memory json" invariant.
+  let newJson: unknown;
+  try {
+    newJson = JSON.parse(newJsonText);
+  } catch {
+    return undefined;
+  }
+  if (!deepEqualJson(newJson, document.json)) return undefined;
+
   const newContainer = rebuildContainerText(document.container, newJsonText);
   const bytes = toBytes(writeContainer(newContainer));
 

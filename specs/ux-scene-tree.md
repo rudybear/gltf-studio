@@ -37,8 +37,9 @@ Prefix: `UX`. This file owns the `UX-2xx` block.
 
 ### Right-click context menu
 
-- [UX-207] (active) Right-clicking a scene-tree row or a viewport object opens a context menu with exactly three actions — Frame, Rename, "✦ Ask Copilot about this…" — positioned at the cursor, and closes on an outside click or Escape.
+- [UX-207] (active) Right-clicking a scene-tree row or a viewport object opens a context menu positioned at the cursor, closing on an outside click or Escape. The scene-tree row's menu has exactly FOUR actions — Frame, Rename, "✦ Ask Copilot about this…", Delete (`UX-214`) — the viewport object's menu still has exactly the original three (Frame, Rename, "✦ Ask Copilot about this…"); see `UX-214`'s own note for why Delete is scene-tree-only for now. (Supersedes this requirement's original "exactly three actions" wording, which predated `UX-214`.)
 - [UX-208] (active) Choosing "✦ Ask Copilot about this…" switches the right panel to the Copilot tab and adds exactly one context chip naming the right-clicked object, per `AG-015`'s "same request/response contract, differing only in prefilled context" inline-affordance contract (see `specs/ux-copilot.md`'s `UX-1008`).
+- [UX-214] (active) M8 part 1 (`specs/document-model.md`'s `DOC-048`): the scene-tree row's context menu gains a "Delete" action — labeled "Delete" for a childless node, or "Delete (N nodes)" when the node has descendants (`SceneEdit.removeNode` always deletes the whole subtree as one command, never just the one row) — and the Delete/Backspace key deletes the currently-selected scene node the same way, whenever a scene node is selected AND keyboard focus is not inside a text input, a `<select>`, or the Script tab's Monaco editor (an app-level `keydown` handler, not scoped to the scene tree, so the shortcut works regardless of which panel has focus). Both paths call the SAME store action, dispatched through the existing `dispatchCommand` play-mode freeze guard (`specs/document-model.md`'s `DOC-031`) — deleting is blocked while playing exactly like every other edit, with no separate guard needed. After a successful delete, selection moves to the deleted node's former parent, or clears entirely when the deleted node was a scene-root (`DOC-048`'s `parentIndex` return value). Undo restores the entire subtree, every fixed-up reference, AND the pre-delete selection is NOT automatically restored by undo itself (selection is ephemeral store state per `DOC-030`, outside `HistoryStack`) — undoing a delete leaves selection wherever it last was, which may still be the post-delete parent. Delete is scene-tree-only for now, not added to the viewport object's own right-click menu (`Viewport.tsx`) or as a viewport-focused keyboard shortcut — deliberately out of scope for this change to avoid touching viewport interaction code owned by concurrent work; a future pass can extend it there.
 
 ### Drag onto the behavior graph
 
@@ -113,6 +114,25 @@ first-time extension scaffold writes) to a full `loadScene` reload — the same 
 `Viewport.tsx` change was needed. Camera/Light nodes render correctly on reload for free: `three/
 addons/loaders/GLTFLoader.js` (already in use, `render-host.ts`) natively supports `KHR_lights_
 punctual` and core `camera` nodes without any extra registration.
+
+## Implementation notes (M8 part 1: node deletion)
+
+`UX-214`'s "Delete" (user-reported bug: "I can add mesh, but can't delete it" — `SceneEdit.removeNode`
+was a throwing M8 stub). `SceneTree.tsx`'s context-menu `actions` array gains a fourth `"delete"`
+entry, its label computed by a new `packages/app/src/lib/gltf-scene.ts` helper,
+`countSubtreeNodes(json, nodeIndex)` (a cycle-guarded `children` walk, same convention
+`flattenSceneTree` already uses), calling the store's `deleteNode(nodeIndex)` action on select. That
+store action (`app-store.ts`) is the ONE place that calls `SceneEdit.removeNode` — it dispatches the
+returned command through the existing `dispatchCommand` (which already carries the play-mode freeze
+guard, no new guard needed) and then calls `selectNode(parentIndex)` with `removeNode`'s own returned
+post-delete parent index. `App.tsx` adds one more app-level `window` `keydown` listener (alongside its
+existing drag/drop listener) for Delete/Backspace, mirroring `Viewport.tsx`'s own W/E/R
+gizmo-shortcut focus-guard pattern (skip while an `INPUT`/`TEXTAREA`/`SELECT` has focus) plus an
+extra `.closest(".monaco-editor")`/`isContentEditable` check so the shortcut never fires while typing
+in the Script tab's Monaco editor; it reads `selectedNodeIndex` directly off the store and calls the
+same `deleteNode` action the context menu uses. Deliberately NOT touched: `Viewport.tsx` (owned by
+concurrent gizmo/camera work) — the viewport object's own right-click menu and any viewport-focused
+delete shortcut are out of scope here, per `UX-207`'s own note.
 
 ## Open questions
 

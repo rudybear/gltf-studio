@@ -100,4 +100,40 @@ describe("save (DOC-025): whole-document reserialize fallback", () => {
     expect(report.reserialized).toBe(false);
     expect(report.splicedRoots).toEqual(["/extensions/KHR_interactivity/graphs/0"]);
   });
+
+  /**
+   * @spec DOC-051
+   * DOC-048 regression: `SceneEdit.removeNode` is the first command that
+   * ever SHRINKS a top-level array (`json.nodes`) — every prior structural
+   * op was append-only (DOC-046/047). Before this fix, `trySplice` treated
+   * the "remove" op's own dirty root (`/nodes/{removed}`) as safely
+   * splice-able on its own, without realizing that RFC 6902's array-remove
+   * semantics silently shift every LATER element down by one position too
+   * — a shift that earns NO dirty-root entry of its own (only the literal
+   * patch path does), so the pristine text's now-stale trailing element was
+   * left byte-untouched by the splice: the saved bytes ended up with the
+   * surviving node's content appearing TWICE (once at its correct new
+   * position from the splice, once left over at its old position) rather
+   * than once. Property-test-discovered (`property.test.ts`'s "keeps node
+   * references in range... across random add/delete sequences" suite).
+   */
+  it("removing a scene node correctly falls back to the whole-document reserialize (a shrunk array is exactly DOC-025's 'renumbered since last save' case) — NOT a corrupt same-root splice", () => {
+    const doc = fixtureDocument(); // nodes: [Alpha, Beta] -- a fixture with NO KHR_interactivity references to either.
+    const { command } = SceneEdit.removeNode(doc, 0); // removes Alpha; Beta shifts from index 1 -> 0.
+    const edited = applyCommand(doc, command);
+    expect((edited.json as { nodes: unknown[] }).nodes).toHaveLength(1);
+
+    const { report, document: saved } = save(edited);
+
+    // DOC-034's core invariant, the one a corrupted splice would violate:
+    // reparsing the saved bytes must deep-equal the true in-memory json —
+    // exactly ONE surviving node, not a duplicated one.
+    expect(deepEqualJson(saved.container.json, edited.json)).toBe(true);
+    expect((saved.container.json as { nodes: unknown[] }).nodes).toHaveLength(1);
+
+    // The (now fixed) whole-document reserialize fallback — not a same-root
+    // splice that LOOKS successful (every explicitly-dirty root finds a
+    // span) while actually leaving a shifted sibling's stale text behind.
+    expect(report.reserialized).toBe(true);
+  });
 });

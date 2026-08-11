@@ -149,6 +149,35 @@ export function App(): JSX.Element {
     };
   }, []);
 
+  // specs/ux-scene-tree.md UX-214 (DOC-048): Delete/Backspace deletes the
+  // currently-selected scene node (and its subtree) via the store's
+  // `deleteNode` — the same action the scene-tree context menu's "Delete"
+  // entry dispatches. App-level (not SceneTree-local) so the shortcut fires
+  // regardless of which panel currently has focus, mirroring
+  // Viewport.tsx's own W/E/R gizmo-shortcut focus guard: skip while an
+  // INPUT/TEXTAREA/SELECT has focus (the scene-tree's inline rename field,
+  // any Inspector field, etc.) or focus is anywhere inside a mounted Monaco
+  // editor (the Script tab) — `.closest(".monaco-editor")` catches Monaco's
+  // internal contentEditable/hidden-textarea widgets that the plain tagName
+  // check alone might not. `deleteNode` itself is a no-op with nothing
+  // selected; `dispatchCommand`'s own play-mode freeze guard (DOC-031)
+  // already blocks it while playing, same as every other edit action.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (target?.closest(".monaco-editor")) return;
+      if (target?.isContentEditable) return;
+      const { selectedNodeIndex, deleteNode } = useAppStore.getState();
+      if (selectedNodeIndex === null) return;
+      e.preventDefault();
+      deleteNode(selectedNodeIndex);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
     <div id="app">
       <TopBar />

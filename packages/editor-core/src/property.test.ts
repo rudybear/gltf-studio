@@ -3,12 +3,13 @@
 // and drives random sequences of commands built exclusively from the
 // implemented `GraphEdit`/`SceneEdit` factories — never a hand-rolled patch.
 import fc from "fast-check";
+import { validateGraph, type VGraph } from "@gltfi/verify";
 import { describe, expect, it } from "vitest";
 import type { Command } from "./command.js";
 import { applyCommand, createDocument, type EditorDocument } from "./document.js";
 import { GraphEdit } from "./graph-edit.js";
 import { HistoryStack } from "./history.js";
-import { deepEqualJson, typedPathFromPointer } from "./json-pointer.js";
+import { deepEqualJson, getIn, typedPathFromPointer } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
 import { save } from "./save.js";
 import { SceneEdit } from "./scene-edit.js";
@@ -30,7 +31,9 @@ type Step =
   | { kind: "setTransform"; node: number; x: number }
   | { kind: "setName"; node: number; name: string }
   | { kind: "setMaterialProperty"; value: number }
-  | { kind: "setAudioEmitterProperty"; value: number };
+  | { kind: "setAudioEmitterProperty"; value: number }
+  | { kind: "addSceneNode"; name: string }
+  | { kind: "removeSceneNode"; pick: number };
 
 const socketArb = fc.constantFrom("a", "b", "c", "out", "in");
 const nonNegInt = fc.integer({ min: 0, max: 1000 });
@@ -48,14 +51,16 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
   fc.record({ kind: fc.constant("setTransform" as const), node: nonNegInt, x: fc.integer() }),
   fc.record({ kind: fc.constant("setName" as const), node: nonNegInt, name: fc.string({ maxLength: 8 }) }),
   fc.record({ kind: fc.constant("setMaterialProperty" as const), value: fc.integer() }),
-  fc.record({ kind: fc.constant("setAudioEmitterProperty" as const), value: fc.integer() })
+  fc.record({ kind: fc.constant("setAudioEmitterProperty" as const), value: fc.integer() }),
+  fc.record({ kind: fc.constant("addSceneNode" as const), name: fc.string({ maxLength: 8 }) }),
+  fc.record({ kind: fc.constant("removeSceneNode" as const), pick: nonNegInt })
 );
 
 interface Model {
   graphNodeCount: number;
+  /** DOC-048: mutable tracking of the scene's node count, replacing the old fixed `SCENE_NODE_COUNT` constant now that `removeSceneNode`/`addSceneNode` steps can change it. `addSceneNode` never sets `parentNodeIndex` (always a flat, scene-root append), so every add/remove here changes the count by exactly one — never a multi-node subtree — keeping this model trivially exact. */
+  sceneNodeCount: number;
 }
-
-const SCENE_NODE_COUNT = 2; // fixed by the fixture
 
 /** Maps a raw generated `Step` onto the CURRENT document's valid index ranges and builds the corresponding Command, or returns `undefined` for a step that's a no-op given current state (e.g. removing from an empty graph). */
 function interpretStep(document: EditorDocument, step: Step, model: Model): Command | undefined {
@@ -94,13 +99,23 @@ function interpretStep(document: EditorDocument, step: Step, model: Model): Comm
     case "addCustomEvent":
       return GraphEdit.addCustomEvent(document, 0, { id: step.id });
     case "setTransform":
-      return SceneEdit.setTransform(document, step.node % SCENE_NODE_COUNT, { translation: [step.x, 0, 0] });
+      return SceneEdit.setTransform(document, step.node % model.sceneNodeCount, { translation: [step.x, 0, 0] });
     case "setName":
-      return SceneEdit.setName(document, step.node % SCENE_NODE_COUNT, step.name);
+      return SceneEdit.setName(document, step.node % model.sceneNodeCount, step.name);
     case "setMaterialProperty":
       return SceneEdit.setMaterialProperty(document, 0, ["extras", "probe"], step.value);
     case "setAudioEmitterProperty":
       return SceneEdit.setAudioEmitterProperty(document, 0, ["gain"], step.value);
+    case "addSceneNode": {
+      model.sceneNodeCount += 1;
+      return SceneEdit.addNode(document, { name: step.name }).command;
+    }
+    case "removeSceneNode": {
+      if (model.sceneNodeCount === 0) return undefined;
+      const index = step.pick % model.sceneNodeCount;
+      model.sceneNodeCount -= 1;
+      return SceneEdit.removeNode(document, index).command;
+    }
   }
 }
 
@@ -113,7 +128,7 @@ describe("property: command+inverse round-trip (DOC-032)", () => {
     fc.assert(
       fc.property(fc.array(stepArb, { maxLength: 40 }), (steps) => {
         let document = freshDocument();
-        const model: Model = { graphNodeCount: 2 };
+        const model: Model = { graphNodeCount: 2, sceneNodeCount: 2 };
         for (const step of steps) {
           const command = interpretStep(document, step, model);
           if (!command) continue;
@@ -135,7 +150,7 @@ describe("property: undo-all ≡ initial (DOC-033)", () => {
       fc.property(fc.array(stepArb, { maxLength: 40 }), (steps) => {
         const initial = freshDocument();
         const stack = new HistoryStack(initial);
-        const model: Model = { graphNodeCount: 2 };
+        const model: Model = { graphNodeCount: 2, sceneNodeCount: 2 };
         let pushCount = 0;
         for (const step of steps) {
           const command = interpretStep(stack.document, step, model);
@@ -157,7 +172,7 @@ describe("property: save invariant (DOC-034)", () => {
       fc.property(fc.array(stepArb, { maxLength: 40 }), (steps) => {
         const initial = freshDocument();
         let document = initial;
-        const model: Model = { graphNodeCount: 2 };
+        const model: Model = { graphNodeCount: 2, sceneNodeCount: 2 };
         for (const step of steps) {
           const command = interpretStep(document, step, model);
           if (!command) continue;
@@ -194,6 +209,127 @@ describe("property: save invariant (DOC-034)", () => {
             }
           }
         }
+      }),
+      { numRuns: 200 }
+    );
+  });
+});
+
+// DOC-048: a focused property suite over ONLY SceneEdit.addNode/removeNode
+// sequences (isolated from the GraphEdit wiring noise the shared `stepArb`
+// above mixes in, so a failure here points squarely at `removeNode`'s own
+// reference-fixup pass). Every `addNode` here is a flat scene-root append
+// (no `parentNodeIndex`), so a subtree is always exactly one node — the
+// model's `sceneNodeCount` tracking stays exact without needing to walk
+// `children`. The fixture also carries one `event/onSelect`-shaped graph
+// node with a literal `configuration.nodeIndex` targeting a real scene
+// node, so `graphConfigLiteral` (DOC-048) is genuinely exercised by these
+// random sequences too, not just the `scenes[].nodes` array shift.
+function sceneEditOnlyFixtureJson(): Record<string, unknown> {
+  return {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: [0, 1] }],
+    nodes: [{ name: "Alpha" }, { name: "Beta" }],
+    extensionsUsed: ["KHR_interactivity"],
+    extensions: {
+      KHR_interactivity: {
+        graph: 0,
+        graphs: [
+          {
+            types: [],
+            declarations: [{ op: "event/onSelect" }],
+            nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [0] } } }]
+          }
+        ]
+      }
+    }
+  };
+}
+
+type SceneOnlyStep = { kind: "add"; name: string } | { kind: "remove"; pick: number };
+
+const sceneOnlyStepArb: fc.Arbitrary<SceneOnlyStep> = fc.oneof(
+  fc.record({ kind: fc.constant("add" as const), name: fc.string({ maxLength: 8 }) }),
+  fc.record({ kind: fc.constant("remove" as const), pick: nonNegInt })
+);
+
+describe("property: SceneEdit.removeNode keeps node references in range, and the pre-existing KHR_interactivity graph validateGraph-clean, across random add/delete sequences (DOC-048)", () => {
+  it("every scenes[].nodes/children entry stays a valid in-range index, and validateGraph stays ok throughout — for every random add/delete-only sequence", () => {
+    fc.assert(
+      fc.property(fc.array(sceneOnlyStepArb, { maxLength: 40 }), (steps) => {
+        let document: EditorDocument = createDocument(containerFromJson(sceneEditOnlyFixtureJson()));
+        let sceneNodeCount = 2;
+
+        const checkInvariants = (): void => {
+          const nodes = (getIn(document.json, ["nodes"]) as unknown[] | undefined) ?? [];
+          expect(nodes.length).toBe(sceneNodeCount);
+
+          const scenes = (getIn(document.json, ["scenes"]) as Array<{ nodes?: number[] }> | undefined) ?? [];
+          for (const scene of scenes) {
+            for (const ref of scene.nodes ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+          for (const node of nodes as Array<{ children?: number[] }>) {
+            for (const ref of node.children ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+
+          const graph = getIn(document.json, ["extensions", "KHR_interactivity", "graphs", 0]);
+          expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+        };
+
+        checkInvariants(); // sanity: the starting fixture is already clean and in-range.
+
+        for (const step of steps) {
+          if (step.kind === "add") {
+            const { command } = SceneEdit.addNode(document, { name: step.name });
+            document = applyCommand(document, command);
+            sceneNodeCount += 1;
+          } else {
+            if (sceneNodeCount === 0) continue;
+            const index = step.pick % sceneNodeCount;
+            const { command } = SceneEdit.removeNode(document, index);
+            document = applyCommand(document, command);
+            sceneNodeCount -= 1;
+          }
+          checkInvariants();
+        }
+      }),
+      { numRuns: 200 }
+    );
+  });
+
+  it("undo-all ≡ initial for random add/delete-only sequences (DOC-033, scoped to SceneEdit.removeNode)", () => {
+    fc.assert(
+      fc.property(fc.array(sceneOnlyStepArb, { maxLength: 40 }), (steps) => {
+        const initial = createDocument(containerFromJson(sceneEditOnlyFixtureJson()));
+        const stack = new HistoryStack(initial);
+        let sceneNodeCount = 2;
+        let pushCount = 0;
+
+        for (const step of steps) {
+          if (step.kind === "add") {
+            const { command } = SceneEdit.addNode(stack.document, { name: step.name });
+            stack.push(command);
+            sceneNodeCount += 1;
+            pushCount += 1;
+          } else {
+            if (sceneNodeCount === 0) continue;
+            const index = step.pick % sceneNodeCount;
+            const { command } = SceneEdit.removeNode(stack.document, index);
+            stack.push(command);
+            sceneNodeCount -= 1;
+            pushCount += 1;
+          }
+        }
+
+        for (let i = 0; i < pushCount; i += 1) stack.undo();
+        expect(deepEqualJson(stack.document.json, initial.json)).toBe(true);
       }),
       { numRuns: 200 }
     );
