@@ -16,6 +16,12 @@ describe("canonicalSpliceRoot", () => {
     );
   });
 
+  it("truncates a KHR_audio_graph patch to its graph root (DOC-057, rule 1b — same rationale as KHR_interactivity)", () => {
+    expect(canonicalSpliceRoot("/extensions/KHR_audio_graph/graphs/0/nodes/1/params/gain")).toBe(
+      "/extensions/KHR_audio_graph/graphs/0"
+    );
+  });
+
   it("truncates a KHR_audio_emitter patch to the whole extension object (plan's own example)", () => {
     expect(canonicalSpliceRoot("/extensions/KHR_audio_emitter/emitters/0/gain")).toBe("/extensions/KHR_audio_emitter");
   });

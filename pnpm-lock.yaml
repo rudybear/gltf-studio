@@ -166,6 +166,9 @@ importers:
 
   packages/audio-canvas:
     dependencies:
+      '@gltf-studio/editor-core':
+        specifier: workspace:*
+        version: link:../editor-core
       '@gltf-studio/engine-api':
         specifier: workspace:*
         version: link:../engine-api

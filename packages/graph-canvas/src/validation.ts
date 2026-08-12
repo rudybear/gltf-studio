@@ -23,7 +23,8 @@
 import { importGraph, checkModule, type Diagnostic, type Graph as IRGraph } from "@gltfi/ir";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 
-export type DiagnosticSource = "structural" | "import" | "check" | "doc";
+/** `"audio-lint"` (M7 audio-graph editing): `@gltf-studio/audio-canvas` builds `GraphDiagnostic`s from `AudioGraphHost.lint()` results to reuse this shared type + `OpNode`'s per-node badge (`gcanvas.badge.*`) — it never calls `safeRun` itself (`AudioGraphLintResult` already comes pre-computed from `AudioGraphJsHost`), it only needs the type to be a valid `source` value. */
+export type DiagnosticSource = "structural" | "import" | "check" | "doc" | "audio-lint";
 
 export type GraphDiagnostic = Diagnostic & { source: DiagnosticSource };
 

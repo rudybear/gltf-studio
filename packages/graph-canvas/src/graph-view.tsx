@@ -94,6 +94,8 @@ export interface GraphCanvasTestHook {
 declare global {
   interface Window {
     __gltfStudioGraphCanvasTest?: GraphCanvasTestHook;
+    /** M7 audio-graph editing: `AudioGraphCanvas`'s own instance of this same hook, under its own key (see `GraphViewProps.testHookKey`'s doc comment). */
+    __gltfStudioAudioGraphCanvasTest?: GraphCanvasTestHook;
   }
 }
 
@@ -139,12 +141,25 @@ export type GraphViewProps = {
   docNames?: DocNames;
   /** The target chip's click handler — selects the resolved scene node, same store action a scene-tree row click makes. Omitted (chip renders inert) when the host has no scene selection to drive. */
   onTargetChipClick?: (sceneNodeIndex: number) => void;
+  /**
+   * M7 audio-graph editing: the `window` key this instance's test hook
+   * (`GraphCanvasTestHook`, below) installs itself under. Defaults to
+   * `"__gltfStudioGraphCanvasTest"` (the behavior graph's own long-standing
+   * key). `@gltf-studio/audio-canvas`'s `AudioGraphCanvas` passes a
+   * DIFFERENT key (`"__gltfStudioAudioGraphCanvasTest"`) because
+   * `specs/ux-shell.md`'s UX-103 keeps the Behavior graph tab
+   * mounted-but-hidden while the Audio graph tab is active — two `GraphView`
+   * instances are live at once, and without this, whichever one's mount
+   * effect ran last would silently steal the shared global key out from
+   * under `e2e/graph-canvas.spec.ts`'s existing `simulateConnect` calls.
+   */
+  testHookKey?: string;
 };
 
 function GraphViewInner(props: GraphViewProps) {
   const { graph, selectedNodeIndex, onSelectNode, diagnosticsByNode, onLiteralCommit, onPointerTextClick, onPointerIconClick } = props;
   const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered, focusRequest } = props;
-  const { docNames, onTargetChipClick } = props;
+  const { docNames, onTargetChipClick, testHookKey = "__gltfStudioGraphCanvasTest" } = props;
 
   const engineRef = useRef<LayoutEngine | null>(null);
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
@@ -424,7 +439,8 @@ function GraphViewInner(props: GraphViewProps) {
   // rationale). Installed once; both methods read current state via refs/
   // the live `reactFlow` instance, never a stale render's closure.
   useEffect(() => {
-    window.__gltfStudioGraphCanvasTest = {
+    const hookWindow = window as unknown as Record<string, GraphCanvasTestHook | undefined>;
+    hookWindow[testHookKey] = {
       setViewport: (v) => reactFlow.setViewport(v),
       simulateConnect: (connection) => handleConnectRef.current(connection),
       simulateExternalDrop: (kind, refId, flowPosition) => {
@@ -437,9 +453,9 @@ function GraphViewInner(props: GraphViewProps) {
         performance.now() - lastDimensionsChangeAtRef.current > DIMENSIONS_QUIET_MS
     };
     return () => {
-      delete window.__gltfStudioGraphCanvasTest;
+      delete hookWindow[testHookKey];
     };
-  }, [reactFlow]);
+  }, [reactFlow, testHookKey]);
 
   // Combines the node- and edge-delete decision into ONE callback (rather
   // than React Flow's separate onNodesDelete/onEdgesDelete, which both fire

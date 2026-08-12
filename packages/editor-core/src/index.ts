@@ -1,3 +1,4 @@
+export * from "./audio-graph-edit.js";
 export * from "./command.js";
 export * from "./document.js";
 export * from "./edit-fragments.js";
