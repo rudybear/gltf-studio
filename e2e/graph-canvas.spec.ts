@@ -279,6 +279,105 @@ test.describe("behavior-graph canvas", () => {
     await expect(page.getByTestId("gcanvas.badge.2")).toHaveCount(0);
   });
 
+  test("variable/set card shows the assigned variable's real NAME, not a bare index (card-legibility audit, UX-514)", async ({ page }) => {
+    await page.getByTestId("gcanvas.palette.search").fill("variable/set");
+    await page.getByTestId("gcanvas.palette.op.variable/set").click();
+    await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+
+    // Blank (no variable assigned yet): no subtitle row at all — same "no
+    // config yet" convention `event/onSelect`'s target-chip test (below)
+    // exercises for its OWN blank state, just via a different config shape
+    // (variable/set has no config field at all until one is chosen, unlike
+    // a handler's always-present, defaulted `nodeIndex`).
+    await expect(page.getByTestId("gcanvas.node.2").locator(".gcanvas-op-subtitle")).toHaveCount(0);
+
+    // The fixture graph (e2e/global-setup.ts's EXISTING_GRAPH) already
+    // declares a "counter" variable — assign it via the details panel's
+    // variable selector (node-details.tsx's `DeclarationSelect`).
+    await page.getByTestId("gcanvas.details.config.variable-select.2").selectOption("0");
+
+    await expect(page.getByTestId("gcanvas.node.2")).toContainText("counter");
+    await expect(page.getByTestId("gcanvas.node.2")).not.toContainText("var#0");
+  });
+
+  test("animation/start card shows the resolved clip NAME, not just a bare ref index (card-legibility audit, UX-514) — previously showed no card indication at all", async ({
+    page
+  }) => {
+    await page.getByTestId("gcanvas.palette.search").fill("animation/start");
+    await page.getByTestId("gcanvas.palette.op.animation/start").click();
+    await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+
+    // No clip assigned yet: no clip row at all (mirrors the variable/set
+    // "no config yet" case above).
+    await expect(page.getByTestId(`gcanvas.op-animation-row.2`)).toHaveCount(0);
+
+    // The fixture scene (e2e/global-setup.ts's buildBaseSceneJson) declares
+    // exactly one real animation, "Idle" — assign it via the details panel's
+    // animation-clip selector (node-details.tsx's `AnimationValueEditor`).
+    await page.getByTestId("gcanvas.details.config.animation-select.2").selectOption("0");
+
+    const clipRow = page.getByTestId("gcanvas.op-animation-row.2");
+    await expect(clipRow).toContainText("Idle");
+    await expect(clipRow).toContainText("(#0)");
+  });
+
+  test("event/onSelect node's card target chip resolves the real scene-node name, retargets via the details editor, and shows a missing state once its target is deleted (UX-512, UX-513)", async ({
+    page
+  }) => {
+    test.slow();
+    // The fixture scene (e2e/global-setup.ts's buildBaseSceneJson) has 4
+    // scene nodes: 0 Root, 1 Widget, 2 KeyLight, 3 Widget_Detail — deleting
+    // the LAST one (below) shrinks the scene to 3 nodes, so a `nodeIndex: 3`
+    // config becomes genuinely, unambiguously out-of-range afterward (not
+    // silently reinterpreted as some other node that shifted into its old
+    // slot — this fixture's own delete is chosen specifically to sidestep
+    // that ambiguity, see DOC-049's own "left dangling, not repaired" note).
+    await page.getByTestId("gcanvas.palette.search").fill("event/onSelect");
+    await page.getByTestId("gcanvas.palette.op.event/onSelect").click();
+    await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+
+    const chip = page.getByTestId("gcanvas.target-chip.2");
+    // Added blank from the palette: no `configuration.nodeIndex` at all yet — resolves to the registry's own "-1 any node" default.
+    await expect(chip).toContainText("any node");
+    await expect(chip).toBeDisabled();
+
+    // Retarget to Widget (#1) via the details editor's "Target node" selector.
+    await page.getByTestId("gcanvas.details.config.target-select.2").selectOption("1");
+    await expect(chip).toContainText("Widget");
+    await expect(chip).toContainText("(#1)");
+    await expect(chip).toBeEnabled();
+
+    // Chip click selects Widget in the scene tree. Scene-tree rows are
+    // indexed by DEPTH-FIRST FLATTEN POSITION, not raw node index
+    // (SceneTree.tsx's own doc comment) — this fixture's hierarchy (Root(0)
+    // -> [Widget(1) -> [Widget_Detail(3)], KeyLight(2)]) flattens to
+    // row.0=Root(0), row.1=Widget(1), row.2=Widget_Detail(3), row.3=KeyLight(2).
+    await page.getByTestId("scene-tree.row.3").click(); // select KeyLight (nodeIndex 2) first, so the click below is a genuine reselect
+    await expect(page.getByTestId("scene-tree.row.1")).not.toHaveClass(/selected/);
+    await chip.click();
+    await expect(page.getByTestId("scene-tree.row.1")).toHaveClass(/selected/);
+
+    // Retarget to Widget_Detail (#3, the LAST scene node) then delete it —
+    // the card must show the missing state, and validation must flag it.
+    await page.getByTestId("gcanvas.details.config.target-select.2").selectOption("3");
+    await expect(chip).toContainText("Widget_Detail");
+    await page.getByTestId("scene-tree.row.2").click({ button: "right" }); // row.2 = Widget_Detail (nodeIndex 3), per the flatten order noted above
+    await expect(page.getByTestId("scene-tree.context-menu.delete")).toBeVisible();
+    await page.getByTestId("scene-tree.context-menu.delete").click();
+
+    await expect(chip).toContainText("⚠ missing (#3)");
+    await expect(chip).toBeDisabled();
+    const badge = page.getByTestId("gcanvas.badge.2");
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute("title", /GCANVAS-HANDLER-TARGET-MISSING/);
+
+    // Undo the delete: Widget_Detail comes back, and the chip resolves clean again.
+    await page.getByTestId("topbar.undo").click();
+    await expect(chip).toContainText("Widget_Detail");
+    await expect(chip).toContainText("(#3)");
+    await expect(page.getByTestId("gcanvas.badge.2")).toHaveCount(0);
+  });
+
   // Real-pixel sanity check (see specs/ux-shell.md's bug-fix note on the Script tab's
   // `.script-tab-wrap` CSS-collapse bug, which prompted auditing every dock tab for the same
   // "hidden-mount measures near-zero" class of bug): confirms the canvas actually renders visible

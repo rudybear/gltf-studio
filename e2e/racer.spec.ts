@@ -158,6 +158,55 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
   });
 
+  await test.step("handler node target chip resolves PadLeft's real name (UX-512); chip click selects it; the details editor can retarget it, undoably (UX-513)", async () => {
+    // Reach PadLeft's real event/onSelect|onHoverIn|onHoverOut graph node the
+    // same way a user would — via the Inspector's existing "Used in
+    // behavior" → Graph jump (UX-1107), already proven above to land on one
+    // of the three handler nodes addressing PadLeft (node 17). No hardcoded
+    // graph-node index: whichever one it is, `.gcanvas-op-node-selected` is
+    // the single, real selected card.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
+    await expect(page.getByTestId("inspector.usage.row.0")).toContainText("nodeIndex: 17");
+    await page.getByTestId("inspector.usage.row.0.to-graph").click();
+    await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
+
+    const selectedCard = page.locator(".gcanvas-op-node-selected");
+    await expect(selectedCard).toBeVisible({ timeout: 15000 });
+    const graphNodeIndex = await selectedCard.getAttribute("data-testid").then((v) => v!.replace("gcanvas.node.", ""));
+
+    const targetChip = page.getByTestId(`gcanvas.target-chip.${graphNodeIndex}`);
+    await expect(targetChip).toContainText("PadLeft");
+    await expect(targetChip).toContainText("(#17)");
+    // Visual-assert (this task's coverage requirement): the config region
+    // actually renders real pixels, not just DOM text a hidden-mount bug
+    // could still satisfy (this file's own established pattern, e.g. the
+    // script-jump decoration check above).
+    await assertRegionRendersContent(page.getByTestId(`gcanvas.op-target-row.${graphNodeIndex}`), { minNonBackgroundPixels: 20, minNonBackgroundFraction: 0.02 });
+
+    // Chip click selects the scene node directly (complementary to the
+    // existing amber reference highlight, which never left) — proven by
+    // first moving the scene-tree selection elsewhere.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`).click();
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).toHaveClass(/selected/);
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`)).not.toHaveClass(/selected/);
+
+    await targetChip.click();
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`)).toHaveClass(/selected/);
+    await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PYLON}`)).not.toHaveClass(/selected/);
+
+    // Editable attachment: the node-details "Target node" selector retargets
+    // this SAME handler node to Pylon00 (#3) — the card updates immediately,
+    // and the change is a normal undoable command.
+    const targetSelect = page.getByTestId(`gcanvas.details.config.target-select.${graphNodeIndex}`);
+    await targetSelect.selectOption(String(SCENE_NODE.PYLON));
+    await expect(targetChip).toContainText("Pylon00");
+    await expect(targetChip).toContainText("(#3)");
+
+    await page.getByTestId("topbar.undo").click();
+    await expect(targetChip).toContainText("PadLeft");
+    await expect(targetChip).toContainText("(#17)");
+  });
+
   await test.step("script tab decompiles the real graph to visible, multi-line TypeScript", async () => {
     await page.getByTestId("dock.tab.script").click();
     await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);

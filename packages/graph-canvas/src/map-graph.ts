@@ -118,6 +118,24 @@ export type MappedNode = {
   label: string;
   /** Variable/event/pointer name, when resolvable from configuration. */
   subtitle?: string;
+  /** True when `subtitle` reflects a dangling reference (e.g. `variable/get`'s `configuration.variable` index no longer exists in the graph's own `variables[]` table) rather than a resolved id or an anonymous `var#N`/`event#N` fallback — lets the renderer apply the same "missing" treatment `handlerTarget` below gets. */
+  subtitleMissing?: boolean;
+  /**
+   * `event/onSelect`/`onHoverIn`/`onHoverOut`'s `configuration.nodeIndex`
+   * (the SCENE node — not a graph node — this handler is scoped to) plus
+   * `configuration.stopPropagation`, extracted here (pure — no document.json
+   * access) so a caller with document context (`@gltf-studio/graph-canvas`'s
+   * `graph-canvas.tsx`) can resolve `nodeIndex` to that scene node's name for
+   * the card's "target: <name> (#N)" chip (specs/ux-graph-canvas.md, task:
+   * "handler nodes show their target") without this module ever reaching
+   * into `document.json` itself — mapGraph stays pure over the graph object
+   * alone. `nodeIndex` is the raw configured value (default `-1`, the
+   * registry's own "any node" sentinel per `@gltf-studio/usage-index`'s
+   * identical convention) — resolving it to a name, an "any node" label, or
+   * a "missing" dangling state against the document's actual scene-node
+   * count is the RENDERER's job (`op-node.tsx`), not this pure mapper's.
+   */
+  handlerTarget?: { nodeIndex: number; stopPropagation: boolean };
   /** False when `op` isn't in the kernel registry (renders gray). */
   knownSpec: boolean;
   ports: MappedPort[];
@@ -214,6 +232,14 @@ function configString(node: InteractivityNode, field: string): string | undefine
   const v = node.configuration?.[field]?.value;
   return Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined;
 }
+
+function configBool(node: InteractivityNode, field: string): boolean | undefined {
+  const v = node.configuration?.[field]?.value;
+  return Array.isArray(v) && typeof v[0] === "boolean" ? v[0] : undefined;
+}
+
+/** `@gltf-studio/usage-index`'s identical set (mirrored, not imported — this module has zero dependency on that package, same rationale as its own zero-dependency-on-`@gltfi/ir` header comment). */
+const HANDLER_OPS = new Set(["event/onSelect", "event/onHoverIn", "event/onHoverOut"]);
 
 // Extracts pointer-template segment names, e.g. "/nodes/[nodeIndex]/translation"
 // -> [{name:"nodeIndex", kind:"int"}]; "/materials/{matIndex}/..." -> ref kind.
@@ -486,14 +512,19 @@ export function mapGraph(graph: InteractivityGraph, graphIndex = 0): MappedGraph
       ports.push({ id: `value-out:${name}`, name, kind: "value-out", type: portType.get(key(i, "value-out", name)) });
     }
 
-    const subtitle = nodeSubtitle(graph, node, op, warnings, i);
+    const subtitleResult = nodeSubtitle(graph, node, op, warnings, i);
+    const handlerTarget = HANDLER_OPS.has(op)
+      ? { nodeIndex: configInt(node, "nodeIndex") ?? -1, stopPropagation: configBool(node, "stopPropagation") ?? false }
+      : undefined;
 
     return {
       index: i,
       op,
       category,
       label: opTail(op),
-      subtitle,
+      subtitle: subtitleResult?.text,
+      subtitleMissing: subtitleResult?.missing,
+      handlerTarget,
       knownSpec,
       ports,
       literals,
@@ -543,13 +574,29 @@ export function mapGraph(graph: InteractivityGraph, graphIndex = 0): MappedGraph
   };
 }
 
+type SubtitleResult = { text: string; missing?: boolean };
+
+/**
+ * A `variables[idx]`/`events[idx]` lookup out of range is a DANGLING
+ * reference (the index itself no longer exists in the graph's own table,
+ * e.g. after some future variable-removal feature) — distinct from a
+ * perfectly valid entry that simply has no `id` set, which is a normal,
+ * anonymous declaration, not an error. Only the former gets the `⚠ missing`
+ * treatment (`missing: true`) other dangling-reference surfaces in this
+ * package/`@gltf-studio/editor-core`'s `fixup-references.ts` use.
+ */
+function declRef(idx: number, entry: { id?: string } | undefined, fallbackPrefix: string): SubtitleResult {
+  if (!entry) return { text: `⚠ missing (${fallbackPrefix}#${idx})`, missing: true };
+  return { text: entry.id ?? `${fallbackPrefix}#${idx}` };
+}
+
 function nodeSubtitle(
   graph: InteractivityGraph,
   node: InteractivityNode,
   op: string,
   warnings: string[],
   nodeIndex: number
-): string | undefined {
+): SubtitleResult | undefined {
   const variables = graph.variables ?? [];
   const events = graph.events ?? [];
   const ctx = `node ${nodeIndex} (${op})`;
@@ -557,12 +604,13 @@ function nodeSubtitle(
   if (op === "variable/get" || op === "variable/interpolate") {
     const idx = configInt(node, "variable");
     if (idx === undefined) return undefined;
-    return variables[idx]?.id ?? `var#${idx}`;
+    return declRef(idx, variables[idx], "var");
   }
   if (op === "variable/set") {
     const indices = configIntArray(node, "variables");
     if (indices.length === 0) return undefined;
-    return indices.map((idx) => variables[idx]?.id ?? `var#${idx}`).join(", ");
+    const parts = indices.map((idx) => declRef(idx, variables[idx], "var"));
+    return { text: parts.map((p) => p.text).join(", "), missing: parts.some((p) => p.missing) };
   }
   if (op === "event/send" || op === "event/receive") {
     const idx = configInt(node, "event");
@@ -570,10 +618,11 @@ function nodeSubtitle(
     if (!events[idx]) {
       warnings.push(`${ctx}: event index ${idx} out of range (${events.length} declared)`);
     }
-    return events[idx]?.id ?? `event#${idx}`;
+    return declRef(idx, events[idx], "event");
   }
   if (op === "pointer/get" || op === "pointer/set" || op === "pointer/interpolate") {
-    return configString(node, "pointer");
+    const text = configString(node, "pointer");
+    return text === undefined ? undefined : { text };
   }
   return undefined;
 }

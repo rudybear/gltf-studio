@@ -24,7 +24,7 @@ import {
   type OnConnect
 } from "@xyflow/react";
 import type { MappedGraph, MappedNode } from "./map-graph.js";
-import { OpNode, type LiteralCommit, type OpNodeData, type OpNodeType } from "./op-node.js";
+import { OpNode, type DocNames, type LiteralCommit, type OpNodeData, type OpNodeType } from "./op-node.js";
 import { buildElkGraph, type LayoutPositions } from "./elk-layout.js";
 import { categoryColor, typeColor } from "./palette.js";
 import { LayoutEngine, type LayoutEngineMode } from "./layout-engine.js";
@@ -121,11 +121,16 @@ export type GraphViewProps = {
    * the SAME node twice in a row still re-triggers the effect below).
    */
   focusRequest?: { nodeIndex: number; seq: number } | null;
+  /** Task ("handler nodes show their target"): scene-node/animation name lookups for OpNode's target chip + clip-name row — see op-node.ts's `DocNames` doc comment. Omitted by `@gltf-studio/audio-canvas`'s reuse of this component (no document-level scene/animation concept there). */
+  docNames?: DocNames;
+  /** The target chip's click handler — selects the resolved scene node, same store action a scene-tree row click makes. Omitted (chip renders inert) when the host has no scene selection to drive. */
+  onTargetChipClick?: (sceneNodeIndex: number) => void;
 };
 
 function GraphViewInner(props: GraphViewProps) {
   const { graph, selectedNodeIndex, onSelectNode, diagnosticsByNode, onLiteralCommit, onPointerTextClick, onPointerIconClick } = props;
   const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered, focusRequest } = props;
+  const { docNames, onTargetChipClick } = props;
 
   const engineRef = useRef<LayoutEngine | null>(null);
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
@@ -253,7 +258,9 @@ function GraphViewInner(props: GraphViewProps) {
         diagnostics: diagnosticsByNode.get(node.index) ?? [],
         onLiteralCommit,
         onPointerTextClick,
-        onPointerIconClick
+        onPointerIconClick,
+        docNames,
+        onTargetChipClick
       };
       return {
         id: String(node.index),
@@ -292,7 +299,11 @@ function GraphViewInner(props: GraphViewProps) {
     setNodes(rfNodes);
     setEdges(rfEdges);
     onRendered?.({ nodeCount: graph.nodeCount, layout: layoutMode });
-  }, [graph, elkPositions, diagnosticsByNode, connectedValueInPorts, selectedNodeIndex]);
+    // `docNames` (scene-node/animation names) can change WITHOUT `graph`
+    // itself changing (e.g. renaming a scene node elsewhere in the editor
+    // never touches this graph's own JSON) — included explicitly so a
+    // handler's target chip / animation clip-name row never goes stale.
+  }, [graph, elkPositions, diagnosticsByNode, connectedValueInPorts, selectedNodeIndex, docNames, onTargetChipClick]);
 
   const nodeColor = useMemo(
     () => (n: Node) => {

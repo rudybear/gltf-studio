@@ -17,7 +17,27 @@ import type { ValueType } from "@gltfi/kernel";
 
 const EDITABLE_SCALAR_TYPES: ReadonlySet<string> = new Set(["bool", "int", "float"]);
 
+/** Mirrors `@gltf-studio/usage-index`'s identical set (not imported — this package has no dependency on that one; `map-graph.ts`'s own `HANDLER_OPS` documents the same non-import rationale). Card-legibility audit (this task's bullet 3): `animation/start|stop|stopAt` all take a `values.animation` ref literal the card previously showed no resolved name for at all. */
+const ANIMATION_OPS: ReadonlySet<string> = new Set(["animation/start", "animation/stop", "animation/stopAt"]);
+
 export type LiteralCommit = (nodeIndex: number, socket: string, type: ValueType, value: Array<number | boolean | string>) => void;
+
+/**
+ * Document-level name lookups a bare `MappedGraph` can't carry (mapGraph is
+ * pure over the graph object alone, never `document.json` — see
+ * `MappedNode.handlerTarget`'s own doc comment in map-graph.ts): scene-node
+ * names (indexed by scene-node index, `document.json.nodes[i].name` or a
+ * `Node {i}` fallback — `sceneNodeNames.length` is also this card's source
+ * of truth for "does this index still exist", i.e. the dangling-reference
+ * check) and animation clip names (same convention, `document.json.animations`).
+ * Threaded in as one small, optional prop object rather than widening
+ * `MappedNode`/`mapGraph`'s own contract — `@gltf-studio/audio-canvas`'s
+ * reuse of this same component (specs/ux-graph-canvas.md's M7 implementation
+ * note) has no document-level scene/animation concept at all, so this stays
+ * entirely optional (omitted there, its `KHR_audio_graph` nodes never set
+ * `handlerTarget` anyway).
+ */
+export type DocNames = { sceneNodeNames: string[]; animationNames: string[] };
 
 export type OpNodeData = {
   node: MappedNode;
@@ -27,10 +47,25 @@ export type OpNodeData = {
   onLiteralCommit: LiteralCommit;
   onPointerTextClick: (nodeIndex: number) => void;
   onPointerIconClick: (nodeIndex: number) => void;
+  docNames?: DocNames;
+  /** Target chip click (handler nodes only, and only once resolved to a real, non-dangling scene node — see `resolveHandlerTarget` below): selects that scene node, same store action a scene-tree row click makes. */
+  onTargetChipClick?: (sceneNodeIndex: number) => void;
 };
 export type OpNodeType = Node<OpNodeData, "op">;
 
 const MAX_LITERAL_CHARS = 16;
+
+/** Resolves `handlerTarget.nodeIndex` against `sceneNodeNames` into exactly one of three card states — "any node" (the `-1` sentinel, or no config at all), a resolved name+index, or a dangling "missing" index (e.g. its scene node was deleted, DOC-049's "left dangling, not repaired" policy) — the single place this three-way distinction is made so the chip's label/click-ability/styling below can't drift from each other. */
+function resolveHandlerTarget(
+  nodeIndex: number,
+  sceneNodeNames: string[]
+): { label: string; missing: boolean; clickIndex: number | null } {
+  if (nodeIndex === -1) return { label: "any node", missing: false, clickIndex: null };
+  if (nodeIndex < 0 || nodeIndex >= sceneNodeNames.length) {
+    return { label: `⚠ missing (#${nodeIndex})`, missing: true, clickIndex: null };
+  }
+  return { label: `${sceneNodeNames[nodeIndex]} (#${nodeIndex})`, missing: false, clickIndex: nodeIndex };
+}
 
 function formatLiteral(value: Array<number | boolean | string>): string {
   const text = value.length === 1 ? String(value[0]) : `[${value.map(String).join(", ")}]`;
@@ -146,13 +181,38 @@ function PortRow({
 }
 
 export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
-  const { node, connectedValueInPorts, diagnostics, onLiteralCommit, onPointerTextClick, onPointerIconClick } = data;
+  const { node, connectedValueInPorts, diagnostics, onLiteralCommit, onPointerTextClick, onPointerIconClick, docNames, onTargetChipClick } = data;
   const color = categoryColor(node.category);
   const west = westPorts(node);
   const east = eastPorts(node);
   const isPointer = node.category === "pointer";
   const hasDiagnostics = diagnostics.length > 0;
   const worstSeverity = diagnostics.some((d) => d.severity === "error") ? "error" : diagnostics.length > 0 ? "warning" : undefined;
+
+  // Task: "handler nodes show their target" — event/onSelect|onHoverIn|
+  // onHoverOut previously rendered NO indication at all of which scene node
+  // (`configuration.nodeIndex`) they're scoped to (map-graph.ts's
+  // `nodeSubtitle` never handled these ops). `handlerTarget` is set purely
+  // from the graph's own config (map-graph.ts); resolving its `nodeIndex`
+  // against the document's real scene-node list is this render-time concern.
+  const target = node.handlerTarget ? resolveHandlerTarget(node.handlerTarget.nodeIndex, docNames?.sceneNodeNames ?? []) : null;
+
+  // Card-legibility audit (task bullet 3): animation/start|stop|stopAt's
+  // `values.animation` ref literal previously had no card row at all — only
+  // `node-details.tsx`'s side panel (`AnimationValueEditor`) showed it, and
+  // even that only as a raw index once selected. Resolved here the same way
+  // `target` above is: a pure literal index (`node.literals.animation`,
+  // already computed by mapGraph) resolved against `docNames.animationNames`.
+  const animationLiteral = ANIMATION_OPS.has(node.op) ? node.literals.animation : undefined;
+  const animationIndex = typeof animationLiteral?.value[0] === "number" ? animationLiteral.value[0] : undefined;
+  const animationNames = docNames?.animationNames ?? [];
+  const animationLabel =
+    animationIndex === undefined
+      ? undefined
+      : animationIndex < 0 || animationIndex >= animationNames.length
+        ? `⚠ missing (#${animationIndex})`
+        : `${animationNames[animationIndex]} (#${animationIndex})`;
+  const animationMissing = animationIndex !== undefined && (animationIndex < 0 || animationIndex >= animationNames.length);
 
   return (
     <div
@@ -181,8 +241,45 @@ export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
         <span className="gcanvas-op-index">#{node.index}</span>
       </div>
       {node.subtitle && !isPointer ? (
-        <div className="gcanvas-op-subtitle" style={{ height: NODE_METRICS.subtitleHeight }} title={node.subtitle}>
+        <div
+          className={`gcanvas-op-subtitle${node.subtitleMissing ? " gcanvas-op-subtitle-missing" : ""}`}
+          style={{ height: NODE_METRICS.subtitleHeight }}
+          title={node.subtitle}
+        >
           {node.subtitle}
+        </div>
+      ) : null}
+      {target ? (
+        <div className="gcanvas-op-target-row" style={{ height: NODE_METRICS.subtitleHeight }} data-testid={`gcanvas.op-target-row.${node.index}`}>
+          <span className="gcanvas-op-target-label">target:</span>
+          <button
+            type="button"
+            className={`gcanvas-target-chip${target.missing ? " gcanvas-target-chip-missing" : ""}${target.clickIndex === null ? " gcanvas-target-chip-inert" : ""}`}
+            title={target.clickIndex !== null ? "Select this scene node" : target.label}
+            disabled={target.clickIndex === null}
+            data-testid={`gcanvas.target-chip.${node.index}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (target.clickIndex !== null) onTargetChipClick?.(target.clickIndex);
+            }}
+          >
+            {target.label}
+          </button>
+          {node.handlerTarget?.stopPropagation ? (
+            <span className="gcanvas-stop-propagation-badge" title="Stops event propagation" data-testid={`gcanvas.stop-propagation.${node.index}`}>
+              stopPropagation
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {animationLabel ? (
+        <div
+          className={`gcanvas-op-subtitle${animationMissing ? " gcanvas-op-subtitle-missing" : ""}`}
+          style={{ height: NODE_METRICS.subtitleHeight }}
+          title={animationLabel}
+          data-testid={`gcanvas.op-animation-row.${node.index}`}
+        >
+          clip: {animationLabel}
         </div>
       ) : null}
       {isPointer ? (
