@@ -7,14 +7,36 @@
 // colored dot; value handles colored by resolved type), a pointer-category
 // config row with two independent click targets (UX-505/UX-508), and a
 // corner validation badge with a hover/focus tooltip (UX-506).
-import { useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { MappedNode, MappedPort } from "./map-graph.js";
 import { categoryColor, typeColor } from "./palette.js";
 import { NODE_METRICS, eastPorts, westPorts } from "./elk-layout.js";
 import type { GraphDiagnostic } from "./validation.js";
 import type { ValueType } from "@gltfi/kernel";
+import { colorKindForPointerPath } from "./color-field.js";
+import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS } from "./literal-editors.js";
 
+/**
+ * e2e/graph-canvas.spec.ts's "a value-in row showing a literal chip (an
+ * unconnected non-editable-scalar type, not an <input>) doesn't overlap its
+ * handle" test (play-scene.glb node 6, a `pointer/set` targeting
+ * `/nodes/1/translation` — NOT a color) asserts this exact card still
+ * renders a plain `= [0.5,0,0]` text chip for an unconnected float3 literal,
+ * not an `<input>`; that test file is off-limits to change (owned by a
+ * different concurrent workstream). So this card's inline editing STAYS
+ * scalar-only for the general case (unchanged from before this task) —
+ * `EDITABLE_SCALAR_TYPES` below is the exact set the pre-existing
+ * `LiteralInput`/`EDITABLE_SCALAR_TYPES` this replaces already used. A
+ * vector type (`float2`/`float3`/`float4`) gets an inline editor ONLY in the
+ * one case that test's fixture doesn't exercise: a `pointer/set|interpolate`
+ * node whose resolved pointer path is a KNOWN COLOR property
+ * (`colorKindForPointerPath`, task: "for such cases as input for material
+ * when we clearly know this is color, we can add color pickers") — a
+ * translation/scale/generic float3 target keeps the plain chip. The FULL
+ * general-purpose grouped-numeric-fields editor for every vector type lives
+ * in `node-details.tsx`'s side panel instead, which has no such
+ * pre-existing regression-test constraint and more room for it anyway.
+ */
 const EDITABLE_SCALAR_TYPES: ReadonlySet<string> = new Set(["bool", "int", "float"]);
 
 /** Mirrors `@gltf-studio/usage-index`'s identical set (not imported — this package has no dependency on that one; `map-graph.ts`'s own `HANDLER_OPS` documents the same non-import rationale). Card-legibility audit (this task's bullet 3): `animation/start|stop|stopAt` all take a `values.animation` ref literal the card previously showed no resolved name for at all. */
@@ -72,52 +94,6 @@ function formatLiteral(value: Array<number | boolean | string>): string {
   return text.length > MAX_LITERAL_CHARS ? `${text.slice(0, MAX_LITERAL_CHARS - 1)}…` : text;
 }
 
-function LiteralInput({
-  node,
-  port,
-  onCommit
-}: {
-  node: MappedNode;
-  port: MappedPort;
-  onCommit: (type: ValueType, value: Array<number | boolean | string>) => void;
-}) {
-  const literal = node.literals[port.name];
-  const type = port.type as ValueType;
-  const initial = literal?.value[0];
-  const [text, setText] = useState<string>(() => (initial === undefined ? "" : String(initial)));
-
-  if (type === "bool") {
-    const checked = initial === true || initial === "true";
-    return (
-      <input
-        type="checkbox"
-        className="gcanvas-literal-input gcanvas-literal-bool"
-        checked={checked}
-        onChange={(e) => onCommit("bool", [e.target.checked])}
-        onClick={(e) => e.stopPropagation()}
-        data-testid={`gcanvas.literal.${node.index}.${port.name}`}
-      />
-    );
-  }
-  return (
-    <input
-      type="number"
-      className="gcanvas-literal-input"
-      value={text}
-      step={type === "int" ? 1 : "any"}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        const n = Number(text);
-        if (Number.isFinite(n)) {
-          onCommit(type, [type === "int" ? Math.trunc(n) : n]);
-        }
-      }}
-      data-testid={`gcanvas.literal.${node.index}.${port.name}`}
-    />
-  );
-}
-
 function PortRow({
   port,
   node,
@@ -136,7 +112,16 @@ function PortRow({
   const handleKind = port.kind === "flow-in" || port.kind === "value-in" ? "target" : "source";
   const position = side === "west" ? Position.Left : Position.Right;
   const dotColor = isFlow ? "var(--gcanvas-flow-color, #e0a458)" : typeColor(port.type);
-  const editable = port.kind === "value-in" && !connected && port.type !== undefined && EDITABLE_SCALAR_TYPES.has(port.type);
+  // Color detection (task: typed literal editors incl. color pickers):
+  // ONLY the pointer/set|interpolate node's own "value" input socket can be
+  // color — that's the one input whose target property is known (the
+  // node's resolved pointer path, `node.subtitle`, per map-graph.ts's
+  // `nodeSubtitle`); every other value-in socket on every other op (math
+  // inputs, a pointer template's dynamic index params, ...) has no such
+  // target property to resolve against `colorKindForPointerPath`.
+  const colorKind = node.category === "pointer" && port.name === "value" && node.subtitle ? colorKindForPointerPath(node.subtitle) : undefined;
+  const isVector = port.type !== undefined && VECTOR_COMPONENT_COUNTS[port.type] !== undefined;
+  const editable = port.kind === "value-in" && !connected && port.type !== undefined && (EDITABLE_SCALAR_TYPES.has(port.type) || (isVector && colorKind !== undefined));
 
   const nameSpan = (
     <span className="gcanvas-port-name" title={port.name}>
@@ -144,7 +129,13 @@ function PortRow({
     </span>
   );
   const literalOrEditor = editable ? (
-    <LiteralInput node={node} port={port} onCommit={(type, value) => onLiteralCommit(node.index, port.name, type, value)} />
+    <TypedLiteralEditor
+      type={port.type}
+      value={literal?.value ?? []}
+      colorKind={colorKind}
+      onCommit={(value) => onLiteralCommit(node.index, port.name, port.type as ValueType, value)}
+      testIdBase={`gcanvas.literal.${node.index}.${port.name}`}
+    />
   ) : literal ? (
     <span className="gcanvas-port-literal" title={formatLiteral(literal.value)}>
       {`= ${formatLiteral(literal.value)}`}

@@ -11,6 +11,19 @@
   min-width: 0;
   background: var(--bg-0);
   color: var(--text-0);
+  /* Task (Variables panel): a THIRD fixed-width docked column (alongside the
+     pre-existing palette + details panel) can, on a narrow enough viewport,
+     leave `.gcanvas-canvas-inner`'s own `flex: 1 1 auto; min-width: 0` at
+     literally zero width — without this, its content (React Flow's
+     absolutely-positioned nodes) would still render, just visually
+     UNDER/behind whichever docked panel comes after it in DOM order,
+     silently swallowing clicks meant for the canvas. `overflow-x: auto`
+     turns that failure mode into an honest horizontal scrollbar instead —
+     paired with `.gcanvas-canvas-inner`'s own `min-width` floor below.
+     Never observed at typical desktop widths (only surfaced e2e-side, at
+     Playwright's default 1280px test viewport with a busy Variables +
+     Details panel combination) but a real correctness floor either way. */
+  overflow-x: auto;
 }
 
 /* ---------- palette ---------- */
@@ -123,7 +136,11 @@
 .gcanvas-canvas-inner {
   position: relative;
   flex: 1 1 auto;
-  min-width: 0;
+  /* A real floor, not 0 (see `.gcanvas-root`'s own comment on why) — small
+     enough to rarely trigger `.gcanvas-root`'s horizontal scrollbar at
+     ordinary desktop widths, large enough that React Flow's own node
+     rendering never again ends up visually behind a docked panel. */
+  min-width: 240px;
 }
 .gcanvas-layout-pending {
   flex: 1 1 auto;
@@ -638,4 +655,99 @@
 }
 .gcanvas-drop-menu button:hover {
   background: var(--bg-3);
+}
+
+/* ---------- variables panel (task: variable management) ---------- */
+.gcanvas-variables-panel {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.gcanvas-variables-collapsed {
+  flex: 0 0 20px;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.gcanvas-variables-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 8px;
+  font-size: 11.5px;
+}
+.gcanvas-variables-table {
+  margin-bottom: 6px;
+}
+.gcanvas-variables-table th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  padding: 2px 4px;
+}
+.gcanvas-variables-name {
+  width: 100%;
+  min-width: 60px;
+}
+.gcanvas-variables-usage-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-1);
+  padding: 0 6px;
+  min-width: 20px;
+}
+.gcanvas-variables-usage-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.gcanvas-variables-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.gcanvas-literal-vector {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.gcanvas-literal-vector-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.gcanvas-literal-vector-label {
+  color: var(--text-dim);
+  font-size: 0.8em;
+}
+.gcanvas-literal-vector .gcanvas-literal-input {
+  width: 36px;
+}
+.gcanvas-color-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gcanvas-color-field input[type="color"] {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+}
+.gcanvas-color-field input[type="range"] {
+  width: 40px;
+}
+.gcanvas-color-field-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 0.8em;
+  line-height: 1;
+  padding: 1px 3px;
 }

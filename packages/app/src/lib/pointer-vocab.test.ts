@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPointerContentTree, materialPropPath, nodePropPath, nodePropsFor, parsePointerPath } from "./pointer-vocab";
+import { buildPointerContentTree, colorKindForPointerPath, materialPropPath, nodePropPath, nodePropsFor, parsePointerPath } from "./pointer-vocab";
 import type { GltfJsonShape } from "./gltf-scene";
 
 const JSON_FIXTURE: GltfJsonShape = {
@@ -109,5 +109,29 @@ describe("parsePointerPath (UX-907 preselection)", () => {
   it("returns null for an unrecognized path (never guesses)", () => {
     expect(parsePointerPath("/extensions/KHR_interactivity/asset/majorVersion", JSON_FIXTURE)).toBeNull();
     expect(parsePointerPath("/nodes/0/name", JSON_FIXTURE)).toBeNull();
+  });
+});
+
+describe("colorKindForPointerPath", () => {
+  it("detects baseColorFactor as RGBA", () => {
+    expect(colorKindForPointerPath("/materials/0/pbrMetallicRoughness/baseColorFactor")).toBe("rgba");
+  });
+
+  it("detects emissiveFactor as RGB", () => {
+    expect(colorKindForPointerPath("/materials/2/emissiveFactor")).toBe("rgb");
+  });
+
+  it("detects a KHR_lights_punctual light color as RGB", () => {
+    expect(colorKindForPointerPath("/extensions/KHR_lights_punctual/lights/1/color")).toBe("rgb");
+  });
+
+  it("returns undefined for a non-color vector/scalar path (translation, scale, metallicFactor)", () => {
+    expect(colorKindForPointerPath("/nodes/0/translation")).toBeUndefined();
+    expect(colorKindForPointerPath("/nodes/0/scale")).toBeUndefined();
+    expect(colorKindForPointerPath("/materials/0/pbrMetallicRoughness/metallicFactor")).toBeUndefined();
+  });
+
+  it("matches by suffix regardless of index digits", () => {
+    expect(colorKindForPointerPath("/materials/17/pbrMetallicRoughness/baseColorFactor")).toBe("rgba");
   });
 });
