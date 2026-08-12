@@ -43,13 +43,49 @@ export interface GltfAccessorJson {
   count: number;
 }
 
+/** A material's texture-info reference (specs/ux-inspector.md UX-416): `index` is a `textures[]` index, resolving (via `textures[index].source`) to an `images[]` entry. */
+export interface GltfTextureInfoJson {
+  index: number;
+  texCoord?: number;
+  scale?: number; // normalTexture only.
+  strength?: number; // occlusionTexture only.
+  extensions?: { KHR_texture_transform?: GltfTextureTransformJson; [key: string]: unknown };
+}
+
+export interface GltfTextureTransformJson {
+  offset?: [number, number];
+  scale?: [number, number];
+  rotation?: number;
+  texCoord?: number;
+}
+
 export interface GltfMaterialJson {
   name?: string;
+  doubleSided?: boolean;
+  alphaMode?: "OPAQUE" | "MASK" | "BLEND";
+  alphaCutoff?: number;
+  emissiveFactor?: [number, number, number];
+  normalTexture?: GltfTextureInfoJson;
+  occlusionTexture?: GltfTextureInfoJson;
+  emissiveTexture?: GltfTextureInfoJson;
   pbrMetallicRoughness?: {
     baseColorFactor?: [number, number, number, number];
+    baseColorTexture?: GltfTextureInfoJson;
+    metallicRoughnessTexture?: GltfTextureInfoJson;
     metallicFactor?: number;
     roughnessFactor?: number;
   };
+}
+
+export interface GltfTextureJson {
+  source?: number;
+  sampler?: number;
+}
+
+export interface GltfImageJson {
+  uri?: string;
+  bufferView?: number;
+  mimeType?: string;
 }
 
 export interface GltfAudioEmitterJson {
@@ -58,16 +94,37 @@ export interface GltfAudioEmitterJson {
   distanceModel?: string;
 }
 
+/** A `KHR_lights_punctual` root registry entry (specs/ux-inspector.md UX-417) — `extensions.KHR_lights_punctual.lights[N]`, addressed by LIGHT index, not node index (a node references one via `node.extensions.KHR_lights_punctual.light`). */
+export interface GltfLightJson {
+  name?: string;
+  type?: "directional" | "point" | "spot";
+  color?: [number, number, number];
+  intensity?: number;
+  range?: number; // point/spot only — meaningless for directional (glTF spec).
+  spot?: { innerConeAngle?: number; outerConeAngle?: number }; // spot only.
+}
+
+/** Core glTF `cameras[N]` (specs/ux-inspector.md UX-418) — referenced by a node via `node.camera`. Only `perspective` is modeled (this app's own `SceneEdit.addCameraNode` never authors an orthographic camera, and the Inspector's Camera section only edits perspective fields). */
+export interface GltfCameraJson {
+  name?: string;
+  type?: "perspective" | "orthographic";
+  perspective?: { yfov: number; znear: number; zfar?: number; aspectRatio?: number };
+}
+
 export interface GltfJsonShape {
   scene?: number;
   scenes?: Array<{ nodes?: number[]; name?: string }>;
   nodes?: GltfNodeJson[];
   meshes?: GltfMeshJson[];
   materials?: GltfMaterialJson[];
+  cameras?: GltfCameraJson[];
+  textures?: GltfTextureJson[];
+  images?: GltfImageJson[];
   accessors?: GltfAccessorJson[];
   animations?: Array<{ name?: string }>;
   extensions?: {
     KHR_audio_emitter?: { emitters?: GltfAudioEmitterJson[] };
+    KHR_lights_punctual?: { lights?: GltfLightJson[] };
     [key: string]: unknown;
   };
 }

@@ -31,6 +31,7 @@ import type {
 } from "@gltf-studio/engine-api";
 import { disposeObject3D } from "./dispose-object3d.js";
 import { frameCameraOnObject } from "./frame-camera.js";
+import { applyDoubleSidedPatch, applyTextureSlotClearPatch } from "./material-extras.js";
 import { classifyPatchBatch } from "./patch-classify.js";
 import { coercePointerValue } from "./pointer-value.js";
 import { toGlbArrayBuffer } from "./scene-input.js";
@@ -321,11 +322,20 @@ export class ThreeRenderHost implements RenderHost {
   }
 
   private applyNonStructuralPatch(patch: JsonPatchOp): void {
-    if (patch.op !== "replace" && patch.op !== "add") {
-      return; // no live three.js-side effect for remove/move/copy/test in the non-structural branch.
-    }
     if (!this.tables || !this.diagnostics) {
       return;
+    }
+    // UX-415/UX-416 (material-extras.ts): two patch shapes with no vendored
+    // pointer-router row — `doubleSided` (add/replace) and a texture-info
+    // slot CLEAR (remove) — handled directly against the live three.js
+    // materials before falling through to the generic op-guard/router path
+    // below. Checked first specifically so a `remove` op (the texture-clear
+    // case) gets a chance at all: the pre-existing op guard right after this
+    // only ever forwards add/replace to the pointer-router.
+    if (applyDoubleSidedPatch(this.tables, patch)) return;
+    if (applyTextureSlotClearPatch(this.tables, patch)) return;
+    if (patch.op !== "replace" && patch.op !== "add") {
+      return; // no live three.js-side effect for remove/move/copy/test the two checks above didn't already claim.
     }
     const value = coercePointerValue(patch.value, `RenderHost.patchScene(${patch.path})`);
     applyPointerToTables(this.tables, patch.path, value, this.diagnostics);

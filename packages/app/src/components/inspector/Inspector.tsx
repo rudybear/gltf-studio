@@ -1,17 +1,19 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "../../store/app-store";
-import { iconForNode, type GltfJsonShape } from "../../lib/gltf-scene";
+import type { GltfJsonShape } from "../../lib/gltf-scene";
 import { uniqueMaterialIndices } from "../../lib/mesh-info";
 import { TransformSection } from "./TransformSection";
 import { MeshSection } from "./MeshSection";
 import { MaterialSections } from "./MaterialSection";
 import { AudioSection } from "./AudioSection";
+import { LightSection } from "./LightSection";
+import { CameraSection } from "./CameraSection";
 import { UsageSection } from "./UsageSection";
 
 /**
  * specs/ux-inspector.md UX-4xx: identity strip, Transform/Mesh & Primitives/
- * Material/Audio Emitter sections, and the empty state — the current
- * selection's full editable view. `history.document` (not the store's own
+ * Material/Audio Emitter/Light/Camera sections, and the empty state — the
+ * current selection's full editable view. `history.document` (not the store's own
  * `document` field) is what every write reads/writes against, mirroring
  * Viewport.tsx's own convention: `history` is the single always-current
  * source of truth `SceneEdit`/`GraphEdit` command factories are built
@@ -74,8 +76,9 @@ export function Inspector(): JSX.Element {
   const extensionKeys = node.extensions ? Object.keys(node.extensions) : [];
   const meshName = meshIndex !== undefined ? (json?.meshes?.[meshIndex]?.name ?? `Mesh ${meshIndex}`) : undefined;
   const emitterIndex = node.extensions?.KHR_audio_emitter?.emitter;
+  const lightIndex = node.extensions?.KHR_lights_punctual?.light;
+  const cameraIndex = node.camera;
   const materialIndices = meshIndex !== undefined && json?.meshes?.[meshIndex] ? uniqueMaterialIndices(json.meshes[meshIndex]) : [];
-  const nodeType = iconForNode(node);
 
   function scrollAndFlash(ref: React.RefObject<HTMLDivElement>, id: string): void {
     if (!ref.current) return;
@@ -174,16 +177,8 @@ export function Inspector(): JSX.Element {
         </div>
       )}
 
-      {nodeType === "light" && (
-        <div className="empty-note" data-testid="inspector.light.note">
-          Light-specific properties (color, intensity, type) are edited here in a later iteration.
-        </div>
-      )}
-      {nodeType === "camera" && (
-        <div className="empty-note" data-testid="inspector.camera.note">
-          Camera-specific properties (FOV, clipping) are edited here in a later iteration.
-        </div>
-      )}
+      {lightIndex !== undefined && json && <LightSection lightIndex={lightIndex} json={json} document={editorDocument} />}
+      {cameraIndex !== undefined && json && <CameraSection cameraIndex={cameraIndex} json={json} document={editorDocument} />}
 
       {json && (
         <div ref={usageSectionRef} className={usageFlashed ? "flash-highlight" : undefined}>

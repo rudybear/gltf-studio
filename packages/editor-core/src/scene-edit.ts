@@ -22,7 +22,7 @@
 // comments and specs/document-model.md's DOC-052/053).
 import type { Command } from "./command.js";
 import { combineCommandParts, makeCommandId } from "./command.js";
-import { appendFragment, setPathFragment, type PatchPair } from "./edit-fragments.js";
+import { appendFragment, deletePathFragment, setPathFragment, type PatchPair } from "./edit-fragments.js";
 import { fixupReferences, type ReferenceKind } from "./fixup-references.js";
 import { formatPointer, getIn } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
@@ -342,6 +342,101 @@ export const SceneEdit = {
       coalesceKey: `audio-emitter-property:${emitterIndex}:${propertyPath.join(".")}`,
       patches: fragment.patches,
       inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Richer inspector (specs/ux-inspector.md UX-417): sets an arbitrary
+   * property on the ROOT `extensions.KHR_lights_punctual.lights[lightIndex]`
+   * registry entry (e.g. `["intensity"]`, `["color"]`, `["spot",
+   * "innerConeAngle"]`) — mirrors `setAudioEmitterProperty`'s own
+   * root-registry-by-index shape exactly (a light is addressed by its LIGHT
+   * index, not by the node that happens to reference it via
+   * `node.extensions.KHR_lights_punctual.light`, same indirection
+   * `tables.ts`'s `lightsByIndex` in the vendored three-adapter uses on the
+   * render side).
+   */
+  setLightProperty(document: EditorDocument, lightIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["extensions", "KHR_lights_punctual", "lights", lightIndex, ...propertyPath], value);
+    return {
+      id: makeCommandId("set-light-property"),
+      label: `Set light ${lightIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `light-property:${lightIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Richer inspector (specs/ux-inspector.md UX-418): sets an arbitrary
+   * property on `cameras[cameraIndex]` (e.g. `["perspective", "yfov"]`) —
+   * mirrors `setMaterialProperty`'s own by-index-into-a-root-array shape.
+   * Core glTF (no extension involved), unlike lights/audio emitters.
+   */
+  setCameraProperty(document: EditorDocument, cameraIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["cameras", cameraIndex, ...propertyPath], value);
+    return {
+      id: makeCommandId("set-camera-property"),
+      label: `Set camera ${cameraIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `camera-property:${cameraIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Richer inspector (specs/ux-inspector.md UX-416): removes a whole
+   * texture-info object (e.g. `["pbrMetallicRoughness", "baseColorTexture"]`,
+   * `["normalTexture"]`) from `materials[materialIndex]` — the Inspector's
+   * texture-slot "Clear" control. v1 is READ + CLEAR only (see that
+   * requirement's own doc comment for why texture REPLACEMENT is a bigger,
+   * separately-scoped lift) — this factory is the "clear" half; there is no
+   * "set" half yet. Throws (via `deletePathFragment`) if the slot is already
+   * unset — callers only show a Clear control for a slot that IS set, so
+   * this should never fire in practice.
+   */
+  clearMaterialTexture(document: EditorDocument, materialIndex: number, textureInfoPath: Array<string | number>): Command {
+    const fragment = deletePathFragment(document.json, ["materials", materialIndex, ...textureInfoPath]);
+    return {
+      id: makeCommandId("clear-material-texture"),
+      label: `Clear material ${materialIndex} ${textureInfoPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Richer inspector (specs/ux-inspector.md UX-416): sets ONE
+   * `KHR_texture_transform` field (`offset`/`scale`/`rotation`) on a
+   * material's texture-info object (`textureInfoPath`, e.g.
+   * `["pbrMetallicRoughness", "baseColorTexture"]`), scaffolding the
+   * extension's `extensionsUsed` entry in the SAME command when it isn't
+   * already listed — mirrors `addLightNode`/`addAudioEmitterNode`'s own
+   * find-or-scaffold `ensureExtensionUsedFragment` pattern. Folding the
+   * `extensionsUsed` scaffold into every write (not just a hypothetical
+   * first one) is deliberately cheap and idempotent
+   * (`ensureExtensionUsedFragment` no-ops once it's already listed) rather
+   * than requiring the caller to know whether this is the "first" transform
+   * write for the document.
+   */
+  setMaterialTextureTransform(
+    document: EditorDocument,
+    materialIndex: number,
+    textureInfoPath: Array<string | number>,
+    field: "offset" | "scale" | "rotation",
+    value: unknown
+  ): Command {
+    const path = ["materials", materialIndex, ...textureInfoPath, "extensions", "KHR_texture_transform", field];
+    const valueFragment = setPathFragment(document.json, path, value);
+    const jsonAfterValue = applyPatches(document.json, valueFragment.patches);
+    const usedFragment = ensureExtensionUsedFragment(jsonAfterValue, "KHR_texture_transform");
+    const combined = combineCommandParts([valueFragment, usedFragment]);
+    return {
+      id: makeCommandId("set-material-texture-transform"),
+      label: `Set material ${materialIndex} ${textureInfoPath.join(".")} ${field}`,
+      coalesceKey: `material-texture-transform:${materialIndex}:${textureInfoPath.join(".")}:${field}`,
+      patches: combined.patches,
+      inverse: combined.inverse
     };
   },
 
