@@ -47,6 +47,7 @@ export function BehaviorGraphPanel(): JSX.Element {
   const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
   const graphNodeFocusRequest = useAppStore((s) => s.graphNodeFocusRequest);
   const revealSceneNodeInViewport = useAppStore((s) => s.revealSceneNodeInViewport);
+  const selectNode = useAppStore((s) => s.selectNode);
 
   useEffect(() => {
     window.__gltfStudioGraphTest = { getDocumentJson: () => document?.json };
@@ -112,6 +113,7 @@ export function BehaviorGraphPanel(): JSX.Element {
           onOpenPointerPicker={openPointerPicker}
           focusRequest={graphNodeFocusRequest}
           onRevealInViewport={revealSceneNodeInViewport}
+          onSelectSceneNode={selectNode}
         />
       </div>
     </div>

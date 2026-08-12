@@ -33,6 +33,8 @@ export type NodeDetailsProps = {
   events?: InteractivityEvent[];
   /** `document.json.animations[].name` (or a `"Animation {i}"` fallback), for animation/start|stop's index selector. */
   animationNames?: string[];
+  /** Task ("handler nodes show their target"): `document.json.nodes[].name` (or a `"Node {i}"` fallback, same convention `packages/app`'s `revealSceneNodeInViewport` already uses), for `event/onSelect|onHoverIn|onHoverOut`'s "Target node" selector below. */
+  sceneNodeNames?: string[];
   onSetConfigField?: (nodeIndex: number, field: string, value: Array<number | boolean | string>) => void;
   onAddVariableAndSetConfig?: (nodeIndex: number, field: string, id: string, signature: ValueType, arraySlot?: number) => void;
   onSetEventConfig?: (nodeIndex: number, eventIndex: number) => void;
@@ -196,11 +198,62 @@ const VARIABLE_OPS = new Set(["variable/get", "variable/interpolate"]);
 const EVENT_OPS = new Set(["event/send", "event/receive"]);
 const POINTER_OPS = new Set(["pointer/get", "pointer/set", "pointer/interpolate"]);
 const ANIMATION_OPS = new Set(["animation/start", "animation/stop"]);
+/** Mirrors `@gltf-studio/usage-index`'s identical set (not imported — see map-graph.ts's own `HANDLER_OPS` for the same zero-dependency rationale). */
+const HANDLER_OPS = new Set(["event/onSelect", "event/onHoverIn", "event/onHoverOut"]);
+/** The registry's own "any node" default (`@gltfi/kernel`'s `event/onSelect`|`onHoverIn`|`onHoverOut` overload row: `nodeIndex` defaults to `-1`) — never attributed by `@gltf-studio/usage-index`'s `buildUsageIndex` either. */
+const ANY_NODE_SENTINEL = -1;
+
+/**
+ * Task ("editable attachment"): the "Target node" selector `event/onSelect|
+ * onHoverIn|onHoverOut`'s config row renders — a plain `<select>` (same
+ * non-searchable convention `DeclarationSelect` above already establishes
+ * for this panel) offering every real scene node (`name (#index)`) plus an
+ * explicit "Any node" option for the `-1` sentinel. A dangling CURRENT value
+ * (e.g. its scene node was deleted, DOC-049's "left dangling" policy) gets
+ * its own disabled placeholder option so the select still shows something
+ * meaningful instead of silently falling back to native "nothing selected"
+ * blankness — mirroring op-node.tsx's own `resolveHandlerTarget` three-way
+ * split (any node / resolved / missing), not a second, drifting copy of it.
+ */
+function TargetNodeSelect({
+  nodeIndex,
+  current,
+  sceneNodeNames,
+  onSelect
+}: {
+  nodeIndex: number;
+  current: number;
+  sceneNodeNames: string[];
+  onSelect: (sceneNodeIndex: number) => void;
+}) {
+  const dangling = current !== ANY_NODE_SENTINEL && (current < 0 || current >= sceneNodeNames.length);
+  return (
+    <select
+      className="gcanvas-config-input"
+      value={current}
+      onChange={(e) => onSelect(Number(e.target.value))}
+      data-testid={`gcanvas.details.config.target-select.${nodeIndex}`}
+    >
+      <option value={ANY_NODE_SENTINEL}>Any node</option>
+      {dangling ? (
+        <option value={current} disabled>
+          ⚠ missing (#{current})
+        </option>
+      ) : null}
+      {sceneNodeNames.map((name, i) => (
+        <option key={i} value={i}>
+          {name} (#{i})
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function ConfigEditor({
   node,
   variables,
   events,
+  sceneNodeNames,
   onSetConfigField,
   onAddVariableAndSetConfig,
   onSetEventConfig,
@@ -210,6 +263,7 @@ function ConfigEditor({
   node: MappedNode;
   variables: InteractivityVariable[];
   events: InteractivityEvent[];
+  sceneNodeNames: string[];
   onSetConfigField?: NodeDetailsProps["onSetConfigField"];
   onAddVariableAndSetConfig?: NodeDetailsProps["onAddVariableAndSetConfig"];
   onSetEventConfig?: NodeDetailsProps["onSetEventConfig"];
@@ -241,7 +295,9 @@ function ConfigEditor({
         ? ["event"]
         : POINTER_OPS.has(node.op)
           ? ["pointer", "type"]
-          : [];
+          : HANDLER_OPS.has(node.op)
+            ? ["nodeIndex", "stopPropagation"]
+            : [];
   const keys = Array.from(new Set([...specialFields, ...Object.keys(raw)]));
   if (keys.length === 0) return null;
 
@@ -342,6 +398,39 @@ function ConfigEditor({
                 <tr key={key}>
                   <td className="gcanvas-details-key">{key}</td>
                   <td className="gcanvas-details-value dim">{cfg?.value?.[0] !== undefined ? String(cfg.value[0]) : "—"}</td>
+                </tr>
+              );
+            }
+            if (HANDLER_OPS.has(node.op) && key === "nodeIndex" && onSetConfigField) {
+              const current = typeof currentValue === "number" ? currentValue : ANY_NODE_SENTINEL;
+              return (
+                <tr key={key}>
+                  <td className="gcanvas-details-key">target node</td>
+                  <td className="gcanvas-details-value">
+                    <TargetNodeSelect
+                      nodeIndex={node.index}
+                      current={current}
+                      sceneNodeNames={sceneNodeNames}
+                      onSelect={(sceneNodeIndex) => onSetConfigField(node.index, "nodeIndex", [sceneNodeIndex])}
+                    />
+                  </td>
+                </tr>
+              );
+            }
+            if (HANDLER_OPS.has(node.op) && key === "stopPropagation") {
+              const checked = cfg?.value?.[0] === true;
+              return (
+                <tr key={key}>
+                  <td className="gcanvas-details-key">{key}</td>
+                  <td className="gcanvas-details-value">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={!onSetConfigField}
+                      onChange={(e) => onSetConfigField?.(node.index, "stopPropagation", [e.target.checked])}
+                      data-testid={`gcanvas.details.config.stop-propagation.${node.index}`}
+                    />
+                  </td>
                 </tr>
               );
             }
@@ -495,6 +584,7 @@ export function NodeDetails({
   variables = [],
   events = [],
   animationNames = [],
+  sceneNodeNames = [],
   onSetConfigField,
   onAddVariableAndSetConfig,
   onSetEventConfig,
@@ -533,12 +623,15 @@ export function NodeDetails({
               <span className="gcanvas-node-index">#{selectedNode.index}</span>
             </div>
             <div className="gcanvas-node-op">{selectedNode.op}</div>
-            {selectedNode.subtitle ? <div className="gcanvas-subtitle">{selectedNode.subtitle}</div> : null}
+            {selectedNode.subtitle ? (
+              <div className={`gcanvas-subtitle${selectedNode.subtitleMissing ? " gcanvas-op-subtitle-missing" : ""}`}>{selectedNode.subtitle}</div>
+            ) : null}
             {!selectedNode.knownSpec ? <div className="gcanvas-banner">Unregistered op — not in the kernel registry.</div> : null}
             <ConfigEditor
               node={selectedNode}
               variables={variables}
               events={events}
+              sceneNodeNames={sceneNodeNames}
               onSetConfigField={onSetConfigField}
               onAddVariableAndSetConfig={onAddVariableAndSetConfig}
               onSetEventConfig={onSetEventConfig}

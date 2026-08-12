@@ -291,6 +291,55 @@
   color: var(--accent);
 }
 
+/* Dangling-reference treatment shared by variable/get|set and event/send|receive subtitles (map-graph.ts's `subtitleMissing`) and the animation clip row below. */
+.gcanvas-op-subtitle-missing {
+  color: var(--warn);
+}
+
+/* Task: handler nodes (event/onSelect|onHoverIn|onHoverOut) show their scene-node target as a resolved-name chip, clickable to select that node. */
+.gcanvas-op-target-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  font-size: 0.85em;
+}
+.gcanvas-op-target-label {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.gcanvas-target-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 1em;
+  padding: 0;
+  cursor: pointer;
+}
+.gcanvas-target-chip-missing {
+  color: var(--danger);
+}
+.gcanvas-target-chip-inert {
+  color: var(--text-dim);
+  text-decoration: none;
+  cursor: default;
+}
+.gcanvas-stop-propagation-badge {
+  flex-shrink: 0;
+  font-size: 0.85em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 4px;
+}
+
 .gcanvas-op-body {
   display: flex;
   flex: 1;

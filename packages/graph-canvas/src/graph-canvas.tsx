@@ -75,6 +75,20 @@ export type GraphCanvasProps = {
   focusRequest?: { nodeIndex: number; seq: number } | null;
   /** UX-1111: the node-details "Reveal in viewport" control, when the selected node addresses a scene node (`graphNodeSceneRef`, below). Omitted (button hidden) when the host has no viewport to reveal into. */
   onRevealInViewport?: (sceneNodeIndex: number) => void;
+  /**
+   * Task ("handler nodes show their target"): a handler node's target chip
+   * (op-node.tsx) or the node-details "Target node" selector's own scene-tree
+   * reflection was clicked/changed — selects that scene node in the HOST's
+   * own scene-selection store (tree/inspector/viewport all react), the same
+   * store action a scene-tree row click makes. This is direct selection,
+   * complementary to (not a replacement for) the existing amber reference-
+   * highlight (UX-1110), which is driven purely by the CURRENT graph-node
+   * selection one layer up and stays exactly as-is. Omitted (chip renders
+   * inert, `title` still shows the resolved name) when the host has no scene
+   * selection to drive — same optional-callback convention as
+   * `onRevealInViewport` above.
+   */
+  onSelectSceneNode?: (sceneNodeIndex: number) => void;
 };
 
 export function GraphCanvas({
@@ -89,7 +103,8 @@ export function GraphCanvas({
   onJumpToData,
   onOpenPointerPicker,
   focusRequest,
-  onRevealInViewport
+  onRevealInViewport,
+  onSelectSceneNode
 }: GraphCanvasProps): JSX.Element {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [validation, setValidation] = useState<ValidationResult>(EMPTY_VALIDATION);
@@ -103,10 +118,27 @@ export function GraphCanvas({
     () => ((getIn(document.json, ["animations"]) as Array<{ name?: string }> | undefined) ?? []).map((a, i) => a.name ?? `Animation ${i}`),
     [document.json]
   );
+  /**
+   * Task ("handler nodes show their target"): scene-node names for
+   * `OpNode`'s target chip + the node-details "Target node" selector — the
+   * same `name ?? "Node {i}"` fallback convention `packages/app`'s
+   * `Viewport.tsx`/`app-store.ts` (`revealSceneNodeInViewport`) already use.
+   * Threaded down as `docNames` (op-node.ts) rather than widening
+   * `mapGraph`'s own contract — see that type's doc comment for why.
+   */
+  const sceneNodeNames = useMemo(
+    () => ((getIn(document.json, ["nodes"]) as Array<{ name?: string }> | undefined) ?? []).map((n, i) => n.name ?? `Node ${i}`),
+    [document.json]
+  );
+  const docNames = useMemo(() => ({ sceneNodeNames, animationNames }), [sceneNodeNames, animationNames]);
 
   const mapped: MappedGraph | null = useMemo(() => (rawGraph ? mapGraph(rawGraph, graphIndex) : null), [rawGraph, graphIndex]);
 
   // UX-506: validation runs debounced on graph changes, joined by node index.
+  // `sceneNodeNames.length` (the document's real scene-node count) additionally
+  // runs `checkHandlerTargets` (validation.ts) — the one check in this
+  // pipeline with the document-level context `@gltfi/verify`'s own
+  // `validateGraph` never has (see that function's doc comment).
   useEffect(() => {
     if (validationTimer.current) clearTimeout(validationTimer.current);
     if (!rawGraph) {
@@ -114,7 +146,7 @@ export function GraphCanvas({
       return;
     }
     validationTimer.current = setTimeout(() => {
-      const result = validateInteractivityGraph(rawGraph);
+      const result = validateInteractivityGraph(rawGraph, sceneNodeNames.length);
       setValidation(result);
       const errorKey = result.diagnostics
         .filter((d) => d.severity === "error")
@@ -132,7 +164,7 @@ export function GraphCanvas({
     return () => {
       if (validationTimer.current) clearTimeout(validationTimer.current);
     };
-  }, [rawGraph, graphIndex]);
+  }, [rawGraph, graphIndex, sceneNodeNames.length]);
 
   function resolveTargetDocumentAndGraphIndex(): { workingDocument: EditorDocument; index: number } {
     if (hasGraph) return { workingDocument: document, index: graphIndex };
@@ -357,6 +389,8 @@ export function GraphCanvas({
           onDropOp={handleAddNode}
           onCreateFromDrop={handleCreateFromDrop}
           focusRequest={focusRequest}
+          docNames={docNames}
+          onTargetChipClick={onSelectSceneNode}
         />
       ) : (
         <div className="gcanvas-empty-state" data-testid="gcanvas.empty">
@@ -374,6 +408,7 @@ export function GraphCanvas({
           variables={rawGraph?.variables ?? []}
           events={rawGraph?.events ?? []}
           animationNames={animationNames}
+          sceneNodeNames={sceneNodeNames}
           onSetConfigField={handleSetConfigField}
           onAddVariableAndSetConfig={handleAddVariableAndSetConfig}
           onSetEventConfig={handleSetEventConfig}

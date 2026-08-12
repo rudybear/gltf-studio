@@ -130,6 +130,79 @@ describe("mapGraph: event/send_and_receive fixture", () => {
   });
 });
 
+describe("mapGraph: handlerTarget (event/onSelect|onHoverIn|onHoverOut, UX-512/UX-513)", () => {
+  function graphWith(op: string, configuration?: Record<string, { value: Array<number | boolean> }>): InteractivityGraph {
+    return {
+      types: [],
+      declarations: [{ op }],
+      nodes: [{ declaration: 0, ...(configuration ? { configuration } : {}) }]
+    };
+  }
+
+  it("extracts nodeIndex + stopPropagation for event/onSelect", () => {
+    const mapped = mapGraph(graphWith("event/onSelect", { nodeIndex: { value: [3] }, stopPropagation: { value: [true] } }));
+    expect(findNode(mapped, 0).handlerTarget).toEqual({ nodeIndex: 3, stopPropagation: true });
+  });
+
+  it("extracts nodeIndex + stopPropagation for event/onHoverIn and event/onHoverOut", () => {
+    for (const op of ["event/onHoverIn", "event/onHoverOut"]) {
+      const mapped = mapGraph(graphWith(op, { nodeIndex: { value: [7] } }));
+      expect(findNode(mapped, 0).handlerTarget).toEqual({ nodeIndex: 7, stopPropagation: false });
+    }
+  });
+
+  it("defaults nodeIndex to -1 (the registry's own 'any node' sentinel) and stopPropagation to false when configuration is absent entirely (e.g. added blank from the palette)", () => {
+    const mapped = mapGraph(graphWith("event/onSelect"));
+    expect(findNode(mapped, 0).handlerTarget).toEqual({ nodeIndex: -1, stopPropagation: false });
+  });
+
+  it("does not set handlerTarget for a non-handler op", () => {
+    const mapped = mapGraph(graphWith("math/add"));
+    expect(findNode(mapped, 0).handlerTarget).toBeUndefined();
+  });
+});
+
+describe("mapGraph: subtitleMissing (dangling variable/event index vs. a valid-but-anonymous declaration, UX-514)", () => {
+  function graphWith(op: string, configuration: Record<string, { value: Array<number> }>, extra: Partial<InteractivityGraph> = {}): InteractivityGraph {
+    return {
+      types: [{ signature: "float" }],
+      declarations: [{ op }],
+      nodes: [{ declaration: 0, configuration }],
+      ...extra
+    };
+  }
+
+  it("variable/get with an out-of-range variable index: subtitle carries the ⚠ missing marker and subtitleMissing is true", () => {
+    const mapped = mapGraph(graphWith("variable/get", { variable: { value: [5] } }, { variables: [] }));
+    const node = findNode(mapped, 0);
+    expect(node.subtitle).toBe("⚠ missing (var#5)");
+    expect(node.subtitleMissing).toBe(true);
+  });
+
+  it("variable/get with a valid index but no declared id: falls back to var#N, not flagged missing", () => {
+    const mapped = mapGraph(graphWith("variable/get", { variable: { value: [0] } }, { variables: [{ type: 0, value: [0] }] }));
+    const node = findNode(mapped, 0);
+    expect(node.subtitle).toBe("var#0");
+    expect(node.subtitleMissing).toBeUndefined();
+  });
+
+  it("variable/set: subtitleMissing is true when ANY of its variable slots is dangling", () => {
+    const mapped = mapGraph(
+      graphWith("variable/set", { variables: { value: [0, 9] } }, { variables: [{ id: "ok", type: 0, value: [0] }] })
+    );
+    const node = findNode(mapped, 0);
+    expect(node.subtitle).toBe("ok, ⚠ missing (var#9)");
+    expect(node.subtitleMissing).toBe(true);
+  });
+
+  it("event/receive with an out-of-range event index: subtitle carries the ⚠ missing marker", () => {
+    const mapped = mapGraph(graphWith("event/receive", { event: { value: [2] } }, { events: [] }));
+    const node = findNode(mapped, 0);
+    expect(node.subtitle).toBe("⚠ missing (event#2)");
+    expect(node.subtitleMissing).toBe(true);
+  });
+});
+
 describe("mapGraph: pointer/set_and_get fixture", () => {
   const graph = loadFixture("pointer-set_and_get");
   const mapped = mapGraph(graph, 0);
