@@ -94,7 +94,9 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
 
 ### Starter gallery (supersedes the checkpoint's single sample button)
 
-- [UX-119] (active) Supersedes UX-114: the viewport's empty-project state (`UX-3xx`'s "no document open" placeholder) shows a starter-experience gallery (`viewport.gallery`) of cards instead of a single button, alongside the existing "Import a .glb to get started" note. As of this requirement there are exactly two cards, each with a small static preview, a short one-sentence description, and a Load control — Playground (`viewport.gallery.card.playground`, `samples/playground.glb`, the same checkpoint scene UX-114 loaded) and R4 Racer (`viewport.gallery.card.racer`, `samples/r4-racer.glb`, described in-card as "a complete racing game authored as TypeScript, compiled into the asset; click the pads to steer"). Clicking a card's Load control (`viewport.gallery.card.<key>.load`) fetches that card's asset as a static file this app's own build serves and imports it through the exact same path a manually-picked file would (`importGlb`) — a failed fetch surfaces a toast (`UX-109`) naming that card's label, independently per card, rather than a silent no-op. Card testids use a semantic `<key>` (`playground`/`racer`), not a numeric index — the same non-numeric-but-repeated-part pattern `UX-110`'s own convention note permits and `specs/ux-viewport.md`'s play-overlay variable rows (`viewport.play-overlay.variable.<key>`) already establish.
+- [UX-119] (retired) Superseded by UX-120: the "Playground" card is retired from the starter gallery (user feedback: it made a confusing first-run default) and replaced by an "Empty scene" card; R4 Racer is unchanged.
+
+- [UX-120] (active) Supersedes UX-119: the viewport's empty-project state (`UX-3xx`'s "no document open" placeholder) shows a starter-experience gallery (`viewport.gallery`) of cards instead of a single button, alongside the existing "Import a .glb to get started" note. There are exactly two cards, each with a small static preview, a short one-sentence description, and a Load control. The FIRST card is Empty scene (`viewport.gallery.card.empty`, card copy "Empty scene — start from scratch; use + Add to build."): clicking its Load control builds a minimal document entirely in memory — an `asset` header plus one default scene with ZERO nodes, no fetch involved (`packages/app/src/lib/empty-scene.ts`'s `buildEmptySceneGlb`, a real `.glb` produced via `@gltfi/gltf`'s own `writeContainer`) — then imports those bytes through the exact same path a manually-picked file would (`importGlb`), so the result is a real, storage-persisted, undo-historied project from the first tick, not a special-cased blank-slate mode. The SECOND card, R4 Racer (`viewport.gallery.card.racer`, `samples/r4-racer.glb`, described in-card as "a complete racing game authored as TypeScript, compiled into the asset; click the pads to steer"), is unchanged from `UX-119`: clicking its Load control fetches that card's asset as a static file this app's own build serves and imports it the same way. A failed R4 Racer fetch surfaces a toast (`UX-109`) naming the card's label, rather than a silent no-op. Card testids use a semantic `<key>` (`empty`/`racer`), not a numeric index — the same non-numeric-but-repeated-part pattern `UX-110`'s own convention note permits and `specs/ux-viewport.md`'s play-overlay variable rows (`viewport.play-overlay.variable.<key>`) already establish. Zero-node tolerance (verified for the Empty scene card, and true generally of every surface that reads `document.json`): the scene tree shows a dedicated empty note (`scene-tree.empty-scene`, `specs/ux-scene-tree.md`'s owned surface — distinct from the no-document `scene-tree.empty`) instead of a bare blank list; the viewport renders its usual chrome with no geometry and no crash (`buildRenderScene`'s existing `!json.meshes` short-circuit already covered this); the Behavior graph tab shows `specs/ux-script.md` `UX-714`'s existing no-graph empty state, since the empty scene carries no `KHR_interactivity` extension at all; and both the scene tree's `+ Add` (creates the document's first node immediately — `SceneEdit.addNode`'s existing missing-array-creation fallback needed no changes) and Export (`UX-112`, a real, valid, zero-node `.glb`) work with no special-casing anywhere. `samples/playground.glb` and `scripts/make-sample.mjs` (the retired card's asset) are kept as a test-only fixture, not shipped in the built app: `e2e/golden-path.spec.ts` loads it directly through the top bar's Import control (`topbar.import-input`) instead of a gallery card, and `copy-sample.mjs` no longer copies it into `packages/app/public/`.
 
 ## Implementation notes
 
@@ -221,6 +223,32 @@ graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900`
   — including the layout-timing budget that scale required, see that file's own header comment —
   script-tab decompile, and play-mode pad interaction) and `e2e/golden-path.spec.ts`'s updated
   first step for the Playground card's continued coverage.
+
+- Empty-scene starter (`UX-120`, supersedes `UX-119`; `Viewport.tsx`, `SampleGalleryPreviews.tsx`,
+  `packages/app/src/lib/empty-scene.ts` (new), `SceneTree.tsx`, `packages/app/scripts/copy-sample.mjs`,
+  `samples/README.md`, `e2e/golden-path.spec.ts`, `e2e/shell.spec.ts`, `e2e/racer.spec.ts`):
+  user feedback — "remove playground — it's horrible, replace it by an empty scene instead" — the
+  Playground checkpoint card, a fully-populated scene, made a confusing first-run default (a
+  brand-new user's very first click landed them in someone else's finished project, not a blank
+  canvas). Replaced with an Empty scene card in the SAME first gallery slot: `buildEmptySceneGlb`
+  builds a real `.glb` in memory (asset header, one default scene, zero nodes) via `@gltfi/gltf`'s
+  own `writeContainer` — the exact container shape `e2e/global-setup.ts`'s fixture-writing already
+  uses — so it imports through the unmodified `importGlb` path with no new document-creation
+  branch anywhere in the store. Every surface that reads `document.json` already tolerated a
+  missing/empty `nodes` array defensively (`flattenSceneTree`'s `?? []`, `buildRenderScene`'s
+  `!json.meshes` short-circuit, `appendFragment`/`setPathFragment`'s missing-ancestor creation) —
+  confirmed by hand-tracing each path and by `e2e/shell.spec.ts`'s new empty-scene coverage, no
+  crashes found — with exactly one small gap fixed: the scene tree's body used to fall through to
+  a silent blank list for a real document with zero root nodes (only the separate "no document at
+  all" case had its own note); it now shows a dedicated `scene-tree.empty-scene` note instead.
+  `samples/playground.glb` is retired as a shipped asset (`copy-sample.mjs` no longer copies it
+  into `packages/app/public/`) but kept as a committed e2e fixture — `scripts/make-sample.mjs`
+  still regenerates/verifies it, and `e2e/golden-path.spec.ts`'s first step now loads it directly
+  through `topbar.import-input` (a real file, read straight off disk by Playwright) instead of
+  through a gallery card, since the card it used to click no longer exists. `e2e/shell.spec.ts`'s
+  gallery test now asserts the Empty scene card's presence/copy and the Playground card's absence,
+  plus a new test driving the empty-scene card end to end: load -> scene-tree empty state -> `+
+  Add` a cube (works immediately, no special-casing) -> Export (a real, valid, zero-node `.glb`).
 
 - M9 (usage mapping, `specs/ux-usage-mapping.md`'s `UX-11xx` — this file's own `packages/app/**`
   catch-all is what makes the following a `specs/ux-shell.md` change, not just a

@@ -4,7 +4,8 @@ import { validateGraph, type VGraph } from "@gltfi/verify";
 import { assertRegionRendersContent, assertRegionSpansMultipleLines, assertRegionsVisuallyDiffer } from "./visual-assert.js";
 
 /**
- * R4 Racer (specs/ux-shell.md UX-119's second starter-gallery card,
+ * R4 Racer (specs/ux-shell.md UX-120's second starter-gallery card,
+ * unchanged from that requirement's now-retired predecessor,
  * `samples/r4-racer.glb`): end-to-end coverage of that asset at its REAL
  * scale — a 26-node flat scene and a 366-node `KHR_interactivity` behavior
  * graph, both well beyond every other e2e fixture in this repo (the
@@ -90,7 +91,7 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
   test.slow();
   test.setTimeout(120_000); // see the graph-canvas step's own comment for the measured number this is sized against
 
-  await test.step("load R4 Racer from the starter gallery (UX-119)", async () => {
+  await test.step("load R4 Racer from the starter gallery (UX-120)", async () => {
     await loadRacer(page);
   });
 

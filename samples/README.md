@@ -6,8 +6,15 @@ audio, and Copilot. It is the source `pnpm sample` (`scripts/make-sample.mjs`) b
 verifies — that script is the source of truth; this file is a checked-in, deterministic build
 artifact of running it.
 
-Open it via the app's empty-project "Load sample scene" button (viewport, before importing
-anything else), or drag/pick it through the top bar's **Import** control.
+**Test-only as of `specs/ux-shell.md` UX-120** (supersedes UX-119): this asset is no longer part
+of the shipped app — it is not copied into `packages/app/public/` (see `copy-sample.mjs`) and the
+starter gallery's old "Playground" card that used to fetch and load it is retired, replaced by an
+"Empty scene" card that builds a blank document in memory instead (user feedback: the Playground
+default was confusing on first run). `playground.glb` still exists purely as a committed,
+deterministic e2e fixture — `e2e/golden-path.spec.ts` loads it directly off disk through the top
+bar's Import control (`topbar.import-input`) rather than through any gallery card. You can still
+drag/pick it through **Import** by hand if you want to explore it interactively; `pnpm sample`
+still regenerates and verifies it exactly as before.
 
 ## What's in it
 
@@ -59,8 +66,9 @@ repo's README for the full authoring/compile/splice story). Do not hand-edit thi
 up a change, re-run that pipeline and re-copy `dist/r4.glb` here.
 
 Open it via the app's empty-project starter gallery's "R4 Racer" card (`viewport.gallery.card.racer`,
-specs/ux-shell.md UX-119), which fetches and imports it exactly like `playground.glb`'s card does.
-The game is authored entirely against `onSelect`/`onHoverIn`/`onHoverOut` on three on-screen pads
+specs/ux-shell.md UX-120, supersedes UX-119), which fetches and imports it the same way the
+retired Playground card used to. The game is authored entirely against
+`onSelect`/`onHoverIn`/`onHoverOut` on three on-screen pads
 (no keyboard input) — in the editor, enter play mode and click the steer/boost pads in the
 viewport the same way a player would.
 

@@ -162,6 +162,14 @@ export function SceneTree(): JSX.Element {
           <div className="empty-note" data-testid="scene-tree.empty">
             Import a .glb to see its scene hierarchy.
           </div>
+        ) : rows.length === 0 ? (
+          // specs/ux-shell.md UX-120: a real document with zero root nodes
+          // (e.g. the empty-scene starter card) is not the "no document"
+          // case above -- distinct testid, distinct copy pointing at the
+          // control that actually does something next.
+          <div className="empty-note" data-testid="scene-tree.empty-scene">
+            No objects yet — use + Add below to create one.
+          </div>
         ) : (
           rows.map((row, i) => (
             <div
