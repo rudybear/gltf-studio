@@ -35,7 +35,7 @@ import { FIXTURE_PLAY_GLB_PATH, FIXTURE_FRONT_CAMERA_POSE } from "./global-setup
  */
 
 async function importPlayFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_PLAY_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("play-scene");
 }

@@ -55,7 +55,7 @@ type RawInteractivityGraph = {
 };
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
   // BehaviorGraphPanel.tsx installs this hook alongside its own mount — the

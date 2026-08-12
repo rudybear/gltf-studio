@@ -1,7 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 4173;
-const BASE_URL = `http://localhost:${PORT}`;
+// The app's own vite.config.ts now defaults `base` to "/app/" (the editor
+// always lives one level below whatever site root it's served from — see
+// that file's own comment), so the BUILT app `vite preview` serves is only
+// reachable under that path, not at the server root. Every spec's
+// `page.goto("./")` (NOT `page.goto("/")` — a leading slash would replace
+// this whole path, not append to it, per the URL spec `new URL()` combining
+// rules Playwright's `baseURL` option uses) relies on this trailing slash.
+const BASE_URL = `http://localhost:${PORT}/app/`;
 
 // Targets the BUILT app (`vite preview`), not the dev server — the app's
 // `pnpm -F app build` output is what CI/e2e actually exercises. Run

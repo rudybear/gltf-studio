@@ -40,14 +40,14 @@ import { multiFileFixtureComplete } from "./multi-file-fixture.js";
  */
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
   await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);
 }
 
 async function importMultiFileFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', multiFileFixtureComplete());
   await expect(page.getByTestId("topbar.project-name")).toBeVisible();
   await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);

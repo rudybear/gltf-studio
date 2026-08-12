@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gltf-studio — a browser editor for glTF experiences</title>
+    <meta
+      name="description"
+      content="A browser editor for glTF experiences — scenes, behavior graphs, scripts, audio. glTF in, glTF out."
+    />
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-0: #1a1c1f;
+        --bg-1: #202226;
+        --bg-2: #26292e;
+        --bg-3: #2d3036;
+        --border: #383c42;
+        --text-0: #e8e9eb;
+        --text-1: #b7bac0;
+        --text-dim: #7d8188;
+        --accent: #4d9dff;
+        --accent-soft: rgba(77, 157, 255, 0.16);
+        --warn: #d9a441;
+        --warn-soft: rgba(217, 164, 65, 0.14);
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg-0: #f3f4f6;
+          --bg-1: #ffffff;
+          --bg-2: #eceef1;
+          --bg-3: #e2e5ea;
+          --border: #d3d7dd;
+          --text-0: #1c1e21;
+          --text-1: #4b4f56;
+          --text-dim: #868c94;
+          --accent: #2f6fd6;
+          --accent-soft: rgba(47, 111, 214, 0.12);
+          --warn: #a06600;
+          --warn-soft: rgba(160, 102, 0, 0.1);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg-0);
+        color: var(--text-0);
+        font: 15px/1.55 -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+      }
+      a {
+        color: var(--accent);
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      /* Early-draft banner */
+      .draft-banner {
+        background: var(--warn-soft);
+        border-bottom: 1px solid var(--border);
+        color: var(--text-0);
+        font-size: 13px;
+        text-align: center;
+        padding: 8px 16px;
+      }
+      .draft-banner strong {
+        color: var(--warn);
+      }
+      .draft-banner a {
+        color: inherit;
+        text-decoration: underline;
+      }
+
+      /* Hero */
+      header.hero {
+        padding: 72px 0 48px;
+        text-align: center;
+      }
+      .hero h1 {
+        font-size: clamp(28px, 4vw, 40px);
+        margin: 0 0 14px;
+        letter-spacing: -0.01em;
+      }
+      .hero .pitch {
+        font-size: 18px;
+        color: var(--text-1);
+        max-width: 620px;
+        margin: 0 auto 30px;
+      }
+      .cta-row {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 11px 22px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg-2);
+        color: var(--text-0);
+        text-decoration: none;
+        font-size: 14.5px;
+        font-weight: 500;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0b1220;
+        font-weight: 600;
+      }
+      .btn.primary:hover {
+        filter: brightness(1.08);
+      }
+
+      /* Screenshots */
+      .shots {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin: 8px 0 64px;
+      }
+      @media (max-width: 760px) {
+        .shots {
+          grid-template-columns: 1fr;
+        }
+      }
+      figure {
+        margin: 0;
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+      }
+      figcaption {
+        margin-top: 10px;
+        font-size: 13px;
+        color: var(--text-dim);
+        text-align: center;
+      }
+
+      /* Features */
+      section.features {
+        padding: 8px 0 60px;
+      }
+      .features h2 {
+        text-align: center;
+        font-size: 22px;
+        margin: 0 0 34px;
+      }
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+      }
+      @media (max-width: 760px) {
+        .feature-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .feature-card {
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 22px 20px;
+      }
+      .feature-card h3 {
+        margin: 0 0 10px;
+        font-size: 15.5px;
+      }
+      .feature-card p {
+        margin: 0;
+        font-size: 13.5px;
+        color: var(--text-1);
+      }
+
+      /* Footer / links */
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 36px 0 56px;
+        text-align: center;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+      .footer-links {
+        display: flex;
+        gap: 18px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+        font-size: 14px;
+      }
+      .footer-links a {
+        color: var(--text-1);
+        text-decoration: none;
+      }
+      .footer-links a:hover {
+        color: var(--accent);
+      }
+      .ecosystem {
+        margin-top: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="draft-banner">
+      <strong>Early preview</strong> — expect rough edges. Follow along on
+      <a href="https://github.com/rudybear/gltf-studio">GitHub</a>.
+    </div>
+
+    <div class="wrap">
+      <header class="hero">
+        <h1>gltf-studio</h1>
+        <p class="pitch">
+          A browser editor for glTF experiences — scenes, behavior graphs, scripts, audio.
+          glTF in, glTF out.
+        </p>
+        <div class="cta-row">
+          <a class="btn primary" href="./app/">Launch editor →</a>
+          <a class="btn" href="https://github.com/rudybear/gltf-studio">GitHub repo</a>
+          <a class="btn" href="https://github.com/rudybear/gltf-interactivity">gltf-interactivity ecosystem</a>
+        </div>
+      </header>
+
+      <!--
+        Screenshots: docs/media/*.webp — the real app (R4 Racer sample),
+        captured via scripts/capture-landing-screenshots.mjs (Playwright,
+        driven the same way e2e/racer.spec.ts drives the app) and
+        re-encoded to WebP to keep this whole page's payload (HTML + CSS +
+        both images) comfortably under 300KB.
+      -->
+      <div class="shots">
+        <figure>
+          <img
+            src="media/racer-behavior-graph.webp"
+            width="1280"
+            height="800"
+            loading="lazy"
+            alt="gltf-studio's behavior-graph editor open on the R4 Racer sample, showing a real 366-node KHR_interactivity graph"
+          />
+          <figcaption>The R4 Racer sample's real behavior graph — 366 nodes, 395 edges, live in the editor.</figcaption>
+        </figure>
+        <figure>
+          <img
+            src="media/racer-script-equiv.webp"
+            width="1280"
+            height="800"
+            loading="lazy"
+            alt="gltf-studio's script tab showing the same behavior graph decompiled to readable TypeScript, marked EQUIV"
+          />
+          <figcaption>The same graph, decompiled to readable code — the EQUIV badge proves it still matches.</figcaption>
+        </figure>
+      </div>
+
+      <section class="features">
+        <h2>What it actually does</h2>
+        <div class="feature-grid">
+          <div class="feature-card">
+            <h3>Graphs ⇄ scripts, one document</h3>
+            <p>
+              Every <code>KHR_interactivity</code> behavior graph is also real, readable
+              TypeScript-flavored code — edit either view and the other stays in sync. An EQUIV
+              badge proves graph and script describe the same behavior, not two drifting copies.
+            </p>
+          </div>
+          <div class="feature-card">
+            <h3>Everything is glTF</h3>
+            <p>
+              Scenes, materials, audio, and a complete game's worth of logic all live inside one
+              <code>.glb</code>. The R4 Racer sample — steering, laps, an AI rival, a finish
+              sequence — is a real playable game in about 100KB, no separate engine project.
+            </p>
+          </div>
+          <div class="feature-card">
+            <h3>Play in-editor, two engines</h3>
+            <p>
+              Press play and run the graph right there — either a reference interpreter or a
+              graph-to-JS compiled engine, side by side for parity. Export writes a portable
+              <code>.glb</code> that runs in any conformant engine.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      <div class="footer-links">
+        <a href="./app/">Launch editor</a>
+        <a href="https://github.com/rudybear/gltf-studio">GitHub</a>
+        <a href="https://github.com/rudybear/gltf-studio/blob/main/README.md">README</a>
+      </div>
+      <div class="ecosystem">
+        Built on the open-source KHR_interactivity stack —
+        <a href="https://github.com/rudybear/gltf-interactivity">gltf-interactivity</a>,
+        <a href="https://github.com/rudybear/gltf-interactivity-three">-three</a>,
+        <a href="https://github.com/rudybear/gltf-interactivity-game">-game</a>,
+        <a href="https://github.com/rudybear/gltf-interactivity-vscode">-vscode</a>.
+      </div>
+    </footer>
+  </body>
+</html>

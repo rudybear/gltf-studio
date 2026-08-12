@@ -31,7 +31,7 @@ import { FIXTURE_GLB_PATH, FIXTURE_FRONT_CAMERA_POSE } from "./global-setup.js";
  */
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
 }

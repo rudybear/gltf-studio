@@ -33,6 +33,24 @@ M4 adds the pointer-picker dialog (`specs/ux-pointer-picker.md`'s `UX-9xx`, moun
 and drop-menu live in `packages/graph-canvas`, which owns that gesture's other end) — both real as
 of that milestone, alongside `specs/ux-graph-canvas.md`'s `UX-509` Data-tab jump.
 
+**Deploy URL restructure (project-landing checkpoint, no new `UX-###`s — a build/hosting change,
+not a shell-behavior one):** the app itself no longer occupies the Pages root. A hand-written
+static landing page (`/site/index.html`, outside `packages/app` entirely — plain HTML/CSS, no
+build step of its own) now serves from `https://rudybear.github.io/gltf-studio/`, and the editor
+this file specifies moves one level down, to `.../gltf-studio/app/`. `packages/app/vite.config.ts`'s
+`base` therefore defaults to `/app/` (previously `/`) for local dev/preview/e2e — matching where
+the editor actually lives even outside of Pages — with `BASE_PATH` still available to override it
+for the deploy build's deeper `/<repo>/app/` path (`.github/workflows/deploy.yml`, which now also
+assembles the landing page and `docs/media/` screenshots into the same deployed artifact
+alongside the built app). `packages/app/index.html`'s import map (the compiled-engine play path's
+`@gltfi/runtime-lib` resolution — see that file's own comment) uses Vite's `%BASE_URL%` HTML env
+replacement rather than a hardcoded `/`, since a raw `<script type="importmap">` body is static
+text Vite does not rewrite as an asset reference the way it does a `<script src>`. `playwright.config.ts`'s
+`baseURL` and every e2e spec's `page.goto(...)` call were updated to match (`"./"` rather than
+`"/"`, so Playwright's URL-combining rules append to `baseURL`'s own `/app/` path instead of
+replacing it) — the full e2e suite runs against this `/app/` path now, the same shape production
+actually serves, rather than an untested root path.
+
 Prefix: `UX`. This file owns the `UX-1xx` block (`UX-100`..`UX-1xx`); each other `ux-*.md` file
 owns its own hundred-block (`UX-200` scene tree, `UX-300` viewport, `UX-400` inspector, `UX-500`
 graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900` pointer picker,

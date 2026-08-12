@@ -3,7 +3,7 @@ import { FIXTURE_GLB_PATH } from "./global-setup.js";
 
 test.describe("import a .glb", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
     // Project name updates once import + the initial StorageProvider save resolve.
     await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");

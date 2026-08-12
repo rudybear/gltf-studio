@@ -6,7 +6,7 @@ import { assertRegionRendersContent } from "./visual-assert.js";
 
 test.describe("shell", () => {
   test("renders all four workspace regions plus the top bar (UX-100)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("topbar.panel")).toBeVisible();
     await expect(page.getByTestId("left-panel.panel")).toBeVisible();
     await expect(page.getByTestId("viewport.panel")).toBeVisible();
@@ -15,7 +15,7 @@ test.describe("shell", () => {
   });
 
   test("bottom dock has exactly five tabs, one active at a time (UX-103)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     const tabs = page.getByTestId("dock.tabs").locator("button");
     await expect(tabs).toHaveCount(5);
     await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
@@ -34,7 +34,7 @@ test.describe("shell", () => {
   // tab real content (an empty Console/Data tab would legitimately render near-zero pixels, which is
   // not itself a bug).
   test("Console and Data (glTF) tabs render non-trivial visible content once they have real content, not just DOM nodes", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
     await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene"); // also the import's own "Imported ..." log line, for Console below.
 
@@ -52,7 +52,7 @@ test.describe("shell", () => {
   });
 
   test("undo/redo are disabled with empty history (no command-producing UI exists yet)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("topbar.undo")).toBeDisabled();
     await expect(page.getByTestId("topbar.redo")).toBeDisabled();
   });
@@ -60,7 +60,7 @@ test.describe("shell", () => {
   test("export (disabled with no document open — real once one is, see e2e/export.spec.ts) and the play bar (still a stub) both have a tooltip", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("topbar.export")).toBeDisabled();
     await expect(page.getByTestId("playbar.play")).toBeDisabled();
     await expect(page.getByTestId("playbar.pause")).toBeDisabled();
@@ -68,7 +68,7 @@ test.describe("shell", () => {
   });
 
   test("theme toggle sets an explicit override that persists independent of prefers-color-scheme (UX-104/UX-105)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     const html = page.locator("html");
     await expect(html).not.toHaveAttribute("data-theme", /.+/);
 
@@ -82,7 +82,7 @@ test.describe("shell", () => {
   });
 
   test("the `?` toggle reveals data-testid labels over on-screen elements (UX-111)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.locator("#testid-overlay-layer")).toHaveCount(0);
     await page.getByTestId("topbar.testid-toggle").click();
     await expect(page.locator("#testid-overlay-layer")).toBeVisible();
@@ -90,7 +90,7 @@ test.describe("shell", () => {
   });
 
   test("left panel is resizable via its drag handle, clamped to [190px, 480px] (UX-101/UX-102)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     const panel = page.getByTestId("left-panel.panel");
     const handle = page.getByTestId("left-panel.resize-handle");
 
@@ -125,7 +125,7 @@ test.describe("shell", () => {
   // Playwright project); the Empty scene card's own document-creation path is covered
   // end-to-end by the dedicated test below.
   test("empty-project state shows a two-card starter gallery: Empty scene + R4 Racer, no Playground (UX-120)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
 
     const empty = page.getByTestId("viewport.gallery.card.empty");
@@ -154,7 +154,7 @@ test.describe("shell", () => {
   test("Empty scene card creates a real, zero-node document that tolerates the tree empty state, an immediate Add, and export (UX-120)", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByTestId("viewport.gallery.card.empty.load").click();
     await expect(page.getByTestId("topbar.project-name")).toHaveText("Untitled");
 

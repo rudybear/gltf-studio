@@ -10,7 +10,7 @@ import { buildInspectorFixtureBytes, INSPECTOR_FIXTURE_NAME } from "./inspector-
  * exercisable without disturbing the node indices other specs pin.
  */
 async function importInspectorFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', {
     name: INSPECTOR_FIXTURE_NAME,
     mimeType: "model/gltf-binary",

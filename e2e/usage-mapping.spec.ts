@@ -30,7 +30,7 @@ function countPixelsNear(buffer: Buffer, target: { r: number; g: number; b: numb
 }
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', {
     name: USAGE_MAPPING_FIXTURE_NAME,
     mimeType: "model/gltf-binary",

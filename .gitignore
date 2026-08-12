@@ -30,3 +30,8 @@ packages/app/public/gltfi-runtime-lib.mjs*
 # repo's own build pipeline — see samples/README.md), never these.
 packages/app/public/playground.glb
 packages/app/public/r4-racer.glb
+
+# .github/workflows/deploy.yml's own out-of-tree assembly of the deployed
+# Pages site (landing page at the root + the built editor under app/) —
+# never committed, only ever a build output.
+dist-site/

@@ -126,7 +126,7 @@ test("golden path: sample scene through every shipped feature", async ({ page })
   test.setTimeout(300_000);
 
   await test.step("load the playground fixture via Import (UX-120: no gallery card for it anymore, see this file's header comment)", async () => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
     await expect(page.getByTestId("viewport.gallery.card.empty")).toBeVisible();
     await expect(page.getByTestId("viewport.gallery.card.racer")).toBeVisible();

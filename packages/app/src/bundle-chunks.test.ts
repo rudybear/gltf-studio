@@ -29,7 +29,12 @@ const TS_MORPH_MARKER = "getPreEmitDiagnostics";
 
 function readMainEntryChunk(): string {
   const html = readFileSync(join(DIST_DIR, "index.html"), "utf8");
-  const match = /<script[^>]*\ssrc="\/(assets\/[^"]+\.js)"/.exec(html);
+  // The emitted `src` is absolute but prefixed with whatever `base` this
+  // build used (vite.config.ts's default is now "/app/" rather than "/" —
+  // see that file's own comment on the landing-page URL restructure), so
+  // this only anchors on the trailing `assets/...` shape, not a specific
+  // leading path.
+  const match = /<script[^>]*\ssrc="\/(?:[^"]*\/)?(assets\/[^"]+\.js)"/.exec(html);
   if (!match) throw new Error(`Could not find the main entry <script> tag in ${DIST_DIR}/index.html.`);
   return readFileSync(join(DIST_DIR, match[1]), "utf8");
 }
