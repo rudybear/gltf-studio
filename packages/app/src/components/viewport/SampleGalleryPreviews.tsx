@@ -1,28 +1,39 @@
 /**
  * Small stylized SVG preview icons for the empty-project starter gallery
- * (specs/ux-shell.md UX-119, Viewport.tsx). Inline SVG (not a captured
- * screenshot PNG) on purpose — no headless-capture build step, nothing to
- * regenerate/go-stale when either sample asset changes, and it costs the
- * bundle a few hundred bytes of JSX instead of image bytes. Each is a loose,
- * schematic caricature of its scene (not a faithful render) purely to give
- * the two cards a visually distinct identity at a glance.
+ * (specs/ux-shell.md UX-120, supersedes UX-119, Viewport.tsx). Inline SVG
+ * (not a captured screenshot PNG) on purpose — no headless-capture build
+ * step, nothing to regenerate/go-stale when either sample asset changes, and
+ * it costs the bundle a few hundred bytes of JSX instead of image bytes.
+ * Each is a loose, schematic caricature of its card (not a faithful render)
+ * purely to give the two cards a visually distinct identity at a glance.
  */
 
 const VIEWBOX = "0 0 96 64";
 
-export function PlaygroundPreview(): JSX.Element {
+/**
+ * UX-120: a minimal ground-plane grid with no scene content on it at all —
+ * deliberately empty, matching the card's real zero-node document, unlike
+ * the retired Playground card's populated-scene caricature. A faint
+ * dashed-outline "add something" cube hints at `+ Add` without depicting
+ * actual scene content that doesn't exist yet.
+ */
+export function EmptyScenePreview(): JSX.Element {
   return (
-    <svg viewBox={VIEWBOX} width="96" height="64" role="img" aria-label="Playground preview">
+    <svg viewBox={VIEWBOX} width="96" height="64" role="img" aria-label="Empty scene preview">
       <rect x="0" y="0" width="96" height="64" rx="6" fill="var(--bg-1)" />
-      <rect x="6" y="46" width="84" height="4" rx="2" fill="var(--border)" />
-      {/* SpinningCube (red) */}
-      <rect x="16" y="30" width="16" height="16" rx="2" fill="#c0453d" />
-      {/* ButtonSphere (green) */}
-      <circle cx="48" cy="38" r="9" fill="#3f9e5c" />
-      {/* TogglePillar (blue) */}
-      <rect x="68" y="18" width="10" height="28" rx="2" fill="#3d6fc0" />
-      {/* Lamp glow */}
-      <circle cx="48" cy="14" r="4" fill="#e8d27a" opacity="0.85" />
+      {/* Ground grid, in perspective */}
+      <g stroke="var(--border)" strokeWidth="1" fill="none">
+        <line x1="8" y1="50" x2="88" y2="50" />
+        <line x1="16" y1="42" x2="80" y2="42" />
+        <line x1="24" y1="34" x2="72" y2="34" />
+        <line x1="48" y1="26" x2="18" y2="50" />
+        <line x1="48" y1="26" x2="34" y2="50" />
+        <line x1="48" y1="26" x2="48" y2="50" />
+        <line x1="48" y1="26" x2="62" y2="50" />
+        <line x1="48" y1="26" x2="78" y2="50" />
+      </g>
+      {/* A dashed, unfilled cube outline -- the "nothing here yet, use + Add" hint */}
+      <rect x="40" y="30" width="16" height="14" rx="1" fill="none" stroke="var(--border)" strokeWidth="1.5" strokeDasharray="3 2" />
     </svg>
   );
 }

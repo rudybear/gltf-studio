@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
+import { parseContainer } from "@gltfi/gltf";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
 import { assertRegionRendersContent } from "./visual-assert.js";
 
@@ -117,20 +119,20 @@ test.describe("shell", () => {
     expect(afterShrink.width).toBeLessThan(before.width);
   });
 
-  // specs/ux-shell.md UX-119: the empty-project starter gallery (supersedes the old
-  // single-button predecessor requirement, now retired). Only checks the gallery's own
-  // presentation here — actually loading the R4 Racer card and driving it at its real
-  // 366-node graph scale is
-  // e2e/racer.spec.ts's job (a separate, heavier Playwright project); the Playground
-  // card's load path is covered end-to-end by e2e/golden-path.spec.ts's first step.
-  test("empty-project state shows a two-card starter gallery (UX-119)", async ({ page }) => {
+  // specs/ux-shell.md UX-120: the empty-project starter gallery. Only checks the
+  // gallery's own presentation here — actually loading the R4 Racer card and driving it
+  // at its real 366-node graph scale is e2e/racer.spec.ts's job (a separate, heavier
+  // Playwright project); the Empty scene card's own document-creation path is covered
+  // end-to-end by the dedicated test below.
+  test("empty-project state shows a two-card starter gallery: Empty scene + R4 Racer, no Playground (UX-120)", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
 
-    const playground = page.getByTestId("viewport.gallery.card.playground");
-    await expect(playground).toBeVisible();
-    await expect(playground).toContainText("Playground");
-    await expect(playground.getByTestId("viewport.gallery.card.playground.load")).toBeVisible();
+    const empty = page.getByTestId("viewport.gallery.card.empty");
+    await expect(empty).toBeVisible();
+    await expect(empty).toContainText("Empty scene");
+    await expect(empty).toContainText("Start from scratch");
+    await expect(empty.getByTestId("viewport.gallery.card.empty.load")).toBeVisible();
 
     const racer = page.getByTestId("viewport.gallery.card.racer");
     await expect(racer).toBeVisible();
@@ -138,6 +140,59 @@ test.describe("shell", () => {
     await expect(racer).toContainText("click the pads to steer");
     await expect(racer.getByTestId("viewport.gallery.card.racer.load")).toBeVisible();
 
+    // The old, now-retired "Playground" card must be gone entirely, not merely hidden.
+    await expect(page.getByTestId("viewport.gallery.card.playground")).toHaveCount(0);
+
     await assertRegionRendersContent(page.getByTestId("viewport.gallery"));
+  });
+
+  // specs/ux-shell.md UX-120: the Empty scene card's whole point is that the resulting
+  // zero-node document behaves like any other real document, not a special-cased blank
+  // mode — driven here through scene tree, add-menu, and export exactly as
+  // e2e/scene-tree-add-menu.spec.ts and e2e/export.spec.ts already do for populated
+  // fixtures, so a regression in any of that zero-node tolerance shows up here.
+  test("Empty scene card creates a real, zero-node document that tolerates the tree empty state, an immediate Add, and export (UX-120)", async ({
+    page
+  }) => {
+    await page.goto("/");
+    await page.getByTestId("viewport.gallery.card.empty.load").click();
+    await expect(page.getByTestId("topbar.project-name")).toHaveText("Untitled");
+
+    // Scene tree: a dedicated empty-scene note, not the "no document" one and not a
+    // silently blank list.
+    await expect(page.getByTestId("scene-tree.empty")).toHaveCount(0);
+    await expect(page.getByTestId("scene-tree.empty-scene")).toBeVisible();
+    await expect(page.getByTestId("scene-tree.list").locator(".tree-row")).toHaveCount(0);
+
+    // Behavior graph tab: UX-714's existing no-graph empty state (this document has no
+    // KHR_interactivity extension at all).
+    await expect(page.getByTestId("gcanvas.empty")).toBeVisible();
+
+    // + Add works immediately against a document with no nodes[] array at all yet.
+    // (UX-206/UX-213: the new node lands auto-selected with its default name open in
+    // the inline-rename input — same affordance e2e/scene-tree-add-menu.spec.ts's own
+    // "Empty Group" test asserts via the rename-input's value, not the row's plain
+    // text content, since the rename `<input>` replaces the label while it's open.)
+    await page.getByTestId("scene-tree.add").click();
+    await page.getByTestId("scene-tree.add-menu.mesh").click();
+    await page.getByTestId("scene-tree.add-menu.mesh.cube").click();
+    await expect(page.getByTestId("scene-tree.empty-scene")).toHaveCount(0);
+    await expect(page.getByTestId("scene-tree.row.0.rename-input")).toHaveValue("Cube");
+    await expect(page.getByTestId("scene-tree.row.0")).toHaveClass(/selected/);
+    await page.keyboard.press("Enter"); // commit the default name so the row shows plain text again
+    await expect(page.getByTestId("scene-tree.row.0")).toContainText("Cube");
+
+    // Export: a real, valid, GLB — same header checks e2e/golden-path.spec.ts's export
+    // step and e2e/export.spec.ts already use.
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByTestId("topbar.export").click()]);
+    await expect(page.getByTestId("toast").last()).toContainText("Export complete");
+    const downloadPath = await download.path();
+    const bytes = readFileSync(downloadPath!);
+    expect(bytes.readUInt32LE(0)).toBe(0x46546c67); // "glTF" magic
+    expect(bytes.readUInt32LE(4)).toBe(2); // version 2
+
+    const reparsed = parseContainer(new Uint8Array(bytes));
+    expect(reparsed.kind).toBe("glb");
+    expect((reparsed.json as { nodes?: unknown[] }).nodes).toHaveLength(1);
   });
 });

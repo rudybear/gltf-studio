@@ -5,9 +5,10 @@ import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-stud
 import { useAppStore, getActivePlayController } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
 import { extractBinaryChunk } from "../../lib/audio-container.js";
+import { buildEmptySceneGlb } from "../../lib/empty-scene.js";
 import { PlayOverlay } from "./PlayOverlay";
 import { ContextMenu } from "../ContextMenu";
-import { PlaygroundPreview, RacerPreview } from "./SampleGalleryPreviews";
+import { EmptyScenePreview, RacerPreview } from "./SampleGalleryPreviews";
 
 /**
  * RenderHost.loadScene's `{ json, binary }` input shape (engine-three's
@@ -35,26 +36,29 @@ const GIZMO_MODES: ReadonlyArray<{ mode: GizmoMode; label: string; title: string
 ];
 
 /**
- * specs/ux-shell.md UX-119: the empty-project state's starter-experience
- * gallery. `key` drives both the `viewport.gallery.card.<key>` family of
- * testids (UX-110's "part" chainable with a repeated, semantic sub-part --
- * the same pattern PlayOverlay.tsx's `viewport.play-overlay.variable.${key}`
- * already uses) and which static asset (`samples/<file>`, copied into
- * public/ by copy-sample.mjs) the card's Load button fetches.
+ * specs/ux-shell.md UX-120 (supersedes UX-119): the empty-project state's
+ * starter-experience gallery. `key` drives the `viewport.gallery.card.<key>`
+ * family of testids (UX-110's "part" chainable with a repeated, semantic
+ * sub-part -- the same pattern PlayOverlay.tsx's
+ * `viewport.play-overlay.variable.${key}` already uses). `file` names the
+ * static asset (`samples/<file>`, copied into public/ by copy-sample.mjs)
+ * a FETCHED card's Load button retrieves; the Empty scene card has none --
+ * it builds its starter document entirely in-memory (`buildEmptySceneGlb`),
+ * no fetch involved.
  */
 interface SampleDescriptor {
-  key: "playground" | "racer";
+  key: "empty" | "racer";
   label: string;
-  file: string;
+  /** Static asset under `samples/` to fetch and import. Omitted for the Empty scene card, which never fetches. */
+  file?: string;
   description: string;
 }
 
 const SAMPLE_GALLERY: readonly SampleDescriptor[] = [
   {
-    key: "playground",
-    label: "Playground",
-    file: "playground.glb",
-    description: "The shipped checkpoint scene — viewport, behavior graph, script tab, both play engines, audio, and Copilot, all wired up."
+    key: "empty",
+    label: "Empty scene",
+    description: "Start from scratch; use + Add to build."
   },
   {
     key: "racer",
@@ -559,26 +563,37 @@ export function Viewport(): JSX.Element {
       ? ((document?.json as GltfJsonShape | undefined)?.nodes?.[selectedNodeIndex]?.name ?? `Node ${selectedNodeIndex}`)
       : null;
 
-  // specs/ux-shell.md UX-119 (supersedes UX-114): the empty-project state's
-  // starter-experience gallery -- two cards, each fetching its own
-  // committed sample asset (samples/*.glb) as a static file this app's own
-  // build already serves (packages/app/scripts/copy-sample.mjs copies both
-  // into public/ at predev/prebuild, same mechanism as
-  // gltfi-runtime-lib.mjs) and importing it exactly the way a manually-picked
-  // file would via the top bar's Import control. `import.meta.env.BASE_URL`
-  // (not a hardcoded "/") so this also works once deployed under a GitHub
-  // Pages project-site subpath.
+  // specs/ux-shell.md UX-120 (supersedes UX-119, itself supersedes UX-114):
+  // the empty-project state's starter-experience gallery -- two cards. R4
+  // Racer fetches its own committed sample asset (samples/r4-racer.glb) as a
+  // static file this app's own build already serves
+  // (packages/app/scripts/copy-sample.mjs copies it into public/ at
+  // predev/prebuild, same mechanism as gltfi-runtime-lib.mjs);  Empty scene
+  // builds a minimal document in-memory instead (`buildEmptySceneGlb`, no
+  // fetch -- samples/playground.glb, the card it replaces, is retired from
+  // the shipped app entirely and now lives on only as a test fixture, see
+  // e2e/golden-path.spec.ts). Either way the resulting bytes import exactly
+  // the way a manually-picked file would, via the top bar's Import control's
+  // own `importGlb`. `import.meta.env.BASE_URL` (not a hardcoded "/") so the
+  // fetch path also works once deployed under a GitHub Pages project-site
+  // subpath.
   const onLoadSample = (sample: SampleDescriptor) => async (): Promise<void> => {
     try {
-      const response = await fetch(`${import.meta.env.BASE_URL}${sample.file}`);
-      if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      await importGlb({ name: sample.file, bytes });
+      const bytes = sample.file
+        ? await fetchSampleBytes(sample.file)
+        : buildEmptySceneGlb();
+      await importGlb({ name: sample.file ?? "Untitled.glb", bytes });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       pushToast(`Couldn't load "${sample.label}": ${message}`);
     }
   };
+
+  async function fetchSampleBytes(file: string): Promise<Uint8Array> {
+    const response = await fetch(`${import.meta.env.BASE_URL}${file}`);
+    if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
 
   return (
     <div id="viewport" data-testid="viewport.panel">
@@ -608,7 +623,7 @@ export function Viewport(): JSX.Element {
                 {SAMPLE_GALLERY.map((sample) => (
                   <div className="sample-card" data-testid={`viewport.gallery.card.${sample.key}`} key={sample.key}>
                     <div className="sample-card-preview" data-testid={`viewport.gallery.card.${sample.key}.preview`}>
-                      {sample.key === "playground" ? <PlaygroundPreview /> : <RacerPreview />}
+                      {sample.key === "empty" ? <EmptyScenePreview /> : <RacerPreview />}
                     </div>
                     <h4 className="sample-card-title">{sample.label}</h4>
                     <p className="sample-card-desc">{sample.description}</p>

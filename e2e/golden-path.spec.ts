@@ -29,12 +29,16 @@ import { validateGraph, type VGraph } from "@gltfi/verify";
  * `buildSceneJson`, and — since every node there is a direct, non-nested
  * child of Root — line up 1:1 with scene-tree row index.
  *
- * cites: specs/ux-shell.md UX-119 (the starter-gallery "Playground" card
- * this spec's first step exercises — supersedes the single-button
- * predecessor requirement, now retired).
+ * cites: specs/ux-shell.md UX-120 (the current starter-gallery requirement;
+ * its predecessor's now-retired "Playground" card is what this spec's first
+ * step used to exercise via a Load click — samples/playground.glb is now a
+ * test-only fixture, loaded here directly through the top bar's Import
+ * control instead of a gallery card that no longer exists).
  */
 
 const ARTIFACTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "artifacts", "golden-path");
+/** UX-120: playground.glb is retired from the shipped app (no gallery card fetches it anymore) but kept as this suite's committed test fixture — loaded straight off disk, same convention e2e/shell.spec.ts's FIXTURE_GLB_PATH already uses for other fixtures. */
+const PLAYGROUND_GLB_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "samples", "playground.glb");
 
 /** Sample's KHR_interactivity graph node indices (scripts/make-sample.mjs). */
 const GRAPH_NODE = { ROTATE_POINTER_SET: 10, AUDIO_TRIGGER_POINTER_SET: 18 } as const;
@@ -121,11 +125,12 @@ test("golden path: sample scene through every shipped feature", async ({ page })
   test.slow();
   test.setTimeout(300_000);
 
-  await test.step("load Playground from the empty-project starter gallery (UX-119)", async () => {
+  await test.step("load the playground fixture via Import (UX-120: no gallery card for it anymore, see this file's header comment)", async () => {
     await page.goto("/");
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
+    await expect(page.getByTestId("viewport.gallery.card.empty")).toBeVisible();
     await expect(page.getByTestId("viewport.gallery.card.racer")).toBeVisible();
-    await page.getByTestId("viewport.gallery.card.playground.load").click();
+    await page.setInputFiles('[data-testid="topbar.import-input"]', PLAYGROUND_GLB_PATH);
     await expect(page.getByTestId("topbar.project-name")).toHaveText("playground");
     await snap(page, "load-sample");
   });
