@@ -206,16 +206,27 @@ export function VariablesPanel({
   onSelectEvent
 }: VariablesPanelProps): JSX.Element {
   if (collapsed) {
+    // A zero-WIDTH flex item (not a real 20px column, see the CSS's own
+    // comment): the collapsed state's expand affordance must stay visible
+    // and clickable without shifting every OTHER graph-canvas test's pixel
+    // layout by however many pixels a real column would cost — several of
+    // those tests (off limits to this workstream) assert exact pixel gaps
+    // between adjacent elements (e2e/graph-canvas.spec.ts's port
+    // handle/label overlap regression), which broke on CI once this panel
+    // (even collapsed, on every single graph-canvas mount) started
+    // consuming real layout width.
     return (
-      <button
-        className="gcanvas-variables-collapsed"
-        onClick={onToggleCollapsed}
-        title="Show variables panel"
-        aria-label="Show variables panel"
-        data-testid="gcanvas.variables.expand"
-      >
-        {"›"}
-      </button>
+      <div className="gcanvas-variables-collapsed-slot">
+        <button
+          className="gcanvas-variables-collapsed"
+          onClick={onToggleCollapsed}
+          title="Show variables panel"
+          aria-label="Show variables panel"
+          data-testid="gcanvas.variables.expand"
+        >
+          {"›"}
+        </button>
+      </div>
     );
   }
 
