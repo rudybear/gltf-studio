@@ -6,16 +6,23 @@
 // primitives pointing at TWO different materials (specs/ux-inspector.md's
 // UX-405 "multiple materials -> a section per primitive" and UX-408's
 // per-primitive material link), a second node sharing that same mesh
-// (UX-410's "also used by" note), a light node, a camera node (UX-414), and
-// a node carrying `KHR_audio_emitter` (UX-406).
-//
-// Built in-process via the real `@gltfi/gltf` `writeContainer` (same
-// approach as global-setup.ts — never a corpus asset copied into the repo)
-// and handed to Playwright as an in-memory buffer via `setInputFiles`'s
-// `{ name, mimeType, buffer }` form, so no second file needs to live under
-// e2e/fixtures/.
+// (UX-410's "also used by" note), a light node, a camera node (UX-414/417/
+// 418), a node carrying `KHR_audio_emitter` (UX-406), and — richer inspector
+// (UX-416) — a real, decodable `baseColorTexture` on `Mat_Red` (a tiny 2x2
+// PNG embedded as a `data:` URI image, generated once via pngjs'
+// `PNG.sync.write` and pasted below as a static base64 literal, mirroring
+// `packages/engine-three/test/material-extras-fixture.ts`'s own same-shaped
+// fixture) — this is the ONLY textured fixture anywhere in the repo
+// (checked: no samples/*.glb ships one), so it doubles as this repo's
+// textured+lit asset for the texture-slot thumbnail/clear/transform e2e
+// coverage (the SAME fixture already carries a light — "Lamp" — and a
+// camera — "Cam" — so no separate lit fixture was needed either).
 import { writeContainer, type Container } from "@gltfi/gltf";
 import { sineBeepWavBytes } from "./wav-fixture.js";
+
+/** 2x2 PNG (red/green/blue/yellow), generated via pngjs. */
+const CHECKER_PNG_DATA_URI =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4AWO8Y2PzP6FHjoEpQW4BwyquRwwAPN4GFWn/tPUAAAAASUVORK5CYII=";
 
 const CHUNK_TYPE_JSON = 0x4e4f534a;
 
@@ -45,14 +52,19 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
     // Flat (no hierarchy) — five top-level nodes, indices 0..4, in this order:
     //   0 "Widget"  — mesh 0, TWO primitives (materials 0 and 1)
     //   1 "Widget2" — mesh 0 too (shares Widget's mesh -> UX-410's note)
-    //   2 "Lamp"    — KHR_lights_punctual (UX-414 light note)
-    //   3 "Cam"     — a camera (UX-414 camera note)
+    //   2 "Lamp"    — KHR_lights_punctual (UX-414/UX-417 Light section)
+    //   3 "Cam"     — a camera (UX-414/UX-418 Camera section)
     //   4 "Speaker" — KHR_audio_emitter (UX-406)
     scenes: [{ nodes: [0, 1, 2, 3, 4] }],
     nodes: [
       { name: "Widget", mesh: 0 },
       { name: "Widget2", mesh: 0 },
-      { name: "Lamp", extensions: { KHR_lights_punctual: { light: 0 } } },
+      // Offset from the origin (where Widget/Widget2 both sit) — richer
+      // inspector (UX-417) e2e coverage samples rendered pixel brightness
+      // before/after an intensity edit, which a light co-located with the
+      // exact surface it's lighting would make degenerate (zero-distance
+      // falloff).
+      { name: "Lamp", translation: [1, 2, 2], extensions: { KHR_lights_punctual: { light: 0 } } },
       { name: "Cam", camera: 0 },
       { name: "Speaker", extensions: { KHR_audio_emitter: { emitter: 0 } } }
     ],
@@ -67,9 +79,19 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
       }
     ],
     materials: [
-      { name: "Mat_Red", pbrMetallicRoughness: { baseColorFactor: [0.8, 0.1, 0.1, 1], metallicFactor: 0.2, roughnessFactor: 0.6 } },
+      {
+        name: "Mat_Red",
+        pbrMetallicRoughness: {
+          baseColorFactor: [0.8, 0.1, 0.1, 1],
+          baseColorTexture: { index: 0 },
+          metallicFactor: 0.2,
+          roughnessFactor: 0.6
+        }
+      },
       { name: "Mat_Blue", pbrMetallicRoughness: { baseColorFactor: [0.1, 0.1, 0.8, 1], metallicFactor: 0.9, roughnessFactor: 0.1 } }
     ],
+    textures: [{ source: 0 }],
+    images: [{ uri: CHECKER_PNG_DATA_URI }],
     accessors: [
       { bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] },
       { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }
@@ -92,7 +114,10 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
       // Viewport's `patchScene` subscriber throws too, aborting
       // `dispatchCommand`'s trailing `set(...)` before it ever runs — see
       // this fixture's git history for the debugging trail).
-      KHR_lights_punctual: { lights: [{ type: "point" }] },
+      // Richer inspector (UX-417): non-default color/intensity so the
+      // Light section's e2e coverage edits a real starting value, not just
+      // whatever this app's own display defaults happen to be.
+      KHR_lights_punctual: { lights: [{ type: "point", color: [1, 1, 1], intensity: 500 }] },
       // M7: real audio (audio[]/sources[]) bound via `sources: [0]` — real
       // enough for e2e/audio.spec.ts's audition -> active-voice assertion
       // (diagnostics()), not just an inert gain/distanceModel-only stub.

@@ -1,5 +1,61 @@
-import { test, expect, type Page } from "@playwright/test";
+import { PNG } from "pngjs";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { buildInspectorFixtureBytes, INSPECTOR_FIXTURE_NAME } from "./inspector-fixture.js";
+
+// Richer inspector (UX-415/UX-416): the fixture's "Widget" triangle
+// (positions [-1,-1,0, 1,-1,0, 0,1,0]) is CCW as viewed from +Z — the SAME
+// front-facing winding `packages/engine-three/test/fixture.ts`'s own
+// contract-test triangle uses (see that file's header comment) — so the
+// SAME `[0,0,3]`/identity-rotation front pose every other e2e spec already
+// uses (`e2e/global-setup.ts`'s `FIXTURE_FRONT_CAMERA_POSE`) frames it
+// straight-on, and its 180°-about-Y mirror frames the triangle's BACK,
+// exactly the pose a doubleSided:false -> true toggle needs a real,
+// observable pixel difference at (nothing rendered, backface-culled ->
+// the material's own color).
+const FRONT_CAMERA_POSE = { position: [0, 0, 3] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], target: [0, 0, 0] as [number, number, number] };
+const BACK_CAMERA_POSE = { position: [0, 0, -3] as [number, number, number], rotation: [0, 1, 0, 0] as [number, number, number, number], target: [0, 0, 0] as [number, number, number] };
+
+async function setCameraPose(page: Page, pose: typeof FRONT_CAMERA_POSE): Promise<void> {
+  await page.evaluate((p) => window.__gltfStudioTest!.setCameraPose(p), pose);
+}
+
+/**
+ * Average RGB of a small box at the CENTER of `mount`'s current screenshot —
+ * cheap, real-pixel confirmation that an edited property actually reached
+ * the renderer (specs/ux-inspector.md's "confirm renders" acceptance bar),
+ * without needing a full scene-diff helper. Waits for two consecutive
+ * `requestAnimationFrame` callbacks first — `ThreeRenderHost`'s own render
+ * loop (`render-host.ts`'s `tick`) re-renders on the NEXT frame after a
+ * `patchScene`/camera-pose write, not synchronously within the React
+ * event handler that triggered it; screenshotting immediately raced that
+ * frame in practice (caught by this feature's own e2e run: a same-tick
+ * screenshot occasionally still showed the PRE-edit pixel).
+ */
+async function centerPixelRgb(mount: Locator): Promise<{ r: number; g: number; b: number }> {
+  await mount.page().evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  );
+  const buffer = await mount.screenshot();
+  const png = PNG.sync.read(buffer);
+  const { width, height, data } = png;
+  const cx = Math.floor(width / 2);
+  const cy = Math.floor(height / 2);
+  const box = 6;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let count = 0;
+  for (let y = cy - box; y <= cy + box; y++) {
+    for (let x = cx - box; x <= cx + box; x++) {
+      const i = (width * y + x) << 2;
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count++;
+    }
+  }
+  return { r: r / count, g: g / count, b: b / count };
+}
 
 /**
  * specs/ux-inspector.md UX-4xx: identity strip, Transform/Mesh & Primitives/
@@ -197,15 +253,20 @@ test.describe("inspector (specs/ux-inspector.md UX-4xx)", () => {
     expect(json.extensions.KHR_audio_emitter.emitters[0].distanceModel).toBe("linear");
   });
 
-  test("Light and camera nodes show Transform plus an explicit later-iteration note, never a silently missing section (UX-414)", async ({ page }) => {
+  test("Light and camera nodes show Transform plus their own real Light/Camera sections, never a silently missing section (UX-414/UX-417/UX-418)", async ({
+    page
+  }) => {
     await page.getByTestId("scene-tree.row.2").click(); // Lamp
     await expect(page.getByTestId("inspector.transform.section")).toBeVisible();
-    await expect(page.getByTestId("inspector.light.note")).toContainText("later iteration");
+    await expect(page.getByTestId("inspector.light.section")).toBeVisible();
+    await expect(page.getByTestId("inspector.light.type")).toHaveText("point");
+    await expect(page.getByTestId("inspector.light.note")).toContainText("later iteration"); // type is still read-only
     await expect(page.getByTestId("inspector.mesh.section")).toHaveCount(0);
 
     await page.getByTestId("scene-tree.row.3").click(); // Cam
     await expect(page.getByTestId("inspector.transform.section")).toBeVisible();
-    await expect(page.getByTestId("inspector.camera.note")).toContainText("later iteration");
+    await expect(page.getByTestId("inspector.camera.section")).toBeVisible();
+    await expect(page.getByTestId("inspector.camera.note")).toContainText("later iteration"); // no live viewport preview yet
   });
 
   test("◈ pointer-shortcut menu: copy path, and Add pointer/set|interpolate create a real KHR_interactivity graph node as one undoable command (UX-411/UX-412, DOC-041/DOC-042)", async ({
@@ -244,5 +305,199 @@ test.describe("inspector (specs/ux-inspector.md UX-4xx)", () => {
     await page.getByTestId("topbar.undo").click();
     const jsonUndone = (await documentJson(page)) as { extensions?: { KHR_interactivity?: unknown } };
     expect(jsonUndone.extensions?.KHR_interactivity).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------
+  // Richer inspector (UX-415/UX-416/UX-417/UX-418): PBR extras, texture
+  // slots, lights, cameras. Each edit is checked against BOTH the document
+  // (round-trip, undoable) AND — the acceptance bar this whole feature is
+  // held to — real rendered pixels or a real successful RenderHost reload,
+  // never a write-only field.
+  // ---------------------------------------------------------------------
+
+  test("Texture Slots: a real decoded thumbnail for the fixture's baseColorTexture, 'not set' for the rest, Clear removes it and is undoable (UX-416)", async ({
+    page
+  }) => {
+    await page.getByTestId("scene-tree.row.0").click(); // Widget: 2 materials -> suffixed testids
+    const thumb = page.getByTestId("inspector.material.texture.baseColorTexture.thumb.0");
+    await expect(thumb).toBeVisible();
+    const src = await thumb.getAttribute("src");
+    expect(src).toMatch(/^data:image\//); // a REAL decode (loadImageBitmaps -> canvas -> toDataURL), not a placeholder.
+    await expect(page.getByTestId("inspector.material.texture.normalTexture.unset.0")).toHaveText("not set");
+    await expect(page.getByTestId("inspector.material.texture.emissiveTexture.unset.0")).toHaveText("not set");
+
+    await expect(page.getByTestId("topbar.undo")).toBeDisabled();
+    await page.getByTestId("inspector.material.texture.baseColorTexture.clear.0").click();
+    await expect(page.getByTestId("inspector.material.texture.baseColorTexture.thumb.0")).toHaveCount(0);
+    await expect(page.getByTestId("inspector.material.texture.baseColorTexture.unset.0")).toHaveText("not set");
+
+    const json = (await documentJson(page)) as { materials: Array<{ pbrMetallicRoughness: { baseColorTexture?: unknown } }> };
+    expect(json.materials[0].pbrMetallicRoughness.baseColorTexture).toBeUndefined();
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click();
+    await expect(page.getByTestId("inspector.material.texture.baseColorTexture.thumb.0")).toBeVisible();
+    const jsonUndone = (await documentJson(page)) as { materials: Array<{ pbrMetallicRoughness: { baseColorTexture?: { index: number } } }> };
+    expect(jsonUndone.materials[0].pbrMetallicRoughness.baseColorTexture).toEqual({ index: 0 });
+  });
+
+  test("Texture Slots: KHR_texture_transform offset/scale edits write through and scaffold extensionsUsed (UX-416)", async ({ page }) => {
+    await page.getByTestId("scene-tree.row.0").click();
+    await expect(page.getByTestId("inspector.material.texture.baseColorTexture.offset-x.0")).toBeVisible();
+
+    await page.getByTestId("inspector.material.texture.baseColorTexture.offset-x.0").fill("0.25");
+    await page.getByTestId("inspector.material.texture.baseColorTexture.scale-x.0").fill("2");
+
+    const json = (await documentJson(page)) as {
+      extensionsUsed: string[];
+      materials: Array<{
+        pbrMetallicRoughness: { baseColorTexture: { extensions?: { KHR_texture_transform?: { offset?: number[]; scale?: number[] } } } };
+      }>;
+    };
+    const transform = json.materials[0].pbrMetallicRoughness.baseColorTexture.extensions?.KHR_texture_transform;
+    expect(transform?.offset?.[0]).toBeCloseTo(0.25, 5);
+    expect(transform?.scale?.[0]).toBeCloseTo(2, 5);
+    expect(json.extensionsUsed).toContain("KHR_texture_transform");
+  });
+
+  test("Material PBR extras: emissiveFactor renders live in the viewport and is undoable (UX-415)", async ({ page }) => {
+    await page.getByTestId("scene-tree.row.0").click();
+
+    const mount = page.getByTestId("viewport.mount");
+    await setCameraPose(page, FRONT_CAMERA_POSE);
+    const before = await centerPixelRgb(mount);
+
+    // Material index 1 ("Mat_Blue", orderIndex 1 -> suffix ".1"), NOT index
+    // 0: this fixture's "Widget" mesh deliberately has TWO primitives
+    // sharing the exact SAME position accessor (UX-405's own multi-material
+    // coverage need — see inspector-fixture.ts's header) — both triangles
+    // are therefore perfectly coplanar, and (confirmed via a real rendered
+    // screenshot while first writing this test — see this test's own PR
+    // description) the LATER-drawn primitive (Mat_Blue, primitive 1) wins
+    // the depth tie and is what's actually visible on screen; editing
+    // Mat_Red (primitive 0, fully depth-occluded here) would be a
+    // write-only-looking assertion for the wrong reason. A real pixel test
+    // has to target whichever material the renderer actually shows.
+    await setRangeOrColorValue(page, "inspector.material.emissive.1", "#00ffff"); // bright cyan -- adds directly to the lit color.
+    const after = await centerPixelRgb(mount);
+
+    // Emissive is additive on top of whatever lit base-color contribution
+    // was already there. Green has the most headroom to prove this (Mat_Blue's
+    // OWN baseColorFactor is already [0.1, 0.1, 0.8] -- blue is close to
+    // saturated from the base color alone, so a same-magnitude rise there
+    // isn't guaranteed the way it is for the previously-low green channel);
+    // overall brightness (r+g+b) is the more robust cross-channel check.
+    expect(after.g).toBeGreaterThan(before.g + 15);
+    expect(after.r + after.g + after.b).toBeGreaterThan(before.r + before.g + before.b + 15);
+
+    const json = (await documentJson(page)) as { materials: Array<{ emissiveFactor?: number[] }> };
+    expect(json.materials[1].emissiveFactor?.slice(0, 3)).toEqual([0, 1, 1]);
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click();
+    const jsonUndone = (await documentJson(page)) as { materials: Array<{ emissiveFactor?: number[] }> };
+    expect(jsonUndone.materials[1].emissiveFactor ?? [0, 0, 0]).toEqual([0, 0, 0]);
+  });
+
+  test("Material PBR extras: doubleSided toggles a REAL backface-culling difference in the viewport and is undoable (UX-415)", async ({ page }) => {
+    await page.getByTestId("scene-tree.row.0").click();
+    await page.getByTestId("inspector.material.texture.baseColorTexture.clear.0").click();
+
+    const mount = page.getByTestId("viewport.mount");
+    await setCameraPose(page, BACK_CAMERA_POSE); // looking at the triangle's BACK -- backface-culled while single-sided (the fixture's own default).
+    const beforeBack = await centerPixelRgb(mount);
+
+    await expect(page.getByTestId("inspector.material.double-sided.0")).not.toBeChecked();
+    await page.getByTestId("inspector.material.double-sided.0").check();
+    await setCameraPose(page, BACK_CAMERA_POSE); // re-assert the pose (a document-driven reload could otherwise reset it).
+    const afterBack = await centerPixelRgb(mount);
+
+    // Single-sided (before): the back view shows only background/grid --
+    // roughly neutral (r/g/b close together). doubleSided:true (after): the
+    // material's own red base color now renders there too -- a real,
+    // measurable hue shift, not just "some pixels changed".
+    expect(afterBack.r - afterBack.g).toBeGreaterThan(beforeBack.r - beforeBack.g + 15);
+
+    const json = (await documentJson(page)) as { materials: Array<{ doubleSided?: boolean }> };
+    expect(json.materials[0].doubleSided).toBe(true);
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click();
+    await setCameraPose(page, BACK_CAMERA_POSE);
+    const afterUndoBack = await centerPixelRgb(mount);
+    expect(afterUndoBack.r - afterUndoBack.g).toBeLessThan(afterBack.r - afterBack.g - 10); // reverted back toward the neutral "before" reading.
+  });
+
+  test("Material PBR extras: alphaMode round-trips through a full RenderHost reload (no vendored pointer-router route -- a load-time-only glTF field) without breaking the viewport, and alphaCutoff only shows for MASK (UX-415)", async ({
+    page
+  }) => {
+    await page.getByTestId("scene-tree.row.0").click();
+    await expect(page.getByTestId("inspector.material.alpha-cutoff.0")).toHaveCount(0); // OPAQUE (the fixture's default) -- alphaCutoff hidden.
+
+    await page.getByTestId("inspector.material.alpha-mode.0").selectOption("MASK");
+    await expect(page.getByTestId("inspector.material.alpha-cutoff.0")).toBeVisible();
+    await setRangeOrColorValue(page, "inspector.material.alpha-cutoff.0", "0.3");
+
+    await page.getByTestId("inspector.material.alpha-mode.0").selectOption("BLEND");
+    // alphaMode has no live pointer-router route (a value-bearing string
+    // isn't a valid PointerValue) -- patchScene's classifier correctly
+    // routes it through a full RenderHost.loadScene() reload instead. This
+    // waits for that reload to actually complete rather than asserting
+    // blind -- the real "did this actually reach the renderer" check for a
+    // field with no pixel-visible effect at alpha=1 (no alpha slider exists
+    // in this PR yet -- see this test's own PR notes for that honest gap).
+    await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);
+    await expect(page.getByTestId("inspector.material.alpha-mode.0")).toHaveValue("BLEND");
+
+    const json = (await documentJson(page)) as { materials: Array<{ alphaMode?: string; alphaCutoff?: number }> };
+    expect(json.materials[0].alphaMode).toBe("BLEND");
+    expect(json.materials[0].alphaCutoff).toBeCloseTo(0.3, 5);
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click(); // undoes the BLEND write.
+    await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);
+    const jsonUndone = (await documentJson(page)) as { materials: Array<{ alphaMode?: string }> };
+    expect(jsonUndone.materials[0].alphaMode ?? "OPAQUE").toBe("MASK");
+  });
+
+  test("Light section: color/intensity render live (measurable brightness change) and round-trip; range shown (point), cone angles hidden (non-spot) (UX-417)", async ({
+    page
+  }) => {
+    const mount = page.getByTestId("viewport.mount");
+    await setCameraPose(page, FRONT_CAMERA_POSE); // frames "Widget", the fixture's one lit/visible object.
+
+    await page.getByTestId("scene-tree.row.2").click(); // Lamp (point, translated off-origin -- see inspector-fixture.ts)
+    await expect(page.getByTestId("inspector.light.intensity")).toHaveValue("500");
+    await expect(page.getByTestId("inspector.light.range")).toBeVisible(); // point -- range is meaningful.
+    await expect(page.getByTestId("inspector.light.inner-cone-angle")).toHaveCount(0); // not a spot light.
+
+    const before = await centerPixelRgb(mount);
+    await page.getByTestId("inspector.light.intensity").fill("6000");
+    const after = await centerPixelRgb(mount);
+    const brightness = (c: { r: number; g: number; b: number }) => c.r + c.g + c.b;
+    expect(brightness(after)).toBeGreaterThan(brightness(before) + 20);
+
+    const json = (await documentJson(page)) as { extensions: { KHR_lights_punctual: { lights: Array<{ intensity: number }> } } };
+    expect(json.extensions.KHR_lights_punctual.lights[0].intensity).toBe(6000);
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click();
+    await expect(page.getByTestId("inspector.light.intensity")).toHaveValue("500");
+  });
+
+  test("Camera section: yfov/znear/zfar round-trip through the document and are undoable; the 'no live preview yet' gap is noted, not silently missing (UX-418)", async ({
+    page
+  }) => {
+    await page.getByTestId("scene-tree.row.3").click(); // Cam
+    await expect(page.getByTestId("inspector.camera.yfov")).toHaveValue("0.8");
+    await expect(page.getByTestId("inspector.camera.note")).toContainText("does not yet preview live");
+
+    await page.getByTestId("inspector.camera.yfov").fill("1.2");
+    const json = (await documentJson(page)) as { cameras: Array<{ perspective: { yfov: number } }> };
+    expect(json.cameras[0].perspective.yfov).toBeCloseTo(1.2, 5);
+
+    await expect(page.getByTestId("topbar.undo")).toBeEnabled();
+    await page.getByTestId("topbar.undo").click();
+    await expect(page.getByTestId("inspector.camera.yfov")).toHaveValue("0.8");
   });
 });

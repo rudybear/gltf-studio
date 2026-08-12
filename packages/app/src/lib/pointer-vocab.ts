@@ -83,6 +83,39 @@ export function materialPropPath(materialIndex: number, propKey: string, compInd
   return compIndex !== undefined ? `${base}/${compIndex}` : base;
 }
 
+/**
+ * Richer inspector (specs/ux-inspector.md UX-417): the scalar
+ * `KHR_lights_punctual` light properties the Inspector's Light section gives
+ * a `◈` pointer-shortcut to (color is a picker, like `baseColorFactor`/
+ * `emissiveFactor` — no `◈`, matching this codebase's established
+ * "scalars get the shortcut, color pickers don't" convention). `range`/
+ * `spot/innerConeAngle`/`spot/outerConeAngle` are only ever SHOWN by the
+ * Light section for a point/spot (range) or spot-only (cone angles) light in
+ * the first place — this table doesn't itself gate that, the section does.
+ */
+export const LIGHT_PROPS: AnimatablePropertyDef[] = [
+  scalar("intensity", "intensity"),
+  scalar("range", "range"),
+  scalar("spot/innerConeAngle", "inner cone angle"),
+  scalar("spot/outerConeAngle", "outer cone angle")
+];
+
+/** `/extensions/KHR_lights_punctual/lights/{i}/...` — addressed by LIGHT index (the root registry), not node index — see `GltfLightJson`'s own doc comment in `gltf-scene.ts`. */
+export function lightPropPath(lightIndex: number, propKey: string): string {
+  return `/extensions/KHR_lights_punctual/lights/${lightIndex}/${propKey}`;
+}
+
+/**
+ * Richer inspector (specs/ux-inspector.md UX-418): the perspective-camera
+ * scalar properties the Inspector's Camera section gives a `◈` to.
+ */
+export const CAMERA_PROPS: AnimatablePropertyDef[] = [scalar("yfov", "yfov"), scalar("znear", "znear"), scalar("zfar", "zfar")];
+
+/** `/cameras/{i}/perspective/...` — core glTF, no extension involved. */
+export function cameraPropPath(cameraIndex: number, propKey: string): string {
+  return `/cameras/${cameraIndex}/perspective/${propKey}`;
+}
+
 // ---------------------------------------------------------------------------
 // Content tree (UX-901): Nodes (full hierarchy) / Materials / Animations.
 // ---------------------------------------------------------------------------
@@ -206,12 +239,21 @@ export function colorKindForPointerPath(pointerPath: string): ColorKind | undefi
 // ---------------------------------------------------------------------------
 // Known gaps (honest, not silently dropped): this vocabulary covers the
 // common TRS + pbrMetallicRoughness/emissive/alphaCutoff families the
-// approved mockup itself demonstrates. NOT covered (a real follow-up, not
-// invented here): camera (yfov/znear/zfar/...), KHR_lights_punctual
-// (color/intensity/range), KHR_texture_transform (offset/rotation/scale),
+// approved mockup itself demonstrates, PLUS (richer inspector,
+// specs/ux-inspector.md UX-417/UX-418) LIGHT_PROPS/CAMERA_PROPS + their own
+// path builders, added for the Inspector's own `◈` affordance on its Light/
+// Camera sections. NOT covered (a real follow-up, not invented here):
+// KHR_texture_transform (offset/rotation/scale — editable in the Inspector's
+// Texture Slots sub-section, but via `SceneEdit.setMaterialTextureTransform`
+// directly, not through this shared vocabulary/the `◈` affordance),
 // KHR_materials_* extension factors (emissive strength, IOR, sheen, ...),
 // and KHR_audio_emitter/KHR_node_visibility (the mockup's own
 // NODE_PROPS/EMITTER_EXTRA_PROP superset for those two families is scene-
 // fixture-specific, not derivable from an arbitrary document the way
 // TRS/pbr are, so it is intentionally not carried over here — see the PR
-// description's "honest gaps").
+// description's "honest gaps"). Lights/cameras are also not yet part of
+// `buildPointerContentTree`/`parsePointerPath` (the pointer-picker dialog's
+// own content tree only enumerates nodes/materials/animations) — the
+// Inspector's `◈` affordance uses `LIGHT_PROPS`/`CAMERA_PROPS` directly and
+// doesn't need that reverse-lookup, but the pointer-picker dialog itself
+// still can't target a light/camera property by hand — a follow-up.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyPatches } from "./patch.js";
 import { deepEqualJson } from "./json-pointer.js";
 import { CycleReparentError, SceneEdit } from "./scene-edit.js";
-import { fixtureDocument } from "./test-fixtures.js";
+import { fixtureDocument, fixtureGltfJson } from "./test-fixtures.js";
 import type { Command } from "./command.js";
 
 function expectRoundTrip(before: unknown, command: Pick<Command, "patches" | "inverse">): unknown {
@@ -76,6 +76,136 @@ describe("SceneEdit.setAudioEmitterProperty", () => {
       extensions: { KHR_audio_emitter: { emitters: Array<{ gain: number }> } };
     };
     expect(after.extensions.KHR_audio_emitter.emitters[0].gain).toBe(0.5);
+  });
+});
+
+// Richer inspector (specs/ux-inspector.md UX-417): SceneEdit.setLightProperty
+// against the root extensions.KHR_lights_punctual.lights[] registry.
+describe("SceneEdit.setLightProperty (DOC-060)", () => {
+  function lightFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      extensionsUsed: ["KHR_lights_punctual"],
+      extensions: { KHR_lights_punctual: { lights: [{ type: "spot", intensity: 500, spot: { innerConeAngle: 0, outerConeAngle: 0.7 } }] } }
+    });
+  }
+
+  it("sets a scalar light property and round-trips", () => {
+    const doc = lightFixtureDocument();
+    const command = SceneEdit.setLightProperty(doc, 0, ["intensity"], 900);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_lights_punctual: { lights: Array<{ intensity: number }> } };
+    };
+    expect(after.extensions.KHR_lights_punctual.lights[0].intensity).toBe(900);
+  });
+
+  it("sets a nested spot cone-angle property and round-trips", () => {
+    const doc = lightFixtureDocument();
+    const command = SceneEdit.setLightProperty(doc, 0, ["spot", "outerConeAngle"], 0.9);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_lights_punctual: { lights: Array<{ spot: { outerConeAngle: number } }> } };
+    };
+    expect(after.extensions.KHR_lights_punctual.lights[0].spot.outerConeAngle).toBe(0.9);
+  });
+});
+
+// Richer inspector (specs/ux-inspector.md UX-418): SceneEdit.setCameraProperty
+// against core glTF's cameras[] array.
+describe("SceneEdit.setCameraProperty (DOC-060)", () => {
+  function cameraFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      cameras: [{ type: "perspective", perspective: { yfov: 0.8, znear: 0.1 } }]
+    });
+  }
+
+  it("sets a perspective property and round-trips", () => {
+    const doc = cameraFixtureDocument();
+    const command = SceneEdit.setCameraProperty(doc, 0, ["perspective", "yfov"], 1.1);
+    const after = expectRoundTrip(doc.json, command) as {
+      cameras: Array<{ perspective: { yfov: number } }>;
+    };
+    expect(after.cameras[0].perspective.yfov).toBe(1.1);
+  });
+
+  it("adds a previously-absent property (znear present, zfar absent) and round-trips", () => {
+    const doc = cameraFixtureDocument();
+    const command = SceneEdit.setCameraProperty(doc, 0, ["perspective", "zfar"], 100);
+    const after = expectRoundTrip(doc.json, command) as {
+      cameras: Array<{ perspective: { zfar: number } }>;
+    };
+    expect(after.cameras[0].perspective.zfar).toBe(100);
+  });
+});
+
+// Richer inspector (specs/ux-inspector.md UX-416): texture-slot clear + KHR_texture_transform writes.
+describe("SceneEdit.clearMaterialTexture (DOC-060)", () => {
+  function texturedFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      materials: [
+        {
+          name: "Mat0",
+          pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], baseColorTexture: { index: 0 } }
+        }
+      ],
+      textures: [{ source: 0 }],
+      images: [{ uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUAAScY42YAAAAASUVORK5CYII=" }]
+    });
+  }
+
+  it("removes the whole texture-info object and round-trips", () => {
+    const doc = texturedFixtureDocument();
+    const command = SceneEdit.clearMaterialTexture(doc, 0, ["pbrMetallicRoughness", "baseColorTexture"]);
+    const after = expectRoundTrip(doc.json, command) as {
+      materials: Array<{ pbrMetallicRoughness: { baseColorTexture?: unknown } }>;
+    };
+    expect(after.materials[0].pbrMetallicRoughness.baseColorTexture).toBeUndefined();
+  });
+
+  it("throws when the slot is already unset", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.clearMaterialTexture(doc, 0, ["normalTexture"])).toThrow();
+  });
+});
+
+describe("SceneEdit.setMaterialTextureTransform (DOC-060)", () => {
+  function texturedFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      materials: [
+        {
+          name: "Mat0",
+          pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], baseColorTexture: { index: 0 } }
+        }
+      ],
+      textures: [{ source: 0 }],
+      images: [{ uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUAAScY42YAAAAASUVORK5CYII=" }]
+    });
+  }
+
+  it("sets an offset, scaffolds extensionsUsed, and round-trips", () => {
+    const doc = texturedFixtureDocument();
+    expect((doc.json as { extensionsUsed?: string[] }).extensionsUsed ?? []).not.toContain("KHR_texture_transform");
+    const command = SceneEdit.setMaterialTextureTransform(doc, 0, ["pbrMetallicRoughness", "baseColorTexture"], "offset", [0.25, 0.5]);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensionsUsed: string[];
+      materials: Array<{
+        pbrMetallicRoughness: { baseColorTexture: { extensions: { KHR_texture_transform: { offset: number[] } } } };
+      }>;
+    };
+    expect(after.materials[0].pbrMetallicRoughness.baseColorTexture.extensions.KHR_texture_transform.offset).toEqual([0.25, 0.5]);
+    expect(after.extensionsUsed).toContain("KHR_texture_transform");
+  });
+
+  it("a second write does not duplicate the extensionsUsed entry", () => {
+    const doc = texturedFixtureDocument();
+    const first = SceneEdit.setMaterialTextureTransform(doc, 0, ["pbrMetallicRoughness", "baseColorTexture"], "offset", [0.25, 0.5]);
+    const afterFirst = applyPatches(doc.json, first.patches);
+    const docAfterFirst = { ...doc, json: afterFirst };
+    const second = SceneEdit.setMaterialTextureTransform(docAfterFirst, 0, ["pbrMetallicRoughness", "baseColorTexture"], "scale", [2, 2]);
+    const after = expectRoundTrip(docAfterFirst.json, second) as { extensionsUsed: string[] };
+    expect(after.extensionsUsed.filter((e) => e === "KHR_texture_transform")).toHaveLength(1);
   });
 });
 
