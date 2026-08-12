@@ -69,7 +69,8 @@ export class IndexedDBStorage implements StorageProvider {
   async listProjects(): Promise<ProjectMeta[]> {
     const db = await this.#openDb();
     const records = await this.#getAll<StoredProjectRecord>(db, PROJECTS_STORE);
-    return records.map(recordToMeta);
+    // SP-022: most-recently-updated first.
+    return records.map(recordToMeta).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async create(meta: Omit<ProjectMeta, "id">): Promise<ProjectMeta> {
@@ -136,6 +137,13 @@ export class IndexedDBStorage implements StorageProvider {
     const existing = await this.#get<StoredJournalRecord>(db, JOURNALS_STORE, id);
     if (!existing) return { sinceRev: 0, patches: [] };
     return { sinceRev: existing.sinceRev, patches: existing.patches };
+  }
+
+  /** SP-021. */
+  async delete(id: string): Promise<void> {
+    const db = await this.#openDb();
+    await this.#delete(db, PROJECTS_STORE, id);
+    await this.#delete(db, JOURNALS_STORE, id);
   }
 
   // ---------------------------------------------------------------------

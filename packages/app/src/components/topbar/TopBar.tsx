@@ -35,11 +35,19 @@ function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
  * `specs/ux-tour.md`'s tour at step 1 regardless of prior state).
  * Export is real as of M3.
  */
+const SAVE_STATUS_LABEL: Record<"saved" | "saving" | "unsaved", string> = {
+  saved: "Saved",
+  saving: "Saving…",
+  unsaved: "Unsaved changes"
+};
+
 export function TopBar(): JSX.Element {
   const projectName = useAppStore((s) => s.projectName);
-  const projectDirty = useAppStore((s) => s.projectDirty);
+  const saveStatus = useAppStore((s) => s.saveStatus);
   const importFiles = useAppStore((s) => s.importFiles);
   const exportProject = useAppStore((s) => s.exportProject);
+  const openProjectManager = useAppStore((s) => s.openProjectManager);
+  const openShareDialog = useAppStore((s) => s.openShareDialog);
   const hasDocument = useAppStore((s) => s.document !== null);
   const canUndo = useAppStore((s) => s.canUndo);
   const canRedo = useAppStore((s) => s.canRedo);
@@ -141,9 +149,16 @@ export function TopBar(): JSX.Element {
       </span>
       <span className="project-name" data-testid="topbar.project-name">
         {projectName}
-        {projectDirty ? "*" : ""}
       </span>
+      {hasDocument && (
+        <span className={`save-status save-status-${saveStatus}`} data-testid="topbar.save-status">
+          {SAVE_STATUS_LABEL[saveStatus]}
+        </span>
+      )}
       <div className="topbar-group">
+        <button className="btn" data-testid="topbar.projects" title="Open the project manager" onClick={openProjectManager}>
+          Projects
+        </button>
         <button
           className="btn"
           data-testid="topbar.import"
@@ -179,6 +194,17 @@ export function TopBar(): JSX.Element {
           }}
         >
           Export .glb
+        </button>
+        <button
+          className="btn"
+          data-testid="topbar.share"
+          disabled={!hasDocument}
+          title={hasDocument ? "Share this project" : "Import a .glb first."}
+          onClick={() => {
+            void openShareDialog();
+          }}
+        >
+          Share
         </button>
       </div>
       <div className="topbar-spacer" />

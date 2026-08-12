@@ -1765,3 +1765,157 @@ body.testid-mode [data-testid] {
 .tour-card-actions-spacer {
   flex: 1 1 auto;
 }
+
+/* ---------- persistence & sharing (specs/ux-shell.md UX-122..127) ---------- */
+.btn.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+.save-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding-left: 4px;
+}
+.save-status-saving {
+  color: var(--warn);
+}
+.save-status-unsaved {
+  color: var(--warn);
+}
+
+.pm-modal {
+  width: min(640px, 92vw);
+  height: min(560px, 84vh);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pm-toolbar {
+  justify-content: flex-end;
+}
+.pm-body {
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+.pm-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-dim);
+}
+.pm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.pm-row-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.pm-row-thumb {
+  width: 48px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.pm-row-thumb-placeholder {
+  width: 48px;
+  height: 36px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.pm-row-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pm-row-name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-row-updated {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.pm-rename-input {
+  width: 100%;
+}
+.pm-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.pm-confirm-overlay {
+  z-index: 600;
+}
+.pm-confirm-modal {
+  width: min(360px, 90vw);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  font-size: 12.5px;
+}
+
+.recovery-card {
+  position: fixed;
+  top: 54px;
+  right: 16px;
+  z-index: 400;
+  width: min(360px, 88vw);
+  background: var(--bg-1);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+}
+.recovery-message {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+.recovery-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.share-link-output {
+  width: 100%;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+}

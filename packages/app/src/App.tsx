@@ -12,6 +12,9 @@ import { TestIdOverlay } from "./components/TestIdOverlay";
 import { ToastLayer } from "./components/ToastLayer";
 import { PointerPickerDialog } from "./components/pointer-picker/PointerPickerDialog";
 import { MissingFilesDialog } from "./components/import/MissingFilesDialog";
+import { ProjectManager } from "./components/project-manager/ProjectManager";
+import { RecoveryPrompt } from "./components/project-manager/RecoveryPrompt";
+import { ShareDialog } from "./components/project-manager/ShareDialog";
 import { filesFromDataTransfer } from "./lib/file-drop.js";
 import { TourBanner } from "./tour/TourBanner";
 import { TourOverlay } from "./tour/TourOverlay";
@@ -121,6 +124,15 @@ export function App(): JSX.Element {
     };
   }, []);
 
+  // specs/ux-shell.md UX-125/UX-127: runs once at startup -- a `#share=`
+  // URL (UX-127) takes priority over reopening the last-open project
+  // (UX-125's own bookmark), and either path leaves this a no-op when
+  // neither applies (a fresh session with nothing to resume, same as
+  // before this feature existed).
+  useEffect(() => {
+    void useAppStore.getState().bootstrapFromEnvironment();
+  }, []);
+
   // specs/ux-shell.md UX-118: dropping a file (or an entire FOLDER — see
   // `file-drop.ts`'s directory-entry traversal) ANYWHERE on the window
   // imports it, not just onto the `topbar.import` button — the "it just
@@ -217,6 +229,9 @@ export function App(): JSX.Element {
       <ToastLayer />
       <PointerPickerDialog />
       <MissingFilesDialog />
+      <ProjectManager />
+      <ShareDialog />
+      <RecoveryPrompt />
       <TourOverlay />
     </div>
   );

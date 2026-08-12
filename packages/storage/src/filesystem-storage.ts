@@ -55,7 +55,8 @@ export class FileSystemAccessStorage implements StorageProvider {
       const meta = await this.#tryReadMeta(projectsDir, name);
       if (meta) metas.push(meta);
     }
-    return metas;
+    // SP-022: most-recently-updated first.
+    return metas.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async create(meta: Omit<ProjectMeta, "id">): Promise<ProjectMeta> {
@@ -128,6 +129,13 @@ export class FileSystemAccessStorage implements StorageProvider {
     const text = await this.#readFileText(dir, "journal.json");
     if (!text) return { sinceRev: 0, patches: [] };
     return JSON.parse(text);
+  }
+
+  /** SP-021: idempotent — removing an already-absent project directory is not an error. */
+  async delete(id: string): Promise<void> {
+    await this.#checkPermission();
+    const projectsDir = await this.#projectsDir();
+    await projectsDir.removeEntry(id, { recursive: true }).catch(() => undefined);
   }
 
   // ---------------------------------------------------------------------
