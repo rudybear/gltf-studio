@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyPatches } from "./patch.js";
 import { deepEqualJson } from "./json-pointer.js";
-import { SceneEdit, SceneEditNotImplementedError } from "./scene-edit.js";
+import { CycleReparentError, SceneEdit } from "./scene-edit.js";
 import { fixtureDocument } from "./test-fixtures.js";
 import type { Command } from "./command.js";
 
@@ -79,10 +79,372 @@ describe("SceneEdit.setAudioEmitterProperty", () => {
   });
 });
 
-describe("SceneEdit structural stub (reparentNode, still deferred to M8 part 2)", () => {
-  it("reparentNode throws SceneEditNotImplementedError", () => {
-    expect(() => SceneEdit.reparentNode()).toThrow(SceneEditNotImplementedError);
-    expect(() => SceneEdit.reparentNode()).toThrow(/M8/);
+// DOC-052 (M8 part 2): SceneEdit.reparentNode — moves an EXISTING node (and
+// its whole subtree, implicitly, via its unchanged `children`) between
+// membership arrays, with NO index-shift reference fixup needed (nodeIndex
+// itself never changes) and a typed cycle rejection.
+describe("SceneEdit.reparentNode (DOC-052)", () => {
+  it("moves a scene-root node under another node's children, removing it from the scene root", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [{ name: "Parent" }, { name: "Mover" }]
+    });
+    const command = SceneEdit.reparentNode(doc, 1, 0);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }>; scenes: Array<{ nodes: number[] }> };
+    expect(after.nodes[0].children).toEqual([1]);
+    expect(after.scenes[0].nodes).toEqual([0]); // Mover no longer a scene root.
+  });
+
+  it("moves a child node to scene root when newParentIndex is null", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Parent", children: [1] }, { name: "Child" }]
+    });
+    const command = SceneEdit.reparentNode(doc, 1, null);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }>; scenes: Array<{ nodes: number[] }> };
+    expect(after.nodes[0].children).toBeUndefined(); // Parent's only child left -> property removed, not [].
+    expect(after.scenes[0].nodes).toEqual([0, 1]);
+  });
+
+  it("moves a node from one parent to another (both non-root), preserving each parent's OTHER children", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [
+        { name: "OldParent", children: [2, 3] },
+        { name: "NewParent" },
+        { name: "Mover" }, // 2
+        { name: "Sibling" } // 3
+      ]
+    });
+    const command = SceneEdit.reparentNode(doc, 2, 1);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
+    expect(after.nodes[0].children).toEqual([3]); // OldParent keeps Sibling, loses Mover.
+    expect(after.nodes[1].children).toEqual([2]); // NewParent gains Mover.
+  });
+
+  it("lands at a specific insertIndex among the new parent's existing children rather than always appending last", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 3] }],
+      nodes: [{ name: "Parent", children: [1, 2] }, { name: "A" }, { name: "B" }, { name: "Mover" }]
+    });
+    const command = SceneEdit.reparentNode(doc, 3, 0, 1);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
+    expect(after.nodes[0].children).toEqual([1, 3, 2]); // inserted BETWEEN A and B, not appended after B.
+  });
+
+  it("reparenting under its own current parent with no insertIndex moves it to be the LAST child (not an error, not a no-op)", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Parent", children: [1, 2] }, { name: "A" }, { name: "B" }]
+    });
+    const command = SceneEdit.reparentNode(doc, 1, 0);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
+    expect(after.nodes[0].children).toEqual([2, 1]); // A moved to the end, past B.
+  });
+
+  it("rejects reparenting a node under itself with a typed CycleReparentError", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.reparentNode(doc, 0, 0)).toThrow(CycleReparentError);
+  });
+
+  it("rejects reparenting a node under its own descendant with a typed CycleReparentError", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Root", children: [1] }, { name: "Mid", children: [2] }, { name: "Leaf" }]
+    });
+    expect(() => SceneEdit.reparentNode(doc, 0, 2)).toThrow(CycleReparentError);
+    expect(() => SceneEdit.reparentNode(doc, 0, 1)).toThrow(CycleReparentError);
+  });
+
+  it("throws a plain Error (not CycleReparentError) for an out-of-range nodeIndex or newParentIndex", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.reparentNode(doc, 99, 0)).toThrow();
+    expect(() => SceneEdit.reparentNode(doc, 0, 99)).toThrow();
+    try {
+      SceneEdit.reparentNode(doc, 0, 99);
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(CycleReparentError);
+    }
+  });
+
+  it("moving a node's subtree carries its descendants along implicitly (children array itself is untouched) — no reference anywhere needs fixing up since no node index ever changes", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [
+        { name: "OldParent", children: [2] },
+        { name: "NewParent" },
+        { name: "Mover", children: [3] }, // 2
+        { name: "MoverChild" } // 3
+      ],
+      extensionsUsed: ["KHR_interactivity"],
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [],
+              declarations: [{ op: "event/onSelect" }],
+              nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [3] } } }]
+            }
+          ]
+        }
+      }
+    });
+    const command = SceneEdit.reparentNode(doc, 2, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ name: string; children?: number[] }>;
+      extensions: { KHR_interactivity: { graphs: Array<{ nodes: Array<{ configuration: { nodeIndex: { value: number[] } } }> }> } };
+    };
+    expect(after.nodes[1].children).toEqual([2]); // Mover now under NewParent.
+    expect(after.nodes[2].children).toEqual([3]); // Mover's own children untouched.
+    expect(after.nodes[3].name).toBe("MoverChild"); // MoverChild's own index (3) never changed.
+    // The onSelect handler's literal configuration.nodeIndex (3) is completely untouched -- reparenting shifts no index at all.
+    expect(after.extensions.KHR_interactivity.graphs[0].nodes[0].configuration.nodeIndex.value[0]).toBe(3);
+  });
+
+  it("undo restores the exact pre-reparent document", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1] }],
+      nodes: [{ name: "Parent" }, { name: "Mover" }]
+    });
+    const command = SceneEdit.reparentNode(doc, 1, 0);
+    const after = applyPatches(doc.json, command.patches);
+    const undone = applyPatches(after, command.inverse);
+    expect(deepEqualJson(undone, doc.json)).toBe(true);
+  });
+
+  function expectCloseVec(actual: number[], expected: number[]): void {
+    expect(actual).toHaveLength(expected.length);
+    actual.forEach((v, i) => expect(v).toBeCloseTo(expected[i], 5));
+  }
+
+  // DOC-052's WORLD-transform-preservation default (resolved policy: the
+  // scene tree's "move under a different node" gesture must not silently
+  // relocate the object in the viewport). These scenarios hand-derive the
+  // expected local TRS by solving `newLocal = inverse(newParentWorld) *
+  // oldWorld` the same way `reparentNode` itself does (`mat-utils.ts`), so a
+  // regression in either the production code OR this test's own math would
+  // show up as a real numeric mismatch, not a tautology.
+  describe("world-transform preservation (default policy)", () => {
+    it("recomputes local translation+scale so the WORLD transform is numerically unchanged when moving under a scaled+translated new parent", () => {
+      const doc = fixtureDocument({
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0, 1] }],
+        nodes: [
+          { name: "OldParent", children: [2] },
+          { name: "NewParent", translation: [10, 0, 0], scale: [2, 2, 2] },
+          { name: "Mover", translation: [1, 0, 0] } // 2: world position [1,0,0] under identity OldParent
+        ]
+      });
+      const command = SceneEdit.reparentNode(doc, 2, 1);
+      const after = expectRoundTrip(doc.json, command) as {
+        nodes: Array<{ translation?: number[]; rotation?: number[]; scale?: number[] }>;
+      };
+      const mover = after.nodes[2];
+      // NewParent's world matrix maps local (x,y,z) -> (10+2x, 2y, 2z); solving
+      // for the local translation that reproduces world (1,0,0): (1-10)/2 = -4.5.
+      expectCloseVec(mover.translation!, [-4.5, 0, 0]);
+      // Mover's own world scale must stay 1 despite NewParent's 2x scale.
+      expectCloseVec(mover.scale!, [0.5, 0.5, 0.5]);
+      expectCloseVec(mover.rotation ?? [0, 0, 0, 1], [0, 0, 0, 1]);
+    });
+
+    it("recomputes the local `matrix` field (instead of TRS) when the node already authored its transform that way", () => {
+      const doc = fixtureDocument({
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0, 1] }],
+        nodes: [
+          { name: "OldParent", children: [2] },
+          { name: "NewParent", translation: [5, 0, 0] },
+          // Column-major identity matrix with translation [2,0,0] baked in.
+          { name: "Mover", matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1] }
+        ]
+      });
+      const command = SceneEdit.reparentNode(doc, 2, 1);
+      const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ matrix?: number[]; translation?: number[] }> };
+      const mover = after.nodes[2];
+      expect(mover.matrix).toBeDefined();
+      expect(mover.translation).toBeUndefined(); // stayed a `matrix` node, not converted to TRS.
+      // World position was [2,0,0]; NewParent sits at world [5,0,0] with no
+      // scale/rotation -> new local translation is 2 - 5 = -3.
+      expectCloseVec([mover.matrix![12], mover.matrix![13], mover.matrix![14]], [-3, 0, 0]);
+    });
+
+    it("reparenting to root (newParentIndex null) is world-position-preserving too — new local translation equals the old world position", () => {
+      const doc = fixtureDocument({
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0] }],
+        nodes: [{ name: "Parent", translation: [3, 4, 5], children: [1] }, { name: "Child", translation: [1, 1, 1] }]
+      });
+      const command = SceneEdit.reparentNode(doc, 1, null);
+      const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ translation?: number[] }> };
+      expectCloseVec(after.nodes[1].translation!, [4, 5, 6]); // Parent's [3,4,5] + Child's own [1,1,1]
+    });
+
+    it("opts.keepLocal: true opts OUT of world-transform preservation — the local translation carries over completely unchanged", () => {
+      const doc = fixtureDocument({
+        asset: { version: "2.0" },
+        scene: 0,
+        scenes: [{ nodes: [0, 1] }],
+        nodes: [
+          { name: "OldParent", children: [2] },
+          { name: "NewParent", translation: [10, 0, 0], scale: [2, 2, 2] },
+          { name: "Mover", translation: [1, 0, 0] }
+        ]
+      });
+      const command = SceneEdit.reparentNode(doc, 2, 1, undefined, { keepLocal: true });
+      const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ translation?: number[] }> };
+      expectCloseVec(after.nodes[2].translation!, [1, 0, 0]); // unchanged local -- world position DOES change as a result.
+    });
+  });
+});
+
+// DOC-053 (M8 part 2): SceneEdit.duplicateNode — deep-copies a node+subtree
+// as brand-new, appended nodes, sharing (never copying) every non-node
+// resource reference (mesh/material/accessor/etc), never auto-wiring the
+// copy into any interactivity graph.
+describe("SceneEdit.duplicateNode (DOC-053)", () => {
+  it("duplicates a leaf node as a new node appended to json.nodes, named with a ' copy' suffix, sharing its mesh reference", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Cube", mesh: 0 }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }]
+    });
+    const { command, index } = SceneEdit.duplicateNode(doc, 0);
+    expect(index).toBe(1);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ name: string; mesh?: number }>; meshes: unknown[] };
+    expect(after.nodes).toHaveLength(2);
+    expect(after.nodes[1].name).toBe("Cube copy");
+    expect(after.nodes[1].mesh).toBe(0); // shares the SAME mesh index -- no geometry copy.
+    expect(after.meshes).toHaveLength(1); // the meshes registry itself is untouched.
+  });
+
+  it("is placed as a sibling immediately AFTER the original, in the same membership array", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1, 2] }],
+      nodes: [{ name: "A" }, { name: "B" }, { name: "C" }]
+    });
+    const { command, index } = SceneEdit.duplicateNode(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as { scenes: Array<{ nodes: number[] }> };
+    expect(after.scenes[0].nodes).toEqual([0, index, 1, 2]); // right after A, before B and C.
+  });
+
+  it("duplicates a node under a parent as a sibling right after it, within that parent's children", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Parent", children: [1, 2] }, { name: "A" }, { name: "B" }]
+    });
+    const { command, index } = SceneEdit.duplicateNode(doc, 1);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
+    expect(after.nodes[0].children).toEqual([1, index, 2]);
+  });
+
+  it("deep-copies an entire subtree as new nodes, remapping the copy's OWN internal children to its own new indices, and applies the ' copy' suffix to every duplicated node not just the root", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Root", children: [1] }, { name: "Mid", children: [2] }, { name: "Leaf" }]
+    });
+    const { command, index } = SceneEdit.duplicateNode(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ name: string; children?: number[] }> };
+    expect(after.nodes).toHaveLength(6); // 3 original + 3 duplicated.
+    expect(index).toBe(3); // Root's copy.
+    expect(after.nodes[3]).toMatchObject({ name: "Root copy", children: [4] });
+    expect(after.nodes[4]).toMatchObject({ name: "Mid copy", children: [5] });
+    expect(after.nodes[5]).toMatchObject({ name: "Leaf copy" });
+    expect(after.nodes[5].children).toBeUndefined();
+    // The ORIGINAL subtree's own children are completely untouched.
+    expect(after.nodes[0]).toMatchObject({ name: "Root", children: [1] });
+    expect(after.nodes[1]).toMatchObject({ name: "Mid", children: [2] });
+  });
+
+  it("increases the node count by exactly the subtree's size (DOC-053 property, single-scenario check)", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Root", children: [1, 2] }, { name: "A" }, { name: "B" }]
+    });
+    const before = doc.json as { nodes: unknown[] };
+    const { command } = SceneEdit.duplicateNode(doc, 0);
+    const after = applyPatches(doc.json, command.patches) as { nodes: unknown[] };
+    expect(after.nodes.length).toBe(before.nodes.length + 3); // Root + A + B, the whole subtree.
+  });
+
+  it("does NOT auto-wire the duplicate into an existing interactivity graph handler that addresses the original node", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Pad" }],
+      extensionsUsed: ["KHR_interactivity"],
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [],
+              declarations: [{ op: "event/onSelect" }],
+              nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [0] } } }]
+            }
+          ]
+        }
+      }
+    });
+    const { command, index } = SceneEdit.duplicateNode(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_interactivity: { graphs: Array<{ nodes: Array<{ configuration: { nodeIndex: { value: number[] } } }> }> } };
+    };
+    // Still exactly one onSelect handler, still targeting the ORIGINAL node (0) -- not the new copy.
+    expect(after.extensions.KHR_interactivity.graphs[0].nodes).toHaveLength(1);
+    expect(after.extensions.KHR_interactivity.graphs[0].nodes[0].configuration.nodeIndex.value[0]).toBe(0);
+    expect(after.extensions.KHR_interactivity.graphs[0].nodes[0].configuration.nodeIndex.value[0]).not.toBe(index);
+  });
+
+  it("throws for an out-of-range node index", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.duplicateNode(doc, 99)).toThrow();
+  });
+
+  it("is a single combined command: undoing it removes every duplicated node together", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Root", children: [1] }, { name: "Child" }]
+    });
+    const before = doc.json as { nodes: unknown[] };
+    const { command } = SceneEdit.duplicateNode(doc, 0);
+    const after = applyPatches(doc.json, command.patches);
+    const undone = applyPatches(after, command.inverse);
+    expect(deepEqualJson(undone, doc.json)).toBe(true);
+    expect((undone as { nodes: unknown[] }).nodes.length).toBe(before.nodes.length);
   });
 });
 
