@@ -77,6 +77,55 @@ async function readVal(row: Locator): Promise<string> {
   return (await row.locator(".val").textContent()) ?? "";
 }
 
+/**
+ * specs/ux-scene-tree.md UX-215 (DOC-052): a real mouse-driven
+ * `locator.dragTo()` (as `e2e/scene-tree-reparent-duplicate.spec.ts` uses
+ * against its small 4-node fixture) is unreliable here — the scene tree at
+ * R4 Racer's real 26+-row scale is taller than the panel, so source and
+ * target rows generally aren't simultaneously visible, and Playwright
+ * scrolling the target into view mid-drag can shift the SOURCE out from
+ * under the already-computed drag-start position, landing the drop on
+ * whatever row ends up under the cursor after the scroll rather than the
+ * intended target (reproduced while stabilizing this file: a drag "from
+ * Pylon00 to a far-away row" silently reparented PadLeft instead). Dispatches
+ * synthetic `dragover`/`drop` `Event`s with a hand-built `DataTransfer`-like
+ * object directly at the target row instead — the same
+ * `Object.defineProperty(event, "dataTransfer", ...)` technique
+ * `e2e/folder-drop.spec.ts` already established for a real-OS-drag that
+ * Playwright can't script — so the drop always lands exactly on the
+ * intended target regardless of scroll position, with no scrolling
+ * involved at all.
+ */
+async function simulateSceneNodeDrop(page: Page, sourceNodeIndex: number, targetTestId: string): Promise<void> {
+  await page.evaluate(
+    ({ sourceNodeIndex, targetTestId, mime }) => {
+      const target = document.querySelector(`[data-testid="${targetTestId}"]`);
+      if (!target) throw new Error(`drop target "${targetTestId}" not found`);
+      const store = new Map<string, string>();
+      const fakeDataTransfer = {
+        types: [mime, "text/plain"],
+        dropEffect: "move",
+        effectAllowed: "copyMove",
+        setData(type: string, value: string) {
+          store.set(type, value);
+        },
+        getData(type: string) {
+          return store.get(type) ?? "";
+        }
+      };
+      fakeDataTransfer.setData(mime, String(sourceNodeIndex));
+      fakeDataTransfer.setData("text/plain", String(sourceNodeIndex));
+      const dragOverEvt = new Event("dragover", { bubbles: true, cancelable: true });
+      Object.defineProperty(dragOverEvt, "dataTransfer", { value: fakeDataTransfer });
+      target.dispatchEvent(dragOverEvt);
+      const dropEvt = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(dropEvt, "dataTransfer", { value: fakeDataTransfer });
+      target.dispatchEvent(dropEvt);
+    },
+    { sourceNodeIndex, targetTestId, mime: "application/x-scenenode" }
+  );
+}
+
 async function loadRacer(page: Page): Promise<void> {
   await page.goto("./");
   await expect(page.getByTestId("viewport.gallery")).toBeVisible();
@@ -426,5 +475,63 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
 
     await page.getByTestId("playbar.stop").click();
     await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+  });
+
+  await test.step("DOC-052/DOC-053 stress case: reparenting a checkpoint pylon under a brand-new Empty Group, at real scale, leaves the 366-node graph completely untouched (reparenting/duplicating never fix up ANY reference, DOC-054) and PLAY still works exactly as before", async () => {
+    // Empty Group lands as a NEW scene-root node (no selection active) —
+    // node/row 26 (25 pre-existing nodes survive the previous step's
+    // delete+undo, back to the original 26; this is the 27th).
+    await page.getByTestId("scene-tree.add").click();
+    await page.getByTestId("scene-tree.add-menu.group").click();
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+    await page.getByTestId("scene-tree.row.26.rename-input").press("Escape");
+    await expect(page.getByTestId("scene-tree.row.26")).toContainText("Empty Group");
+
+    // Drag Pylon00 (node 3) onto the new Group (row 26) — via
+    // `simulateSceneNodeDrop` (this file's own header comment on why a real
+    // `dragTo()` isn't reliable at this list's real scrollable-list scale).
+    await simulateSceneNodeDrop(page, SCENE_NODE.PYLON, "scene-tree.row.26");
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+
+    const afterReparent = (await page.evaluate(() => window.__gltfStudioDocumentTest?.getJson())) as {
+      nodes: Array<{ children?: number[] }>;
+      scenes: Array<{ nodes: number[] }>;
+      extensions?: { KHR_interactivity?: { graphs: Array<{ nodes: unknown[] }> } };
+    };
+    expect(afterReparent.nodes).toHaveLength(27); // reparenting never changes the node COUNT.
+    expect(afterReparent.nodes[26].children).toEqual([SCENE_NODE.PYLON]); // Group gained Pylon00.
+    expect(afterReparent.scenes[0].nodes).not.toContain(SCENE_NODE.PYLON); // no longer a scene-root entry.
+    // The 366-node graph itself is untouched — no fixup pass runs for a
+    // reparent (DOC-054): still the same node count, still valid.
+    const graph = afterReparent.extensions!.KHR_interactivity!.graphs[0];
+    expect(graph.nodes).toHaveLength(366);
+    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+
+    // Play still genuinely works: PadLeft's real onSelect handler still
+    // fires at its own (entirely unrelated, never-touched) index — the
+    // scenery-only pylon move has no way to affect it, but this proves that
+    // empirically rather than by inference.
+    await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
+    await page.getByTestId("viewport.camera-frame").click();
+    await page.getByTestId("playbar.play").click();
+    await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "playing");
+
+    const steerRow = page.getByTestId("viewport.play-overlay.variable.steer");
+    const mount = page.getByTestId("viewport.mount");
+    const box = (await mount.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(() => readVal(steerRow), { timeout: 3000 }).not.toBe("0");
+
+    await page.getByTestId("playbar.stop").click();
+    await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+
+    // Undo the reparent (leaves the Group node itself in place — that was a
+    // separate command) restores Pylon00 to the scene root.
+    await page.getByTestId("topbar.undo").click();
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+    const undone = (await page.evaluate(() => window.__gltfStudioDocumentTest?.getJson())) as {
+      scenes: Array<{ nodes: number[] }>;
+    };
+    expect(undone.scenes[0].nodes).toContain(SCENE_NODE.PYLON);
   });
 });

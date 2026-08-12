@@ -14,6 +14,7 @@ import { parseContainer } from "@gltfi/gltf";
 import {
   applyPatches,
   createDocument,
+  CycleReparentError,
   DocumentFrozenError,
   getIn,
   GraphEdit,
@@ -330,6 +331,27 @@ export interface AppState {
   selectNode(index: number | null): void;
   /** specs/ux-scene-tree.md UX-214 (DOC-048): deletes `nodeIndex` (and its whole subtree) as one undoable command, then moves selection to its former parent (or clears it for a scene-root). */
   deleteNode(nodeIndex: number): void;
+  /**
+   * specs/ux-scene-tree.md UX-215 (DOC-052, M8 part 2): moves `nodeIndex`
+   * (and its whole subtree, implicitly — glTF's `children` arrays are the
+   * only parent link) under `newParentIndex`, or to the current default
+   * scene's root when `newParentIndex` is `null`, as one undoable
+   * `SceneEdit.reparentNode` command — the scene tree's drag-and-drop
+   * handler and its "Reparent to root" context-menu action both call this.
+   * A cycle attempt (dropping a node onto itself or one of its own
+   * descendants) is caught here and surfaced as a toast rather than
+   * thrown through to either caller.
+   */
+  reparentNode(nodeIndex: number, newParentIndex: number | null, insertIndex?: number): void;
+  /**
+   * specs/ux-scene-tree.md UX-216 (DOC-053, M8 part 2): deep-copies
+   * `nodeIndex` and its whole subtree as new, appended nodes (sharing every
+   * mesh/material/accessor/etc reference, never auto-wired into any
+   * interactivity graph) as one undoable `SceneEdit.duplicateNode` command,
+   * then selects the new copy's root — the context menu's "Duplicate"
+   * action and the Ctrl/Cmd+D keyboard shortcut both call this.
+   */
+  duplicateNode(nodeIndex: number): void;
   selectGraphNode(index: number | null): void;
   setSelectedGraphIndex(index: number): void;
   /** UX-1107 (specs/ux-usage-mapping.md): requests the Behavior graph canvas center/pan to the given graph node — see `@gltf-studio/graph-canvas`'s `GraphView` `focusRequest` doc comment. Same cross-component-signal pattern as `requestFrame` below. */
@@ -947,6 +969,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { command, parentIndex } = SceneEdit.removeNode(history.document, nodeIndex);
     dispatchCommand(command);
     selectNode(parentIndex);
+  },
+
+  reparentNode(nodeIndex, newParentIndex, insertIndex) {
+    const { history, dispatchCommand, pushToast } = get();
+    if (!history) return;
+    let command: Command;
+    try {
+      command = SceneEdit.reparentNode(history.document, nodeIndex, newParentIndex, insertIndex);
+    } catch (err) {
+      if (err instanceof CycleReparentError) {
+        pushToast("Can't move a node into itself or one of its own children.");
+        return;
+      }
+      throw err; // anything else is a real bug, don't swallow it
+    }
+    dispatchCommand(command);
+  },
+
+  duplicateNode(nodeIndex) {
+    const { history, dispatchCommand, selectNode } = get();
+    if (!history) return;
+    const { command, index } = SceneEdit.duplicateNode(history.document, nodeIndex);
+    dispatchCommand(command);
+    selectNode(index); // UX-202/UX-216: the new copy is auto-selected.
   },
 
   selectGraphNode(index) {

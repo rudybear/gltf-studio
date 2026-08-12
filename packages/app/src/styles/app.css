@@ -335,6 +335,20 @@ input.field {
   border-left-color: var(--accent);
   background: var(--accent-soft);
 }
+/* specs/ux-scene-tree.md UX-215: drag-and-drop reparent's "into" drop
+   indicator — a row currently being dragged onto (a real dragenter/dragover
+   target, not just hovered) gets a highlighted outline so the drop target is
+   unambiguous before the user releases. Into-only v1 (DOC-052's own note):
+   no separate "insert between siblings" indicator yet. */
+.tree-row.drag-over {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+.tree-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .twisty,
 .twisty-spacer {
   width: 14px;

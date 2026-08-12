@@ -32,14 +32,20 @@ Prefix: `UX`. This file owns the `UX-2xx` block.
 ### Add menu
 
 - [UX-205] (active) The scene tree's "+ Add" control opens a menu with exactly five entries, in this order: Mesh, Light, Camera, Audio Emitter, Empty Group. "Mesh" expands its own submenu (Cube, Sphere, Plane) rather than creating directly; this still counts as one top-level entry for this requirement's "exactly five" count.
-- [UX-206] (active) M8-lite: choosing an add-menu entry creates real content via one of the append-only `SceneEdit.add*Node` factories (`specs/document-model.md`'s `DOC-047`) — Mesh's Cube/Sphere/Plane submenu options each add a small procedurally-generated primitive mesh (`packages/editor-core/src/primitives.ts`); Light adds a `KHR_lights_punctual` point light; Camera adds a perspective camera; Audio Emitter adds a `KHR_audio_emitter` positional emitter wired to a generated silent clip (so it is immediately auditionable, not a dead reference); Empty Group adds a plain, mesh/light/camera/emitter-less node. Each is ONE undoable history entry, even where it spans several document arrays (e.g. Mesh's buffer+bufferViews+accessors+material+mesh+node). This supersedes this requirement's earlier "may be a stub" wording — `SceneEdit.*`'s structural factories landed ahead of schedule (ADR-0004) precisely so this could go real before milestone M8; only reparenting/deleting an EXISTING node remains M8 (`SceneEdit.removeNode`/`reparentNode` still throw).
+- [UX-206] (active) M8-lite: choosing an add-menu entry creates real content via one of the append-only `SceneEdit.add*Node` factories (`specs/document-model.md`'s `DOC-047`) — Mesh's Cube/Sphere/Plane submenu options each add a small procedurally-generated primitive mesh (`packages/editor-core/src/primitives.ts`); Light adds a `KHR_lights_punctual` point light; Camera adds a perspective camera; Audio Emitter adds a `KHR_audio_emitter` positional emitter wired to a generated silent clip (so it is immediately auditionable, not a dead reference); Empty Group adds a plain, mesh/light/camera/emitter-less node. Each is ONE undoable history entry, even where it spans several document arrays (e.g. Mesh's buffer+bufferViews+accessors+material+mesh+node). This supersedes this requirement's earlier "may be a stub" wording — `SceneEdit.*`'s structural factories landed ahead of schedule (ADR-0004) precisely so this could go real before milestone M8; reparenting/deleting/duplicating an EXISTING node are all real too, as of M8 parts 1 and 2 (`SceneEdit.removeNode`/`reparentNode`/`duplicateNode` — `UX-214`/`UX-215`/`UX-216`/`UX-217`).
 - [UX-213] (active) M8-lite: a newly created add-menu node is appended as the LAST child of the currently-selected node when one is selected, else as the last root child of the current default scene (append-only: no reordering, no reparenting of anything that already existed); it is immediately selected (`UX-202`) and its default name opens in the same inline-rename text field `UX-207`'s context-menu "Rename" action uses, so the generic default name ("Cube", "Point Light", "Camera", "Audio Emitter", "Empty Group") is one keystroke away from being replaced.
 
 ### Right-click context menu
 
-- [UX-207] (active) Right-clicking a scene-tree row or a viewport object opens a context menu positioned at the cursor, closing on an outside click or Escape. The scene-tree row's menu has exactly FOUR actions — Frame, Rename, "✦ Ask Copilot about this…", Delete (`UX-214`) — the viewport object's menu still has exactly the original three (Frame, Rename, "✦ Ask Copilot about this…"); see `UX-214`'s own note for why Delete is scene-tree-only for now. (Supersedes this requirement's original "exactly three actions" wording, which predated `UX-214`.)
+- [UX-207] (active) Right-clicking a scene-tree row or a viewport object opens a context menu positioned at the cursor, closing on an outside click or Escape. The scene-tree row's menu has exactly SIX actions, in this order — Frame, Rename, Duplicate (`UX-216`), "✦ Ask Copilot about this…", Reparent to root (`UX-217`), Delete (`UX-214`) — the viewport object's menu still has exactly the original three (Frame, Rename, "✦ Ask Copilot about this…"); see `UX-214`'s own note for why Delete (and, as of M8 part 2, Duplicate/Reparent to root) are scene-tree-only for now. (Supersedes this requirement's original "exactly three actions" wording, which predated `UX-214`, and `UX-214`'s own "exactly FOUR actions" wording, which predated `UX-216`/`UX-217`.)
 - [UX-208] (active) Choosing "✦ Ask Copilot about this…" switches the right panel to the Copilot tab and adds exactly one context chip naming the right-clicked object, per `AG-015`'s "same request/response contract, differing only in prefilled context" inline-affordance contract (see `specs/ux-copilot.md`'s `UX-1008`).
 - [UX-214] (active) M8 part 1 (`specs/document-model.md`'s `DOC-048`): the scene-tree row's context menu gains a "Delete" action — labeled "Delete" for a childless node, or "Delete (N nodes)" when the node has descendants (`SceneEdit.removeNode` always deletes the whole subtree as one command, never just the one row) — and the Delete/Backspace key deletes the currently-selected scene node the same way, whenever a scene node is selected AND keyboard focus is not inside a text input, a `<select>`, or the Script tab's Monaco editor (an app-level `keydown` handler, not scoped to the scene tree, so the shortcut works regardless of which panel has focus). Both paths call the SAME store action, dispatched through the existing `dispatchCommand` play-mode freeze guard (`specs/document-model.md`'s `DOC-031`) — deleting is blocked while playing exactly like every other edit, with no separate guard needed. After a successful delete, selection moves to the deleted node's former parent, or clears entirely when the deleted node was a scene-root (`DOC-048`'s `parentIndex` return value). Undo restores the entire subtree, every fixed-up reference, AND the pre-delete selection is NOT automatically restored by undo itself (selection is ephemeral store state per `DOC-030`, outside `HistoryStack`) — undoing a delete leaves selection wherever it last was, which may still be the post-delete parent. Delete is scene-tree-only for now, not added to the viewport object's own right-click menu (`Viewport.tsx`) or as a viewport-focused keyboard shortcut — deliberately out of scope for this change to avoid touching viewport interaction code owned by concurrent work; a future pass can extend it there.
+
+### Structural reparenting and duplication (M8 part 2 — completes scene authoring)
+
+- [UX-215] (active) `specs/document-model.md`'s `DOC-052`: dragging a scene-tree row and dropping it onto ANOTHER scene-tree row moves the dragged node (and its whole subtree) to become that row's LAST child, as one undoable command — a visual drop indicator (an outlined, highlighted row, `.tree-row.drag-over`) marks the current drop target while dragging. Into-only v1: a drop always lands as the target's last child; there is no separate "insert between two existing siblings" indicator or drop position yet — a future pass can add one on top of `SceneEdit.reparentNode`'s existing `insertIndex` parameter, which already supports it programmatically. Dropping onto the scene tree's own empty background (below every row, not onto any row) instead reparents to the current default scene's root — the same operation as `UX-217`'s "Reparent to root" context-menu action. Dropping a row onto ITSELF, one of its own descendants, or (for a root-level node) redundantly onto the empty background is either a no-op or rejected: a genuine cycle attempt (onto itself or a descendant) is rejected with a toast ("Can't move a node into itself or one of its own children.") rather than silently failing or corrupting the tree — the same typed `CycleReparentError` `SceneEdit.reparentNode` throws, caught by the store's `reparentNode` action before it ever reaches this component. Reparenting preserves the node's rendered WORLD transform by default (`DOC-052`'s resolved policy — a purely structural "move under a different node" gesture should not silently relocate the object): `SceneEdit.reparentNode` recomputes the node's LOCAL `translation`/`rotation`/`scale` (or `matrix`, whichever shape it already used) so its on-screen position/orientation/size stays exactly where it was, now expressed relative to the new parent's own world transform. Neither the drag-and-drop gesture nor "Reparent to root" exposes the local-only alternative (`SceneEdit.reparentNode`'s `opts.keepLocal`) in the UI yet — every current caller wants the world-preserving default.
+- [UX-216] (active) `specs/document-model.md`'s `DOC-053`: the scene-tree row's context menu gains a "Duplicate" action (`UX-207`) that deep-copies the row's node and its entire subtree as new, appended nodes — sharing every mesh/material/accessor/light/emitter reference, never copying geometry — as one undoable command; the new copy is auto-selected afterward (`UX-202`). The same action is reachable via Ctrl/Cmd+D when a scene-tree row has keyboard focus (each row is a `tabIndex={0}` element specifically so this shortcut has something concrete to scope itself to) — unlike `UX-214`'s Delete/Backspace shortcut, this is NOT an app-level shortcut that fires regardless of which panel has focus. If the duplicated subtree contains (or is itself) a node some `KHR_interactivity` handler (`event/onSelect`/`onHoverIn`/`onHoverOut`) or animation channel addresses, the NEW copy's index is deliberately NOT added to that handler's configuration and no new graph nodes are created on its behalf — a duplicate of, say, a car checkpoint pad does not automatically inherit the original's `onSelect` behavior; wiring the copy into the behavior graph is a separate, explicit step (`UX-209`'s drag-onto-the-graph-canvas flow, or Copilot).
+- [UX-217] (active) `specs/document-model.md`'s `DOC-052`: the scene-tree row's context menu gains a "Reparent to root" action (`UX-207`) that moves the row's node (and its subtree) out from under its current parent to the current default scene's root, as one undoable command — equivalent to dragging it and dropping it onto the tree's own empty background (`UX-215`). Applying it to a node that is ALREADY a scene-root node is not treated as an error: with no sibling-position argument, it simply moves the node to be the LAST scene-root entry.
 
 ### Drag onto the behavior graph
 
@@ -133,6 +139,58 @@ in the Script tab's Monaco editor; it reads `selectedNodeIndex` directly off the
 same `deleteNode` action the context menu uses. Deliberately NOT touched: `Viewport.tsx` (owned by
 concurrent gizmo/camera work) — the viewport object's own right-click menu and any viewport-focused
 delete shortcut are out of scope here, per `UX-207`'s own note.
+
+## Implementation notes (M8 part 2: reparent + duplicate — scene authoring complete)
+
+`UX-215`/`UX-216`/`UX-217`, backed by `specs/document-model.md`'s `DOC-052`/`DOC-053`
+(`packages/editor-core/src/scene-edit.ts`'s `SceneEdit.reparentNode`/`duplicateNode`) — the last
+structural gaps in scene authoring (`SceneEdit.reparentNode` had been the throwing M8-part-2 stub
+noted throughout this file and `document-model.md` since M1). Both are wired through two new
+`app-store.ts` actions, `reparentNode(nodeIndex, newParentIndex, insertIndex?)` and
+`duplicateNode(nodeIndex)`, mirroring `deleteNode`'s own thin "call the `SceneEdit` factory, dispatch
+through `dispatchCommand`" shape — `reparentNode`'s store action additionally catches
+`CycleReparentError` and turns it into a `pushToast` rather than letting it propagate, so neither the
+drag-and-drop handler nor the context-menu action needs its own `try`/`catch`; `duplicateNode`'s store
+action additionally calls `selectNode(index)` on the new copy (`UX-202`), same as every `add*Node`
+factory's own auto-select convention (`UX-213`).
+
+`SceneTree.tsx`'s rows gain `tabIndex={0}` (previously plain, unfocusable `<div>`s) specifically so
+Ctrl/Cmd+D (`UX-216`) has something concrete to scope itself to, plus five new drag-and-drop handlers
+per row (`onDragOver`/`onDragLeave`/`onDrop`/`onDragEnd`, alongside the pre-existing `onDragStart` UX-209
+already used) and two on the tree's own `panel-body` container (`onDragOver`/`onDrop`, for the
+"drop onto empty background = reparent to root" gesture, `UX-215`) — a row's own `onDrop`/`onDragOver`
+call `e.stopPropagation()` specifically so a drop ONTO a row never ALSO fires the container's
+root-reparent handler. The existing drag source's `effectAllowed` changes from `"copy"` to
+`"copyMove"` so a scene-tree row can serve as a valid drop target for a `"move"`-effect drop (this
+change) without regressing its pre-existing role as a `"copy"`-effect drag source onto the behavior
+graph canvas (`UX-209`, unchanged). A new `.tree-row.drag-over` CSS rule (`app.css`) is the "into" drop
+indicator (`UX-215`'s own note on into-only v1 — no between-siblings indicator).
+
+The context menu's `actions` array (`ContextMenu.tsx`, unchanged itself) gains two new entries between
+the pre-existing four — "Duplicate" (between Rename and Ask Copilot) and "Reparent to root" (between
+Ask Copilot and Delete) — per `UX-207`'s revised six-action order.
+
+World-transform preservation (`DOC-052`) is implemented with a small, dependency-free `mat-utils.ts`
+column-major `Mat4`/`Quat`/`Vec3` module (`packages/editor-core` deliberately carries no three.js/
+gl-matrix dependency) — `mat4FromTranslationRotationScale`/`mat4Invert`/`mat4Multiply` lifted verbatim
+from the same external math source `packages/audio-webaudio`'s own math helper already lifts from
+(same element-layout convention as glTF's own `node.matrix`, so no reordering is ever needed), plus a
+from-scratch `mat4Decompose` (matrix -> TRS, tolerant of a mirrored/negative-scale matrix) for writing
+the solved local transform back out in TRS form when the node didn't already author a `matrix`. Both
+`scene-edit.test.ts`'s hand-derived-expected-value scenarios and `property.test.ts`'s randomized
+mixed-sequence suite verify the numeric claim against an INDEPENDENTLY reimplemented world-matrix
+walk (not the production code's own helper) so a shared bug in the math can't hide behind a tautology.
+
+Cycle rejection (`CycleReparentError`) is exercised at three layers: `packages/editor-core`'s own unit
++ property tests (`scene-edit.test.ts`, `property.test.ts`) prove `SceneEdit.reparentNode` itself
+throws correctly and never partially applies; `app-store.ts`'s `reparentNode` action converts that
+into a toast; and `e2e/scene-tree-reparent-duplicate.spec.ts` drives a real drag gesture (a node
+dropped onto its own descendant) end to end and asserts the toast appears with the tree completely
+unchanged. `racer.spec.ts` gains one more `test.step` reparenting a real checkpoint pylon under another
+scenery node and back via undo, then re-confirming play still works — the same "stress case at real
+366-node-graph scale" pattern its `DOC-048` deletion step already established, extended to prove
+`DOC-054`'s "reparenting shifts no reference anywhere" claim holds at that scale too, not just in a
+small unit-test fixture.
 
 ## Open questions
 

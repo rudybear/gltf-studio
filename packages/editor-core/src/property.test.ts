@@ -12,7 +12,8 @@ import { HistoryStack } from "./history.js";
 import { deepEqualJson, getIn, typedPathFromPointer } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
 import { save } from "./save.js";
-import { SceneEdit } from "./scene-edit.js";
+import { CycleReparentError, SceneEdit } from "./scene-edit.js";
+import { mat4FromTranslationRotationScale, mat4Identity, mat4Multiply, type Mat4, type Quat, type Vec3 } from "./mat-utils.js";
 import { containerFromJson, fixtureGltfJson } from "./test-fixtures.js";
 import { locateJsonSpan } from "@gltfi/gltf";
 
@@ -326,6 +327,325 @@ describe("property: SceneEdit.removeNode keeps node references in range, and the
             sceneNodeCount -= 1;
             pushCount += 1;
           }
+        }
+
+        for (let i = 0; i < pushCount; i += 1) stack.undo();
+        expect(deepEqualJson(stack.document.json, initial.json)).toBe(true);
+      }),
+      { numRuns: 200 }
+    );
+  });
+});
+
+// DOC-052/053 (M8 part 2): a focused property suite over ONLY
+// SceneEdit.reparentNode/duplicateNode sequences, isolated the same way the
+// removeNode-only suite above is — a real tree fixture (not the flat
+// two-root-node removeNode fixture, since reparent's own cycle rejection and
+// duplicate's subtree-carrying behavior are only meaningfully exercised
+// against nodes that actually have children) plus one real
+// `event/onSelect`-shaped graph node, so DOC-052's "reparenting/duplicating
+// never touches any reference elsewhere" claim is genuinely checked, not
+// just assumed from the fixed-scenario unit tests.
+function reparentDuplicateFixtureJson(): Record<string, unknown> {
+  return {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: "Root", children: [1, 2] }, // 0
+      { name: "A" }, // 1 -- addressed by the onSelect handler below
+      { name: "B", children: [3] }, // 2
+      { name: "C" } // 3
+    ],
+    extensionsUsed: ["KHR_interactivity"],
+    extensions: {
+      KHR_interactivity: {
+        graph: 0,
+        graphs: [
+          {
+            types: [],
+            declarations: [{ op: "event/onSelect" }],
+            nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [1] } } }]
+          }
+        ]
+      }
+    }
+  };
+}
+
+/** Same cycle-guarded `children` walk `packages/app/src/lib/gltf-scene.ts`'s `countSubtreeNodes` uses — how many NEW nodes a `duplicateNode(json, nodeIndex)` call is expected to append. */
+function subtreeSize(json: unknown, nodeIndex: number): number {
+  const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[] }> | undefined) ?? [];
+  const visited = new Set<number>();
+  function visit(index: number): void {
+    if (visited.has(index)) return;
+    visited.add(index);
+    for (const child of nodes[index]?.children ?? []) visit(child);
+  }
+  visit(nodeIndex);
+  return visited.size;
+}
+
+type RDStep = { kind: "reparent"; node: number; newParent: number; toRoot: boolean; insertIndex: number } | { kind: "duplicate"; node: number };
+
+const rdStepArb: fc.Arbitrary<RDStep> = fc.oneof(
+  fc.record({ kind: fc.constant("reparent" as const), node: nonNegInt, newParent: nonNegInt, toRoot: fc.boolean(), insertIndex: fc.integer({ min: 0, max: 10 }) }),
+  fc.record({ kind: fc.constant("duplicate" as const), node: nonNegInt })
+);
+
+describe("property: SceneEdit.reparentNode/duplicateNode keep the document well-formed, index-stable (no reference anywhere ever shifts), cycle-free, and validateGraph-clean, across random sequences (DOC-052/053)", () => {
+  it("every scenes[].nodes/children reference stays in range and cycle-free, the pre-existing event/onSelect literal is NEVER touched (reparent/duplicate shift no index), duplicateNode grows the node count by exactly its subtree size, and undo-all restores the initial document", () => {
+    fc.assert(
+      fc.property(fc.array(rdStepArb, { maxLength: 30 }), (steps) => {
+        const initial = createDocument(containerFromJson(reparentDuplicateFixtureJson()));
+        const stack = new HistoryStack(initial);
+        let pushCount = 0;
+
+        const checkInvariants = (): void => {
+          const json = stack.document.json;
+          const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[] }> | undefined) ?? [];
+          const scenes = (getIn(json, ["scenes"]) as Array<{ nodes?: number[] }> | undefined) ?? [];
+
+          for (const scene of scenes) {
+            for (const ref of scene.nodes ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+          for (const node of nodes) {
+            for (const ref of node.children ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+
+          // Cycle-freedom: a `children` walk from every scene root, starting
+          // from a fresh empty ancestor-set each time, must never revisit an
+          // ancestor already on its own current path -- a real assertion
+          // CycleReparentError's rejection is meant to guarantee holds for
+          // every state this suite ever reaches, not just at construction.
+          const rootIndices = scenes.flatMap((s) => s.nodes ?? []);
+          function walk(index: number, ancestors: ReadonlySet<number>): void {
+            expect(ancestors.has(index)).toBe(false);
+            const nextAncestors = new Set(ancestors);
+            nextAncestors.add(index);
+            for (const child of nodes[index]?.children ?? []) walk(child, nextAncestors);
+          }
+          for (const root of rootIndices) walk(root, new Set());
+
+          // DOC-052's own core claim: reparenting/duplicating shifts NO
+          // node index, so this literal (seeded once at index 1, "A") must
+          // read exactly 1 in EVERY state this suite ever reaches.
+          const graph = getIn(json, ["extensions", "KHR_interactivity", "graphs", 0]) as {
+            nodes: Array<{ configuration: { nodeIndex: { value: number[] } } }>;
+          };
+          expect(graph.nodes[0].configuration.nodeIndex.value[0]).toBe(1);
+          expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+        };
+
+        checkInvariants(); // sanity: the starting fixture is already clean.
+
+        for (const step of steps) {
+          const json = stack.document.json;
+          const nodeCount = ((getIn(json, ["nodes"]) as unknown[] | undefined) ?? []).length;
+          if (nodeCount === 0) continue;
+
+          if (step.kind === "reparent") {
+            const node = step.node % nodeCount;
+            const newParent = step.toRoot ? null : step.newParent % nodeCount;
+            let command: Command;
+            try {
+              command = SceneEdit.reparentNode(stack.document, node, newParent, step.insertIndex);
+            } catch (err) {
+              if (err instanceof CycleReparentError) continue; // an expected rejection, not a bug -- skip this step.
+              throw err;
+            }
+            stack.push(command);
+            pushCount += 1;
+          } else {
+            const node = step.node % nodeCount;
+            const expectedGrowth = subtreeSize(json, node);
+            const { command } = SceneEdit.duplicateNode(stack.document, node);
+            stack.push(command);
+            pushCount += 1;
+            const afterCount = ((getIn(stack.document.json, ["nodes"]) as unknown[] | undefined) ?? []).length;
+            expect(afterCount).toBe(nodeCount + expectedGrowth);
+          }
+          checkInvariants();
+        }
+
+        for (let i = 0; i < pushCount; i += 1) stack.undo();
+        expect(deepEqualJson(stack.document.json, initial.json)).toBe(true);
+      }),
+      { numRuns: 200 }
+    );
+  });
+});
+
+// DOC-052/DOC-053/DOC-054 (M8 part 2), full mix: addNode/removeNode/reparentNode/
+// duplicateNode all together in one random sequence -- the combination the
+// M8-completion task asked for explicitly, beyond the two narrower suites
+// above (removeNode-only; reparentNode+duplicateNode-only). Every fixture
+// node carries a genuinely non-identity local transform (translation AND,
+// on one node, a non-uniform scale) specifically so `reparentNode`'s
+// WORLD-transform-preservation default (DOC-052) is checked with REAL
+// numbers, not just against an already-identity fixture where any policy
+// bug would silently produce the same (trivial) answer.
+//
+// `worldMatrixOfIndependent` below is a standalone reimplementation of
+// `scene-edit.ts`'s own internal `worldMatrixOf`/`localMatrixOf` — written
+// again here, from scratch, rather than imported, so this property test is
+// a genuine external check of `reparentNode`'s numeric behavior rather than
+// a tautology that would pass even if the production implementation's math
+// were simply wrong in the same way twice.
+function worldMatrixOfIndependent(json: unknown, nodeIndex: number): Mat4 {
+  const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[]; matrix?: number[]; translation?: Vec3; rotation?: Quat; scale?: Vec3 }> | undefined) ?? [];
+  function parentOf(childIndex: number): number | null {
+    for (let i = 0; i < nodes.length; i += 1) {
+      if (nodes[i]?.children?.includes(childIndex)) return i;
+    }
+    return null;
+  }
+  function localOf(index: number): Mat4 {
+    const node = nodes[index];
+    if (node?.matrix) return Float32Array.from(node.matrix);
+    return mat4FromTranslationRotationScale(node?.translation ?? [0, 0, 0], node?.rotation ?? [0, 0, 0, 1], node?.scale ?? [1, 1, 1]);
+  }
+  const chain: number[] = [];
+  let cursor: number | null = nodeIndex;
+  while (cursor !== null) {
+    chain.push(cursor);
+    cursor = parentOf(cursor);
+  }
+  chain.reverse();
+  let acc = mat4Identity();
+  for (const index of chain) acc = mat4Multiply(acc, localOf(index));
+  return acc;
+}
+
+function expectMat4Close(a: Mat4, b: Mat4): void {
+  for (let i = 0; i < 16; i += 1) expect(a[i]).toBeCloseTo(b[i], 4);
+}
+
+function reparentDuplicateAddRemoveFixtureJson(): Record<string, unknown> {
+  return {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: "Root", children: [1, 2], translation: [1, 0, 0] }, // 0
+      { name: "A", translation: [2, 0, 0] }, // 1 -- addressed by the onSelect handler below
+      { name: "B", children: [3], translation: [0, 3, 0], scale: [2, 1, 1] }, // 2
+      { name: "C", translation: [0, 0, 4] } // 3
+    ],
+    extensionsUsed: ["KHR_interactivity"],
+    extensions: {
+      KHR_interactivity: {
+        graph: 0,
+        graphs: [
+          {
+            types: [],
+            declarations: [{ op: "event/onSelect" }],
+            nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [1] } } }]
+          }
+        ]
+      }
+    }
+  };
+}
+
+type MixedStep =
+  | { kind: "add"; name: string; x: number; parentPick: number; underParent: boolean }
+  | { kind: "remove"; pick: number }
+  | { kind: "reparent"; node: number; newParent: number; toRoot: boolean; insertIndex: number }
+  | { kind: "duplicate"; node: number };
+
+const mixedStepArb: fc.Arbitrary<MixedStep> = fc.oneof(
+  fc.record({
+    kind: fc.constant("add" as const),
+    name: fc.string({ maxLength: 6 }),
+    x: fc.integer({ min: -50, max: 50 }),
+    parentPick: nonNegInt,
+    underParent: fc.boolean()
+  }),
+  fc.record({ kind: fc.constant("remove" as const), pick: nonNegInt }),
+  fc.record({
+    kind: fc.constant("reparent" as const),
+    node: nonNegInt,
+    newParent: nonNegInt,
+    toRoot: fc.boolean(),
+    insertIndex: fc.integer({ min: 0, max: 10 })
+  }),
+  fc.record({ kind: fc.constant("duplicate" as const), node: nonNegInt })
+);
+
+describe("property: SceneEdit add/remove/reparent/duplicate mixed sequences stay well-formed, validateGraph-clean, undo-all ≡ initial, AND reparentNode numerically preserves WORLD transform (DOC-052/053, M8 completion)", () => {
+  it("every scenes[].nodes/children reference stays in range, validateGraph stays ok, undo-all restores the initial document, and every reparent step's target node's WORLD matrix is unchanged within epsilon", () => {
+    fc.assert(
+      fc.property(fc.array(mixedStepArb, { maxLength: 30 }), (steps) => {
+        const initial = createDocument(containerFromJson(reparentDuplicateAddRemoveFixtureJson()));
+        const stack = new HistoryStack(initial);
+        let pushCount = 0;
+
+        const checkStructuralInvariants = (): void => {
+          const json = stack.document.json;
+          const nodes = (getIn(json, ["nodes"]) as Array<{ children?: number[] }> | undefined) ?? [];
+          const scenes = (getIn(json, ["scenes"]) as Array<{ nodes?: number[] }> | undefined) ?? [];
+          for (const scene of scenes) {
+            for (const ref of scene.nodes ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+          for (const node of nodes) {
+            for (const ref of node.children ?? []) {
+              expect(ref).toBeGreaterThanOrEqual(0);
+              expect(ref).toBeLessThan(nodes.length);
+            }
+          }
+          const graph = getIn(json, ["extensions", "KHR_interactivity", "graphs", 0]);
+          if (graph) expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+        };
+
+        checkStructuralInvariants();
+
+        for (const step of steps) {
+          const json = stack.document.json;
+          const nodeCount = ((getIn(json, ["nodes"]) as unknown[] | undefined) ?? []).length;
+          if (nodeCount === 0) continue;
+
+          if (step.kind === "add") {
+            const opts = step.underParent ? { parentNodeIndex: step.parentPick % nodeCount } : {};
+            const { command } = SceneEdit.addNode(stack.document, { name: step.name, translation: [step.x, 0, 0] }, opts);
+            stack.push(command);
+            pushCount += 1;
+          } else if (step.kind === "remove") {
+            const { command } = SceneEdit.removeNode(stack.document, step.pick % nodeCount);
+            stack.push(command);
+            pushCount += 1;
+          } else if (step.kind === "duplicate") {
+            const { command } = SceneEdit.duplicateNode(stack.document, step.node % nodeCount);
+            stack.push(command);
+            pushCount += 1;
+          } else {
+            const node = step.node % nodeCount;
+            const newParent = step.toRoot ? null : step.newParent % nodeCount;
+            const worldBefore = worldMatrixOfIndependent(json, node);
+            let command: Command;
+            try {
+              command = SceneEdit.reparentNode(stack.document, node, newParent, step.insertIndex);
+            } catch (err) {
+              if (err instanceof CycleReparentError) continue; // expected rejection, not a bug -- skip.
+              throw err;
+            }
+            stack.push(command);
+            pushCount += 1;
+            // DOC-052's core numeric claim: the reparented node's WORLD
+            // transform is unchanged by the move (default policy).
+            const worldAfter = worldMatrixOfIndependent(stack.document.json, node);
+            expectMat4Close(worldBefore, worldAfter);
+          }
+          checkStructuralInvariants();
         }
 
         for (let i = 0; i < pushCount; i += 1) stack.undo();

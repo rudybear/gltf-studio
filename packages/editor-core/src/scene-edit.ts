@@ -11,9 +11,15 @@
 // shared `fixupReferences` helper (fixup-references.ts), extended by
 // DOC-048 with the scene-specific reference kinds `GraphEdit.removeNode`
 // never needed (raw index arrays/scalars, and a graph node's literal
-// `configuration.nodeIndex`). `reparentNode` remains the throwing M8 stub —
-// reparenting an EXISTING node (as opposed to `addNode`'s append-only
-// `parentNodeIndex` landing spot for a BRAND NEW node) is still deferred.
+// `configuration.nodeIndex`) — PLUS (DOC-052/DOC-053, M8 part 2)
+// `reparentNode`/`duplicateNode`, completing scene authoring: moving an
+// EXISTING node under a different existing parent (or to/from scene root),
+// and deep-copying a node+subtree as new, append-only nodes sharing every
+// non-node resource reference. Scene authoring (add/delete/reparent/
+// duplicate) is now complete as of this change; sibling reordering beyond
+// `reparentNode`'s own `insertIndex` remains a possible future polish, not a
+// gap in v1 scope (see this file's own `reparentNode`/`duplicateNode` doc
+// comments and specs/document-model.md's DOC-052/053).
 import type { Command } from "./command.js";
 import { combineCommandParts, makeCommandId } from "./command.js";
 import { appendFragment, setPathFragment, type PatchPair } from "./edit-fragments.js";
@@ -22,11 +28,30 @@ import { formatPointer, getIn } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
 import type { EditorDocument } from "./document.js";
 import { cubeGeometry, sphereGeometry, planeGeometry, encodeCubeBuffer, silentWavBuffer, type CubeGeometry } from "./primitives.js";
+import { mat4Decompose, mat4FromTranslationRotationScale, mat4Identity, mat4Invert, mat4Multiply, type Mat4, type Quat, type Vec3 } from "./mat-utils.js";
 
-export class SceneEditNotImplementedError extends Error {
-  constructor(operation: string) {
-    super(`SceneEdit.${operation} is not implemented in M1 — structural scene editing is deferred to milestone M8.`);
-    this.name = "SceneEditNotImplementedError";
+/**
+ * DOC-052: thrown by `SceneEdit.reparentNode` when the requested
+ * `newParentIndex` is `nodeIndex` itself, or one of `nodeIndex`'s own
+ * descendants — either would disconnect `nodeIndex`'s subtree from the rest
+ * of the node graph (a node can't be its own ancestor once glTF's
+ * `children`-array-only forest structure is walked from any scene root) or
+ * outright create a cycle no `children` walk (`flattenSceneTree`,
+ * `collectSubtreeIndices`) could ever terminate over. Callers (the scene
+ * tree's drag-and-drop reparent handler) are expected to catch this and
+ * surface it as a toast rather than letting it propagate as an unhandled
+ * exception — dragging a row onto its own descendant is an easy accidental
+ * drop target, not a programming error.
+ */
+export class CycleReparentError extends Error {
+  constructor(
+    public readonly nodeIndex: number,
+    public readonly newParentIndex: number
+  ) {
+    super(
+      `SceneEdit.reparentNode: cannot reparent node ${nodeIndex} under node ${newParentIndex} — ${newParentIndex} is node ${nodeIndex} itself or one of its own descendants, which would create a cycle.`
+    );
+    this.name = "CycleReparentError";
   }
 }
 
@@ -59,6 +84,70 @@ function findParentNodeIndex(json: unknown, childIndex: number): number | null {
     if (nodes[i]?.children?.includes(childIndex)) return i;
   }
   return null;
+}
+
+/** The current default scene's index — `json.scene ?? 0` — the same fallback `appendNodeFragment`'s scene-root branch and `flattenSceneTree` (`packages/app/src/lib/gltf-scene.ts`) both use. */
+function defaultSceneIndex(json: unknown): number {
+  return (getIn(json, ["scene"]) as number | undefined) ?? 0;
+}
+
+/**
+ * DOC-052: a node's "membership array" — either its parent's `children`
+ * (`["nodes", parentIndex, "children"]`) when it has one, or the current
+ * default scene's root `nodes` array (`["scenes", sceneIndex, "nodes"]`)
+ * when `parentIndex` is `null` — the ONE array, per `findParentNodeIndex`'s
+ * own "glTF is a forest" assumption, that currently lists a given node index
+ * as belonging to it. Shared by `reparentNode` (moving a node OUT of its old
+ * one, INTO a new one) and `duplicateNode` (finding where to splice the
+ * duplicate in as a sibling).
+ */
+function membershipArrayPath(json: unknown, parentIndex: number | null): (string | number)[] {
+  return parentIndex === null ? ["scenes", defaultSceneIndex(json), "nodes"] : ["nodes", parentIndex, "children"];
+}
+
+/**
+ * DOC-052: removes the first occurrence of `value` from the array at
+ * `arrayPath` (throwing if it's not a real array or doesn't contain `value`
+ * — both would mean a caller mis-tracked a node's own membership, a bug in
+ * the caller rather than a legitimate empty/absent-property case). Mirrors
+ * `fixup-references.ts`'s `indexArray` drop-on-match convention: when the
+ * removal would leave the array empty, the whole property is removed rather
+ * than left as `[]` (an empty `children`/`scenes[].nodes` is not how this
+ * codebase represents "none" — DOC-048/DOC-049's same convention).
+ */
+function removeFromArrayFragment(json: unknown, arrayPath: ReadonlyArray<string | number>, value: number): PatchPair {
+  const current = getIn(json, arrayPath.map(String)) as unknown[] | undefined;
+  const at = current?.indexOf(value) ?? -1;
+  if (!current || at === -1) {
+    throw new Error(`SceneEdit: expected ${value} to be present in the array at ${formatPointer(arrayPath)}.`);
+  }
+  if (current.length === 1) {
+    const arrayPointer = formatPointer(arrayPath);
+    return { patches: [{ op: "remove", path: arrayPointer }], inverse: [{ op: "add", path: arrayPointer, value: current }] };
+  }
+  const elementPointer = formatPointer([...arrayPath, at]);
+  return { patches: [{ op: "remove", path: elementPointer }], inverse: [{ op: "add", path: elementPointer, value }] };
+}
+
+/**
+ * DOC-052: inserts `value` into the array at `arrayPath` — creating the
+ * array itself (as `add` of a fresh one-element array) if it's currently
+ * absent, mirroring `appendFragment`'s own "creating it if absent" handling
+ * — at `insertIndex` when given (clamped into `[0, currentLength]`), else
+ * appended as the last element (the same "lands as the last child"
+ * default `appendNodeFragment`/`addNode` already established for a BRAND
+ * NEW node, DOC-047, now reused for reparenting/duplicating an EXISTING
+ * one).
+ */
+function insertIntoArrayFragment(json: unknown, arrayPath: ReadonlyArray<string | number>, value: number, insertIndex?: number): PatchPair {
+  const current = getIn(json, arrayPath.map(String)) as unknown[] | undefined;
+  if (!current || current.length === 0) {
+    const arrayPointer = formatPointer(arrayPath);
+    return { patches: [{ op: "add", path: arrayPointer, value: [value] }], inverse: [{ op: "remove", path: arrayPointer }] };
+  }
+  const at = insertIndex === undefined ? current.length : Math.max(0, Math.min(insertIndex, current.length));
+  const elementPointer = formatPointer([...arrayPath, at]);
+  return { patches: [{ op: "add", path: elementPointer, value }], inverse: [{ op: "remove", path: elementPointer }] };
 }
 
 /**
@@ -627,8 +716,307 @@ export const SceneEdit = {
     };
   },
 
-  /** STUB (M8 part 2): structural node reparenting — moving an EXISTING node under a different existing parent. Still deferred; `addNode`'s append-only `parentNodeIndex` (DOC-047) and `removeNode`'s whole-subtree deletion (DOC-048) do not need it. */
-  reparentNode(): never {
-    throw new SceneEditNotImplementedError("reparentNode");
+  /**
+   * DOC-052 (M8 part 2): moves `nodeIndex` (and, implicitly, its entire
+   * subtree — glTF's `children` arrays are the ONLY parent/child link, so
+   * moving the subtree root necessarily carries every descendant with it,
+   * with no work of its own required) from its current parent (or the
+   * current default scene's root, when it has none) to `newParentIndex`
+   * (or the scene root, when `null`), as ONE undoable command.
+   *
+   * Implementation is a plain two-array membership move: remove
+   * `nodeIndex` from whichever array currently lists it
+   * (`membershipArrayPath` of its CURRENT parent), then insert it into
+   * `newParentIndex`'s array (or the scene root's) — at `insertIndex` when
+   * given, else appended as the last child/root (mirroring `addNode`'s own
+   * default landing spot for a brand new node, DOC-047). The insert step
+   * is computed against `jsonAfterRemove` (not the original `document.json`)
+   * specifically so reparenting a node to ANOTHER position among its OWN
+   * current siblings (`newParentIndex === ` its current parent, a lightweight
+   * sibling-reorder some future UI could build on `insertIndex` for) sees
+   * its own removal already reflected before computing the insert index —
+   * without this ordering, moving a node later within its own siblings list
+   * would insert at an index still counting the node's own (soon-removed)
+   * prior slot.
+   *
+   * NO other reference fixup is needed, and this is the crucial difference
+   * from `removeNode`/`GraphEdit.removeNode`'s own reference-fixup passes
+   * (DOC-019..021, DOC-048/049): reparenting never deletes a `nodes` array
+   * element and never shifts any node's INDEX — `nodeIndex` keeps the exact
+   * same value it had before this command, it merely changes which OTHER
+   * array currently lists it as a member. Every existing reference to this
+   * node elsewhere in the document — a `scenes[].nodes`/another node's
+   * `children` entry (aside from the two membership arrays this command
+   * itself edits), an `event/onSelect`/`onHoverIn`/`onHoverOut` handler's
+   * `configuration.nodeIndex`, a `pointer/get|set|interpolate` node's
+   * literal `configuration.pointer` string, an animation channel's
+   * `target.node`, a `skins[].joints`/`skeleton` entry — addresses
+   * `nodeIndex` by that same unchanged number and stays valid with zero
+   * changes of its own. (Contrast `removeNode`, which deletes a `nodes`
+   * array element outright and therefore MUST shift every reference above
+   * the deleted index down by one via `fixupReferences`.)
+   *
+   * Rejects with a typed `CycleReparentError` — never partially applies
+   * anything — when `newParentIndex` is `nodeIndex` itself or one of its
+   * own descendants (`collectSubtreeIndices`), which would either
+   * disconnect the moved subtree from the rest of the graph or create an
+   * unwalkable cycle. Reparenting a node back under its OWN current parent
+   * is explicitly allowed (not treated as a no-op-shaped error) — with no
+   * `insertIndex`, that simply moves it to be the LAST child among its
+   * current siblings, the same "moved to the end" semantics `addNode`
+   * already established for a brand-new child landing under a selected
+   * parent.
+   *
+   * WORLD-transform preservation is the DEFAULT (resolved here, not left
+   * open — supersedes an earlier draft of this comment that argued for the
+   * opposite default): a reparent is, from the user's point of view, a
+   * PURELY STRUCTURAL move — "put this object under that other one" — not
+   * an implicit "and also relocate it to wherever the new parent's local
+   * space happens to put it" transform edit, so by default `reparentNode`
+   * computes `nodeIndex`'s CURRENT world matrix (`worldMatrixOf`,
+   * `mat-utils.ts`, walking the OLD parent chain) and solves for the new
+   * LOCAL transform that reproduces that exact same world matrix under
+   * `newParentIndex`'s own world matrix (`newLocal = inverse(newParentWorld)
+   * * oldWorld`) — both matrices computed against the document as it stood
+   * BEFORE this command's own membership-array edits, which is always valid
+   * per this function's own cycle check above: `newParentIndex` can never be
+   * one of `nodeIndex`'s own descendants, so `nodeIndex` can never be one of
+   * `newParentIndex`'s ANCESTORS either, meaning removing `nodeIndex` from
+   * its old membership array is provably incapable of changing
+   * `newParentIndex`'s own world matrix. The result is written back in
+   * whichever shape `nodeIndex` already authored its transform in — a
+   * `matrix` array when it had one (glTF's `matrix`/TRS fields are mutually
+   * exclusive, so there is no "both" case), else explicit `translation`/
+   * `rotation`/`scale` fields, ALL THREE unconditionally (not just whichever
+   * ones the node previously had set — a rotated/scaled ancestor chain can
+   * turn a previously-identity component non-identity, so this can't reuse
+   * `setTransform`'s narrower "only touch fields the caller named"
+   * contract). `opts.keepLocal: true` opts OUT of all of this and restores
+   * the simpler "local transform carries over completely unchanged, world
+   * transform generally changes" behavior for a caller that genuinely wants
+   * it (none currently does; the scene tree's drag-and-drop always wants the
+   * default).
+   *
+   * `opts.insertIndex` (optional, formerly a bare positional parameter):
+   * the index within the new membership array to insert at — omitted
+   * appends as the LAST child, matching every other structural factory's
+   * append-only default (DOC-047).
+   */
+  reparentNode(
+    document: EditorDocument,
+    nodeIndex: number,
+    newParentIndex: number | null,
+    insertIndex?: number,
+    opts: { keepLocal?: boolean } = {}
+  ): Command {
+    const nodesArray = getIn(document.json, ["nodes"]) as unknown[] | undefined;
+    if (!nodesArray || nodesArray[nodeIndex] === undefined) {
+      throw new Error(`SceneEdit.reparentNode: no node at index ${nodeIndex}.`);
+    }
+    if (newParentIndex !== null && nodesArray[newParentIndex] === undefined) {
+      throw new Error(`SceneEdit.reparentNode: no node at index ${newParentIndex}.`);
+    }
+    if (newParentIndex !== null) {
+      const subtree = collectSubtreeIndices(document.json, nodeIndex);
+      if (subtree.includes(newParentIndex)) {
+        throw new CycleReparentError(nodeIndex, newParentIndex);
+      }
+    }
+
+    const originalParentIndex = findParentNodeIndex(document.json, nodeIndex);
+    const oldArrayPath = membershipArrayPath(document.json, originalParentIndex);
+    const removeFragment = removeFromArrayFragment(document.json, oldArrayPath, nodeIndex);
+    const jsonAfterRemove = applyPatches(document.json, removeFragment.patches);
+
+    const newArrayPath = membershipArrayPath(jsonAfterRemove, newParentIndex);
+    const insertFragment = insertIntoArrayFragment(jsonAfterRemove, newArrayPath, nodeIndex, insertIndex);
+
+    const parts: PatchPair[] = [removeFragment, insertFragment];
+
+    if (!opts.keepLocal) {
+      // Both world matrices are computed against the ORIGINAL (pre-move)
+      // `document.json` — see this function's own doc comment for why that's
+      // always valid given the cycle check above already passed.
+      const oldWorld = worldMatrixOf(document.json, nodeIndex);
+      const newParentWorld = newParentIndex === null ? mat4Identity() : worldMatrixOf(document.json, newParentIndex);
+      const invNewParentWorld = mat4Invert(newParentWorld);
+      const newLocal = invNewParentWorld === null ? oldWorld : mat4Multiply(invNewParentWorld, oldWorld);
+      parts.push(writeLocalMatrixFragment(document.json, nodeIndex, newLocal));
+    }
+
+    const combined = combineCommandParts(parts);
+    return {
+      id: makeCommandId("reparent-node"),
+      label: `Reparent node ${nodeIndex}`,
+      patches: combined.patches,
+      inverse: combined.inverse
+    };
+  },
+
+  /**
+   * DOC-053 (M8 part 2): deep-copies `nodeIndex` AND its entire descendant
+   * subtree (`collectSubtreeIndices`, the same DFS pre-order walk
+   * `removeNode` uses) as brand-new, APPENDED `nodes` entries — append-only,
+   * like `addNode`/`addPrimitiveMeshNode`/etc (DOC-046/047), never
+   * reparenting or deleting anything that already exists — as ONE undoable
+   * command. Returns `{command, index}` (mirroring every other structural
+   * `SceneEdit` add factory's shape) where `index` is the NEW copy of
+   * `nodeIndex` itself (the duplicated subtree's own root); a caller that
+   * needs every duplicated descendant's new index too (none currently does)
+   * can re-derive them from `index` via the same `collectSubtreeIndices`
+   * walk against the post-command document.
+   *
+   * Sharing, not copying, every non-node resource reference: each
+   * duplicated node object is a shallow copy of its original (`{...
+   * original}`) with only its OWN `name` and `children` fields rewritten
+   * (below) — `mesh`/`camera`/`extensions.KHR_lights_punctual.light`/
+   * `extensions.KHR_audio_emitter.emitter`/`translation`/`rotation`/`scale`/
+   * `matrix`/`weights`/every other field carries over completely unchanged,
+   * still pointing at the exact same `meshes`/`cameras`/lights/emitters
+   * registry entries the original node did. This is correct and cheap
+   * because glTF already shares those registries by index — two `nodes`
+   * entries referencing the same `mesh` index is exactly how instancing
+   * works in this format, not a bug to work around — so `duplicateNode`
+   * does not, and must not, also deep-copy `json.meshes`/`materials`/
+   * `accessors`/etc; doing so would silently balloon a duplicate of a
+   * heavy mesh into two full copies of its geometry for no benefit (editing
+   * one duplicate's OWN node fields, e.g. `SceneEdit.setTransform`, never
+   * touches the shared mesh data either way — only the two `nodes` array
+   * entries ever diverge, exactly like duplicating any other node/instance
+   * pair in this document model).
+   *
+   * `children` is remapped to the NEW indices of the duplicated
+   * descendants — the copied subtree's own internal parent/child structure
+   * is preserved intact, just entirely among the new indices, isomorphic to
+   * the original subtree's shape — and OMITTED (not set to `[]`) on a
+   * duplicated leaf, matching this codebase's established "no property, not
+   * an empty array" convention (DOC-048/049/052). Every duplicated node's
+   * `name` gets a `" copy"` suffix (defaulting to `Node {originalIndex}`
+   * first when the original had no name, same fallback `flattenSceneTree`'s
+   * own row-label logic uses) — applied to EVERY node in the copied
+   * subtree, not just its root, so e.g. duplicating a rig's whole hand
+   * doesn't leave five identically-named "Finger" children indistinguishable
+   * from the original hand's own five in the scene tree.
+   *
+   * The new subtree root is spliced in as a SIBLING immediately after the
+   * original — into the SAME membership array (`membershipArrayPath`) the
+   * original currently belongs to, whether that's a parent's `children` or
+   * the scene root's `nodes` — via the same `insertIntoArrayFragment`
+   * `reparentNode` (DOC-052) uses, at `originalPosition + 1`. (Every OTHER
+   * duplicated node is reachable purely through the new root's own
+   * remapped `children` — nothing else needs a membership-array edit.)
+   *
+   * Deliberately NOT auto-wired into any interactivity graph: if the
+   * duplicated subtree contains (or is itself) a node some graph handler
+   * addresses — e.g. a `KHR_audio_emitter` emitter node with an
+   * `event/onSelect` handler literally naming its ORIGINAL `nodeIndex` via
+   * `configuration.nodeIndex` — the new copy's own index is NOT added to
+   * that (or any) handler's configuration, and no new graph nodes are
+   * created on its behalf. A duplicated "car pad" does not automatically
+   * inherit the original's `onSelect` behavior; the user re-wires the copy
+   * explicitly (dragging it onto the graph canvas per `specs/ux-scene-tree.
+   * md`'s `UX-209`, or asking Copilot) exactly as if they'd built the new
+   * node from scratch. This is the resolved policy choice, not an
+   * oversight: auto-wiring would require this command to understand and
+   * clone arbitrary graph-node subgraphs reachable from a handler, a
+   * different (and open-ended) feature from "copy this node's OWN scene
+   * data".
+   */
+  duplicateNode(document: EditorDocument, nodeIndex: number): { command: Command; index: number } {
+    const nodesArray = getIn(document.json, ["nodes"]) as Array<Record<string, unknown> & { name?: string; children?: number[] }> | undefined;
+    if (!nodesArray || nodesArray[nodeIndex] === undefined) {
+      throw new Error(`SceneEdit.duplicateNode: no node at index ${nodeIndex}.`);
+    }
+
+    const subtree = collectSubtreeIndices(document.json, nodeIndex); // DFS pre-order; subtree[0] === nodeIndex.
+    const baseIndex = nodesArray.length;
+    const indexMap = new Map<number, number>();
+    subtree.forEach((oldIndex, i) => indexMap.set(oldIndex, baseIndex + i));
+
+    const addFragments: PatchPair[] = subtree.map((oldIndex, i) => {
+      const original = nodesArray[oldIndex];
+      const originalName = typeof original.name === "string" && original.name.length > 0 ? original.name : `Node ${oldIndex}`;
+      const clone: Record<string, unknown> = { ...original, name: `${originalName} copy` };
+      if (Array.isArray(original.children) && original.children.length > 0) {
+        clone.children = original.children.map((childIndex) => indexMap.get(childIndex)!);
+      } else {
+        delete clone.children;
+      }
+      const pointer = formatPointer(["nodes", baseIndex + i]);
+      return { patches: [{ op: "add", path: pointer, value: clone }], inverse: [{ op: "remove", path: pointer }] };
+    });
+
+    const jsonAfterNodes = applyPatches(document.json, addFragments.flatMap((f) => f.patches));
+
+    const newRootIndex = indexMap.get(nodeIndex)!;
+    const originalParentIndex = findParentNodeIndex(document.json, nodeIndex);
+    const containerPath = membershipArrayPath(jsonAfterNodes, originalParentIndex);
+    const containerArray = (getIn(jsonAfterNodes, containerPath.map(String)) as number[] | undefined) ?? [];
+    const originalPosition = containerArray.indexOf(nodeIndex);
+    const insertAt = originalPosition === -1 ? containerArray.length : originalPosition + 1;
+    const insertFragment = insertIntoArrayFragment(jsonAfterNodes, containerPath, newRootIndex, insertAt);
+
+    const combined = combineCommandParts([...addFragments, insertFragment]);
+    const label = subtree.length > 1 ? `Duplicate node ${nodeIndex} (${subtree.length} nodes)` : `Duplicate node ${nodeIndex}`;
+    return {
+      index: newRootIndex,
+      command: { id: makeCommandId("duplicate-node"), label, patches: combined.patches, inverse: combined.inverse }
+    };
   }
 };
+
+/**
+ * DOC-052: a node's LOCAL matrix — `node.matrix` verbatim when present
+ * (glTF's `matrix`/TRS fields are mutually exclusive), else composed from
+ * `translation`/`rotation`/`scale` (each defaulting per the glTF spec:
+ * `[0,0,0]`/`[0,0,0,1]`/`[1,1,1]`) via `mat-utils.ts`'s
+ * `mat4FromTranslationRotationScale`.
+ */
+function localMatrixOf(json: unknown, nodeIndex: number): Mat4 {
+  const node = getIn(json, ["nodes", nodeIndex]) as { matrix?: number[]; translation?: Vec3; rotation?: Quat; scale?: Vec3 } | undefined;
+  if (node?.matrix) return Float32Array.from(node.matrix);
+  return mat4FromTranslationRotationScale(node?.translation ?? [0, 0, 0], node?.rotation ?? [0, 0, 0, 1], node?.scale ?? [1, 1, 1]);
+}
+
+/**
+ * DOC-052: `nodeIndex`'s WORLD matrix — the product of every ancestor's
+ * local matrix (root-most first) down through `nodeIndex`'s own, walking
+ * the CURRENT parent chain via `findParentNodeIndex` (glTF's node graph is
+ * a forest — at most one parent per node, so this walk is unambiguous and
+ * always terminates at a root).
+ */
+function worldMatrixOf(json: unknown, nodeIndex: number): Mat4 {
+  const chain: number[] = [];
+  let cursor: number | null = nodeIndex;
+  while (cursor !== null) {
+    chain.push(cursor);
+    cursor = findParentNodeIndex(json, cursor);
+  }
+  chain.reverse(); // root-most ancestor first, nodeIndex itself last.
+  let acc = mat4Identity();
+  for (const index of chain) {
+    acc = mat4Multiply(acc, localMatrixOf(json, index));
+  }
+  return acc;
+}
+
+/**
+ * DOC-052: writes `newLocal` back to `nodeIndex` in whichever shape it
+ * already authored its own transform in — a `matrix` array when it had one,
+ * else explicit `translation`/`rotation`/`scale` fields (all three,
+ * unconditionally — see `reparentNode`'s own doc comment for why this can't
+ * reuse `setTransform`'s narrower "only fields the caller named" contract).
+ */
+function writeLocalMatrixFragment(json: unknown, nodeIndex: number, newLocal: Mat4): PatchPair {
+  const node = getIn(json, ["nodes", nodeIndex]) as { matrix?: number[] } | undefined;
+  if (node?.matrix) {
+    return setPathFragment(json, ["nodes", nodeIndex, "matrix"], Array.from(newLocal));
+  }
+  const { translation, rotation, scale } = mat4Decompose(newLocal);
+  const translationFragment = setPathFragment(json, ["nodes", nodeIndex, "translation"], translation);
+  const jsonAfterTranslation = applyPatches(json, translationFragment.patches);
+  const rotationFragment = setPathFragment(jsonAfterTranslation, ["nodes", nodeIndex, "rotation"], rotation);
+  const jsonAfterRotation = applyPatches(jsonAfterTranslation, rotationFragment.patches);
+  const scaleFragment = setPathFragment(jsonAfterRotation, ["nodes", nodeIndex, "scale"], scale);
+  return combineCommandParts([translationFragment, rotationFragment, scaleFragment]);
+}
