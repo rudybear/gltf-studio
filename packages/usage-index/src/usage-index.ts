@@ -14,8 +14,9 @@
 //     Template, @gltfi/kernel's parsePointerTemplate) whose resolved path
 //     starts with `/nodes/{N}` — component suffixes (e.g. `/translation/1`)
 //     don't change which node is referenced — or an
-//     `/extensions/KHR_audio/emitters/{E}` pointer, reverse-resolved to the
-//     scene node whose `KHR_audio_emitter` extension owns emitter `{E}`.
+//     `/extensions/KHR_audio_emitter/emitters/{E}` pointer, reverse-resolved
+//     to the scene node whose own `KHR_audio_emitter` extension owns
+//     emitter `{E}`.
 //   - event/onSelect|onHoverIn|onHoverOut's `configuration.nodeIndex` (a
 //     literal int; the `-1` "any node" default is never attributed).
 //   - animation/start|stop|stopAt's `animation` VALUE (a literal ref index,
@@ -28,6 +29,18 @@
 // of a literal, an out-of-range animation/emitter index) is OMITTED, not
 // guessed at (UX-1105) — the same "honest gap" convention
 // packages/app/src/lib/pointer-vocab.ts's own header comment documents.
+//
+// Phase 2 (UX-1115) additionally indexes the same pointer/animation
+// families by ASSET entity (material/mesh/animation) rather than scene
+// node — `buildAssetUsageIndex`, below `buildUsageIndex` — feeding the
+// Asset Browser's own ambient reference badges (UX-1116), and
+// `findGraphNodeIndexForPointer` (UX-1119) resolves a literal pointer-path
+// STRING back to the graph node that carries it, the exact reverse of what
+// `usageRefPathText` renders forward — the Script tab's Monaco pointer-link
+// click (`@gltf-studio/script-panel`) uses it to re-derive a graph-node
+// selection from clicked text, the same way `app-store.ts`'s
+// `jumpUsageRefToScript` (UX-1108) already searches emitted TEXT for a
+// pointer path in the other direction.
 import { parsePointerTemplate } from "@gltfi/kernel";
 
 // ---------------------------------------------------------------------------
@@ -81,6 +94,10 @@ export interface UsageAnimation {
 export interface UsageDocJson {
   nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number } } }>;
   animations?: UsageAnimation[];
+  /** UX-1115: only read for an in-range bounds check (an out-of-range `/materials/{M}` pointer is omitted, UX-1105) — never for content. */
+  materials?: Array<unknown>;
+  /** UX-1115: same in-range-only role as `materials` above, for `/meshes/{M}` pointers. */
+  meshes?: Array<unknown>;
   extensions?: {
     KHR_interactivity?: { graphs?: UsageInteractivityGraph[] };
   };
@@ -183,7 +200,7 @@ export function graphNodeSceneRef(op: string, node: UsageGraphNode, json: UsageD
     if (!resolved) return null;
     const nodeMatch = /^\/nodes\/(\d+)(?:\/|$)/.exec(resolved);
     if (nodeMatch) return Number(nodeMatch[1]);
-    const audioMatch = /^\/extensions\/KHR_audio\/emitters\/(\d+)(?:\/|$)/.exec(resolved);
+    const audioMatch = /^\/extensions\/KHR_audio_emitter\/emitters\/(\d+)(?:\/|$)/.exec(resolved);
     if (audioMatch) {
       const owners = emitterOwners ?? buildEmitterOwners(json);
       return owners.get(Number(audioMatch[1])) ?? null;
@@ -272,6 +289,109 @@ export function buildUsageIndex(json: UsageDocJson): Map<number, UsageRef[]> {
 
 /** Convenience empty-array default for a component reading `index.get(nodeIndex)`. */
 export const NO_USAGE_REFS: UsageRef[] = [];
+
+/** UX-1115: `buildAssetUsageIndex`'s return shape — one map per asset kind, each keyed by that kind's own array index (`json.materials[M]`/`json.meshes[M]`/`json.animations[M]`), never sharing a key space with `buildUsageIndex`'s scene-node map or with each other. */
+export interface AssetUsageIndex {
+  materials: Map<number, UsageRef[]>;
+  meshes: Map<number, UsageRef[]>;
+  animations: Map<number, UsageRef[]>;
+}
+
+/** Convenience empty-index default for a component reading all three maps before a document exists. */
+export const NO_ASSET_USAGE_INDEX: AssetUsageIndex = { materials: new Map(), meshes: new Map(), animations: new Map() };
+
+/**
+ * UX-1115: the asset-entity sibling of `buildUsageIndex` (UX-1100..1105) —
+ * the SAME two source families (a `pointer/get|set|interpolate` literal
+ * pointer, an `animation/start|stop|stopAt` literal clip ref), reattributed
+ * to the MATERIAL/MESH/ANIMATION the pointer/clip itself addresses instead
+ * of to a scene node. Unlike `buildUsageIndex`'s animation family
+ * (UX-1102, which fans a clip ref OUT to every scene node its channels
+ * target), an animation clip ref here is attributed to exactly the one
+ * literal clip index itself — no channel walk needed, since the clip IS
+ * the entity being indexed. `event/onSelect|onHoverIn|onHoverOut` refs
+ * (UX-1101) are scene-node-only by construction (a `nodeIndex` never
+ * addresses an asset) and so never appear in any of these three maps.
+ * Same UX-1105 "omit, don't guess" policy as `buildUsageIndex`: an
+ * out-of-range material/mesh/animation index, or an unresolved template
+ * parameter, is left out rather than attributed speculatively.
+ */
+export function buildAssetUsageIndex(json: UsageDocJson): AssetUsageIndex {
+  const materials = new Map<number, UsageRef[]>();
+  const meshes = new Map<number, UsageRef[]>();
+  const animations = new Map<number, UsageRef[]>();
+  const graphs = json.extensions?.KHR_interactivity?.graphs ?? [];
+
+  function addTo(map: Map<number, UsageRef[]>, key: number, ref: UsageRef): void {
+    const list = map.get(key);
+    if (list) list.push(ref);
+    else map.set(key, [ref]);
+  }
+
+  graphs.forEach((graph, graphIndex) => {
+    const declarations = graph.declarations ?? [];
+    (graph.nodes ?? []).forEach((node, graphNodeIndex) => {
+      const op = declarations[node.declaration]?.op;
+      if (!op) return;
+      const category = op.split("/")[0] ?? op;
+
+      if (ANIMATION_OPS.has(op)) {
+        const animIndex = literalValueNumber(node, "animation");
+        if (animIndex === undefined || !json.animations?.[animIndex]) return; // UX-1105: unresolved literal or out-of-range index, omitted
+        addTo(animations, animIndex, { graphIndex, graphNodeIndex, op, category, kind: "animation", pathText: usageRefPathText(op, node, json) });
+        return;
+      }
+
+      if (!POINTER_OPS.has(op)) return;
+      const template = literalString(node, "pointer");
+      if (!template) return;
+      const resolved = resolveConcretePointer(template, node);
+      if (!resolved) return;
+
+      const ref: UsageRef = { graphIndex, graphNodeIndex, op, category, kind: "pointer", pathText: usageRefPathText(op, node, json) };
+      const materialMatch = /^\/materials\/(\d+)(?:\/|$)/.exec(resolved);
+      if (materialMatch) {
+        const index = Number(materialMatch[1]);
+        if (json.materials?.[index] !== undefined) addTo(materials, index, ref);
+        return;
+      }
+      const meshMatch = /^\/meshes\/(\d+)(?:\/|$)/.exec(resolved);
+      if (meshMatch) {
+        const index = Number(meshMatch[1]);
+        if (json.meshes?.[index] !== undefined) addTo(meshes, index, ref);
+      }
+    });
+  });
+
+  return { materials, meshes, animations };
+}
+
+/**
+ * UX-1119: the reverse of `usageRefPathText`'s pointer-family branch — given
+ * a literal pointer-path STRING (as clicked from a Monaco link in the
+ * Script tab's emitted text, `@gltf-studio/script-panel`'s `pointer-links.ts`),
+ * finds the first `pointer/get|set|interpolate` graph node whose OWN literal
+ * `configuration.pointer` equals it exactly. A plain first-match scan, not
+ * `findEnclosingHandlerRoot`-disambiguated the way UX-1108's forward
+ * (Inspector -> Script) jump is — the same multi-writer ambiguity
+ * `OPEN(UX-usage-script-jump-multi-occurrence)` already documents for that
+ * direction applies symmetrically here and is left as the same kind of
+ * accepted, honestly-tracked gap rather than re-solved twice. Returns
+ * `null` when no such node exists (e.g. the path was hand-typed/edited text
+ * that no longer matches any node, or belongs to a `pointer/get` with no
+ * writer at all).
+ */
+export function findGraphNodeIndexForPointer(graph: UsageInteractivityGraph, pointerPath: string): number | null {
+  const declarations = graph.declarations ?? [];
+  const nodes = graph.nodes ?? [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]!;
+    const op = declarations[node.declaration]?.op;
+    if (!op || !POINTER_OPS.has(op)) continue;
+    if (literalString(node, "pointer") === pointerPath) return i;
+  }
+  return null;
+}
 
 const HANDLER_ROOT_OPS = new Set(["event/onStart", "event/onTick", "event/receive", "event/onSelect", "event/onHoverIn", "event/onHoverOut"]);
 

@@ -26,6 +26,7 @@ export function ScriptTabPanel(): JSX.Element {
   const selectedGraphIndex = useAppStore((s) => s.selectedGraphIndex);
   const setSelectedGraphIndex = useAppStore((s) => s.setSelectedGraphIndex);
   const scriptNodeFocusRequest = useAppStore((s) => s.scriptNodeFocusRequest);
+  const jumpScriptPointerToScene = useAppStore((s) => s.jumpScriptPointerToScene);
   const log = useAppStore((s) => s.log);
   const pushToast = useAppStore((s) => s.pushToast);
 
@@ -67,6 +68,7 @@ export function ScriptTabPanel(): JSX.Element {
           focusRequest={scriptNodeFocusRequest}
           onLog={log}
           onToast={pushToast}
+          onPointerLinkClick={(pointerPath) => jumpScriptPointerToScene(pointerPath, graphCount > 1 ? selectedGraphIndex : 0)}
         />
       </Suspense>
     </div>

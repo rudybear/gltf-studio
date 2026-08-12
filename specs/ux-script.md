@@ -123,6 +123,37 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
   (either `UX-712`'s or `UX-1108`'s fallback) actually selected the expected text rather than merely
   that some selection changed.
 
+- Usage mapping Phase 2, Monaco pointer-path links (`specs/ux-usage-mapping.md` `UX-1119`): a new
+  pure module, `pointer-links.ts`'s `findPointerPathLinks(code)`, scans the emitted text with a plain
+  regex for every quoted pointer-path family `@gltf-studio/usage-index` resolves (`/nodes/*`,
+  `/materials/*`, `/meshes/*`, `/animations/*`, `/extensions/KHR_audio_emitter/{emitters,sources}/*`)
+  — the same "search the emitted TEXT, not the IR" spirit `cross-highlight.ts`'s own pointer-path
+  fallback already established for this exact op family, just in the opposite direction (finding
+  every occurrence rather than one known one). `script-panel.tsx`'s Monaco-mount effect registers,
+  ONCE per page load (module-scope `pointerLinkCommandRegistered` guard — `monaco.editor.registerCommand`/
+  `languages.registerLinkProvider` have no "already registered, replace the handler" API, unlike this
+  component's own per-mount `contentSub`/`cursorSub` disposables), a `languages.registerLinkProvider("typescript", ...)`
+  whose `provideLinks` maps each `findPointerPathLinks` match to an `ILink` with a `command:<id>?<json-args>`
+  URI — Monaco's own default link opener recognizes the `command:` scheme and dispatches through the
+  registered `editor.registerCommand` handler, the standard way to make a Monaco link DO something
+  other than navigate to a real URL (rather than this package inventing its own click-interception).
+  That command handler calls through a module-scope `pointerLinkClickHandler` ref (kept pointed at the
+  CURRENT mount's `onPointerLinkClick` prop by a small effect) rather than closing over whichever
+  prop happened to be current at the one-time registration — the same "module-scope registration,
+  per-mount ref for the actually-current callback" split this package's `ParseClient` worker-lifecycle
+  effect doesn't need (one parse worker per mount, no cross-mount singleton) but this DOES, since the
+  command/provider registration itself must not repeat. `ScriptPanelProps` gained `onPointerLinkClick?`
+  (`ScriptTabPanel.tsx` wires it to `app-store.ts`'s new `jumpScriptPointerToScene` — see
+  `specs/ux-shell.md`'s own M9 Phase 2 note for that action's own resolution logic; this package has
+  no glTF-document knowledge of its own to do that resolution, only the clicked TEXT). `GltfStudioScriptTestHook`
+  gains `getPointerLinks()` (every link `findPointerPathLinks` currently finds, for an e2e test to
+  assert WHICH links exist) and `clickPointerLink(pointerPath)` (invokes the exact same handler a real
+  "command:" URI click does, without a flaky pixel-perfect Monaco DOM interaction through a link
+  widget that's hover/modifier-key-gated and platform-inconsistent — the same "exercise the real
+  result-producing code path, not the fragile DOM gesture" precedent `setValue`/
+  `GraphCanvasTestHook.simulateConnect` already set elsewhere in this suite; `specs/ux-usage-mapping.md`'s
+  own `OPEN(UX-usage-p2-gaps-tbd)` tracks this as a documented simplification, not a silent one).
+
 - UX-715 (the persistent, focus-independent jump decoration): `script-panel.tsx`'s `applyJumpHighlight`
   is the ONE place a jump actually lands — both the plain `UX-712` canvas-selection effect and the
   `UX-1108` `focusRequest` effect call it (rather than each hand-rolling their own

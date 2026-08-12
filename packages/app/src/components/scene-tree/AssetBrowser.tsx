@@ -1,8 +1,11 @@
 import { ANIM_CLIP_DRAG_MIME } from "@gltf-studio/graph-canvas";
+import type { UsageRef } from "@gltf-studio/usage-index";
 import { useAppStore } from "../../store/app-store";
 import type { AssetTab } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
+import { useUsageIndexes } from "../../hooks/use-usage-indexes";
 import { NodeIcon } from "./NodeIcon";
+import { UsageBadge } from "../UsageBadge";
 
 const TABS: Array<{ key: AssetTab; label: string; testid: string }> = [
   { key: "meshes", label: "Meshes", testid: "asset-browser.tab.meshes" },
@@ -26,7 +29,14 @@ export function AssetBrowser(): JSX.Element {
   const selectedAsset = useAppStore((s) => s.selectedAsset);
   const selectAsset = useAppStore((s) => s.selectAsset);
   const showIndices = useAppStore((s) => s.showIndices);
+  const showUsageBadges = useAppStore((s) => s.showUsageBadges);
+  const jumpUsageRefToGraph = useAppStore((s) => s.jumpUsageRefToGraph);
   const flashTarget = useAppStore((s) => s.flashTarget);
+  // UX-1116 (specs/ux-usage-mapping.md): shares the SAME toggle state
+  // `SceneTree.tsx`'s header button owns — one app-wide "show badges"
+  // setting across both surfaces, the same way `showIndices` already has
+  // exactly one toggle button (also in `SceneTree.tsx`) governing both.
+  const usageIndexes = useUsageIndexes(document?.json);
 
   const json = document?.json as GltfJsonShape | undefined;
   const rowsFor = (tab: AssetTab): string[] => {
@@ -36,6 +46,13 @@ export function AssetBrowser(): JSX.Element {
     return [];
   };
   const rows = rowsFor(activeAssetTab);
+  /** UX-1116: the active tab's own asset-usage map, or `null` for a tab this index doesn't cover (Audio Clips — unwired per this file's own header note). */
+  const usageRefsFor = (index: number): UsageRef[] | undefined => {
+    if (activeAssetTab === "materials") return usageIndexes.assets.materials.get(index);
+    if (activeAssetTab === "meshes") return usageIndexes.assets.meshes.get(index);
+    if (activeAssetTab === "animations") return usageIndexes.assets.animations.get(index);
+    return undefined;
+  };
 
   return (
     <div id="asset-browser-section" className="panel-section" data-testid="asset-browser.panel">
@@ -67,6 +84,7 @@ export function AssetBrowser(): JSX.Element {
           <div className="asset-list">
             {rows.map((name, i) => {
               const flashed = flashTarget?.kind === "asset-row" && flashTarget.tab === activeAssetTab && flashTarget.index === i;
+              const usageRefs = usageRefsFor(i);
               return (
               <div
                 key={i}
@@ -91,6 +109,20 @@ export function AssetBrowser(): JSX.Element {
                   {showIndices ? `#${i} ` : ""}
                   {name}
                 </span>
+                {showUsageBadges && usageRefs && usageRefs.length > 0 && (
+                  <UsageBadge
+                    count={usageRefs.length}
+                    testId={`asset-browser.${activeAssetTab}.${i}.usage-badge`}
+                    onClick={() => {
+                      // UX-1116: an asset entity has no Inspector "Used in
+                      // behavior" section of its own (unlike a scene node,
+                      // UX-1106) — jumps to its FIRST reference in the
+                      // Behavior graph instead, reusing UX-1108's own
+                      // →Graph jump verbatim.
+                      jumpUsageRefToGraph(usageRefs[0]!);
+                    }}
+                  />
+                )}
                 {activeAssetTab === "animations" && (
                   <button
                     className="btn small icon-only"

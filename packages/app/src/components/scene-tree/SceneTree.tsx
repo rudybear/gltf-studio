@@ -3,8 +3,11 @@ import { SCENE_NODE_DRAG_MIME } from "@gltf-studio/graph-canvas";
 import { SceneEdit, type Command } from "@gltf-studio/editor-core";
 import { useAppStore } from "../../store/app-store";
 import { countSubtreeNodes, flattenSceneTree, visibleRows, type GltfJsonShape } from "../../lib/gltf-scene";
+import { useUsageIndexes } from "../../hooks/use-usage-indexes";
 import { NodeIcon } from "./NodeIcon";
+import { UsageBadge } from "../UsageBadge";
 import { ContextMenu } from "../ContextMenu";
+import { NO_USAGE_REFS } from "@gltf-studio/usage-index";
 
 const MESH_SUBMENU_ENTRIES = [
   { kind: "cube", label: "Cube" },
@@ -71,11 +74,18 @@ export function SceneTree(): JSX.Element {
   const toggleCollapsed = useAppStore((s) => s.toggleCollapsed);
   const showIndices = useAppStore((s) => s.showIndices);
   const toggleShowIndices = useAppStore((s) => s.toggleShowIndices);
+  const showUsageBadges = useAppStore((s) => s.showUsageBadges);
+  const toggleShowUsageBadges = useAppStore((s) => s.toggleShowUsageBadges);
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const requestFrame = useAppStore((s) => s.requestFrame);
   const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
+  const triggerFlash = useAppStore((s) => s.triggerFlash);
   const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
   const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
+  // UX-1116 (specs/ux-usage-mapping.md): the ambient ⚡ reference badge's
+  // per-node count — same shared, identity-memoized derivation the Inspector's
+  // UsageSection and the Asset Browser's own badges use.
+  const usageIndexes = useUsageIndexes(document?.json);
   const selectedGraphNodeIndex = useAppStore((s) => s.selectedGraphNodeIndex);
   const selectedGraphIndex = useAppStore((s) => s.selectedGraphIndex);
   // UX-1110 (specs/ux-usage-mapping.md): same derived amber reference-
@@ -168,6 +178,15 @@ export function SceneTree(): JSX.Element {
     <div id="scene-tree-section" className="panel-section">
       <div className="panel-header">
         <span>Scene</span>
+        <button
+          className={`btn icon-only small${showUsageBadges ? " active" : ""}`}
+          data-testid="scene-tree.toggle-usage-badges"
+          title="Show behavior-reference badges"
+          aria-pressed={showUsageBadges}
+          onClick={toggleShowUsageBadges}
+        >
+          ⚡
+        </button>
         <button
           className={`btn icon-only small${showIndices ? " active" : ""}`}
           data-testid="scene-tree.toggle-indices"
@@ -307,6 +326,28 @@ export function SceneTree(): JSX.Element {
                   {showIndices ? <span className="dim"> #{row.nodeIndex}</span> : null}
                 </span>
               )}
+              {showUsageBadges &&
+                (() => {
+                  const refs = usageIndexes.nodes.get(row.nodeIndex) ?? NO_USAGE_REFS;
+                  if (refs.length === 0) return null;
+                  return (
+                    <UsageBadge
+                      count={refs.length}
+                      testId={`scene-tree.row.${i}.usage-badge`}
+                      onClick={() => {
+                        // UX-1116: selects the node (opening the Inspector's
+                        // "Used in behavior" section for it, UX-1106) and
+                        // flashes that section so it's obvious what the
+                        // click did — the same `flashTarget`/`triggerFlash`
+                        // convention `inspector.identity.ref.mesh`/`.audio`
+                        // chips already use for their own section jumps.
+                        selectNode(row.nodeIndex);
+                        setActiveRightTab("inspector");
+                        triggerFlash({ kind: "inspector-section", id: "usage" });
+                      }}
+                    />
+                  );
+                })()}
             </div>
           ))
         )}

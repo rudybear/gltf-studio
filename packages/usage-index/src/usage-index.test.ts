@@ -2,7 +2,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseContainer } from "@gltfi/gltf";
-import { buildUsageIndex, findEnclosingHandlerRoot, graphNodeSceneRef, usageRefPathText, type UsageDocJson, type UsageGraphNode, type UsageInteractivityGraph } from "./usage-index.js";
+import {
+  buildAssetUsageIndex,
+  buildUsageIndex,
+  findEnclosingHandlerRoot,
+  findGraphNodeIndexForPointer,
+  graphNodeSceneRef,
+  usageRefPathText,
+  type UsageDocJson,
+  type UsageGraphNode,
+  type UsageInteractivityGraph
+} from "./usage-index.js";
 
 const RACER_GLB_PATH = fileURLToPath(new URL("../../../samples/r4-racer.glb", import.meta.url));
 
@@ -58,14 +68,14 @@ describe("buildUsageIndex (UX-1100..1105)", () => {
     expect(index.size).toBe(1); // the -1-configured onHoverIn node is never attributed
   });
 
-  it("reverse-resolves a KHR_audio emitter pointer to the scene node that owns that emitter (UX-1103)", () => {
+  it("reverse-resolves a KHR_audio_emitter emitter pointer to the scene node that owns that emitter (UX-1103)", () => {
     const json = docWithGraph(
-      [node({ declaration: 0, configuration: { pointer: { value: ["/extensions/KHR_audio/emitters/2/gain"] } } })],
+      [node({ declaration: 0, configuration: { pointer: { value: ["/extensions/KHR_audio_emitter/emitters/2/gain"] } } })],
       [{ op: "pointer/set" }],
       { nodes: [{}, { extensions: { KHR_audio_emitter: { emitter: 2 } } }, {}] }
     );
     const index = buildUsageIndex(json);
-    expect(index.get(1)?.[0]?.pathText).toBe("/extensions/KHR_audio/emitters/2/gain");
+    expect(index.get(1)?.[0]?.pathText).toBe("/extensions/KHR_audio_emitter/emitters/2/gain");
   });
 
   it("attributes animation/start to every distinct scene node its clip's channels target, deduplicated (UX-1102)", () => {
@@ -120,8 +130,87 @@ describe("buildUsageIndex (UX-1100..1105)", () => {
   });
 });
 
-describe("buildUsageIndex racer-scale sanity (UX-1113)", () => {
-  it("computes r4-racer.glb's real 366-node/one-graph usage index correctly and within a generous time budget", () => {
+describe("buildAssetUsageIndex (UX-1115)", () => {
+  it("attributes a pointer/set node's /materials/{M} pointer to material M (the exact family UX-1105 previously had to omit)", () => {
+    const json = docWithGraph(
+      [node({ declaration: 0, configuration: { pointer: { value: ["/materials/2/pbrMetallicRoughness/baseColorFactor"] } } })],
+      [{ op: "pointer/set" }],
+      { materials: [{}, {}, {}] }
+    );
+    const index = buildAssetUsageIndex(json);
+    expect(index.materials.get(2)).toEqual([
+      { graphIndex: 0, graphNodeIndex: 0, op: "pointer/set", category: "pointer", kind: "pointer", pathText: "/materials/2/pbrMetallicRoughness/baseColorFactor" }
+    ]);
+    expect(index.meshes.size).toBe(0);
+    expect(index.animations.size).toBe(0);
+  });
+
+  it("attributes a pointer/get node's /meshes/{M} pointer to mesh M", () => {
+    const json = docWithGraph(
+      [node({ declaration: 0, configuration: { pointer: { value: ["/meshes/1/weights/0"] } } })],
+      [{ op: "pointer/get" }],
+      { meshes: [{}, {}] }
+    );
+    expect(buildAssetUsageIndex(json).meshes.get(1)).toHaveLength(1);
+  });
+
+  it("attributes animation/start|stop|stopAt directly to the literal clip index itself, deduplicating repeated refs from different nodes", () => {
+    const json = docWithGraph(
+      [node({ declaration: 0, values: { animation: { value: [0] } } }), node({ declaration: 1, values: { animation: { value: [0] } } })],
+      [{ op: "animation/start" }, { op: "animation/stop" }],
+      { animations: [{ name: "Spin" }] }
+    );
+    const refs = buildAssetUsageIndex(json).animations.get(0);
+    expect(refs).toHaveLength(2);
+    expect(refs?.[0]?.kind).toBe("animation");
+    expect(refs?.[0]?.pathText).toBe("animation: 0 (Spin)");
+  });
+
+  it("omits (never guesses) an out-of-range material/mesh/animation index (UX-1105)", () => {
+    const json = docWithGraph(
+      [
+        node({ declaration: 0, configuration: { pointer: { value: ["/materials/9/pbrMetallicRoughness/baseColorFactor"] } } }),
+        node({ declaration: 1, values: { animation: { value: [9] } } })
+      ],
+      [{ op: "pointer/set" }, { op: "animation/start" }],
+      { materials: [{}] }
+    );
+    const index = buildAssetUsageIndex(json);
+    expect(index.materials.size).toBe(0);
+    expect(index.animations.size).toBe(0);
+  });
+
+  it("returns three empty maps (never throws) for a document with no KHR_interactivity graphs at all", () => {
+    const index = buildAssetUsageIndex({});
+    expect(index.materials.size).toBe(0);
+    expect(index.meshes.size).toBe(0);
+    expect(index.animations.size).toBe(0);
+  });
+});
+
+describe("findGraphNodeIndexForPointer (UX-1119)", () => {
+  it("finds the graph node whose literal configuration.pointer matches exactly", () => {
+    const graph: UsageInteractivityGraph = {
+      declarations: [{ op: "event/onSelect" }, { op: "pointer/set" }],
+      nodes: [
+        { declaration: 0, configuration: { nodeIndex: { value: [1] } } },
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/1/translation"] } } }
+      ]
+    };
+    expect(findGraphNodeIndexForPointer(graph, "/nodes/1/translation")).toBe(1);
+  });
+
+  it("returns null when no pointer/* node carries that exact literal text", () => {
+    const graph: UsageInteractivityGraph = {
+      declarations: [{ op: "pointer/set" }],
+      nodes: [{ declaration: 0, configuration: { pointer: { value: ["/nodes/1/translation"] } } }]
+    };
+    expect(findGraphNodeIndexForPointer(graph, "/nodes/2/translation")).toBeNull();
+  });
+});
+
+describe("buildUsageIndex/buildAssetUsageIndex racer-scale sanity (UX-1113)", () => {
+  it("computes r4-racer.glb's real 366-node/one-graph usage indices correctly and within a generous time budget", () => {
     const bytes = readFileSync(RACER_GLB_PATH);
     const { json } = parseContainer(new Uint8Array(bytes));
     const doc = json as UsageDocJson;
@@ -130,17 +219,28 @@ describe("buildUsageIndex racer-scale sanity (UX-1113)", () => {
 
     const started = performance.now();
     const index = buildUsageIndex(doc);
+    const assetIndex = buildAssetUsageIndex(doc);
     const elapsedMs = performance.now() - started;
 
     // Real fixture ground truth (verified against the raw asset, see PR
     // description): 3 event/onSelect + 3 event/onHoverIn + 3 event/onHoverOut
     // (one real scene-node target each) + 40 pointer/set nodes (most
-    // targeting /materials/*, out of this index's scope per UX-1105 — only
-    // the ones addressing /nodes/* count here).
+    // targeting /materials/*, now covered by `buildAssetUsageIndex` (UX-1115)
+    // instead of `buildUsageIndex` — only the ones addressing /nodes/* count
+    // toward the scene-node total here).
     let totalRefs = 0;
     for (const refs of index.values()) totalRefs += refs.length;
     expect(totalRefs).toBeGreaterThan(0);
     expect(totalRefs).toBeLessThanOrEqual(9 + 40);
+
+    // The asset-entity index is additive, not a subset double-count: every
+    // pointer/set this racer graph carries targets either /nodes/* (counted
+    // above) or /materials/* (counted here) — never both — so this is real
+    // signal that UX-1115's material family is actually exercised at real
+    // scale, not just in a synthetic unit fixture.
+    let totalMaterialRefs = 0;
+    for (const refs of assetIndex.materials.values()) totalMaterialRefs += refs.length;
+    expect(totalMaterialRefs).toBeGreaterThan(0);
 
     // Generous budget (a real interactive Inspector open should feel
     // instant, well under one animation frame at 60fps/~16ms) — this

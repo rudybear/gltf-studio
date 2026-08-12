@@ -45,6 +45,27 @@ Prefix: `UX`. This file owns the `UX-11xx` block.
 
 - [UX-1113] (active) Usage-index derivation is fast enough not to visibly stall the Inspector on a real, non-trivial document (e.g. a several-hundred-node single-graph asset) and is memoized on the document JSON's own identity — the same identity-based memoization convention `@gltf-studio/graph-canvas`'s `mapGraph`/`buildPointerContentTree` already use — so it never recomputes on an unrelated selection change, only on an actual document edit.
 
+### Asset-entity usage index (Phase 2)
+
+- [UX-1115] (active) A `pointer/get|set|interpolate` node whose `configuration.pointer` (by the same literal/template-parameter resolution rule as `UX-1100`) resolves to a path beginning `/materials/{M}` or `/meshes/{M}` is attributed to material/mesh `M` respectively — a SEPARATE index (`buildAssetUsageIndex`, keyed by material/mesh index) from `UX-1100`'s scene-node map, never a new entry in it (materials/meshes are not scene nodes). An `animation/start|stop|stopAt` node whose `animation` value is a literal clip index is ADDITIONALLY attributed directly to that clip index itself in this same asset-entity index — unlike `UX-1102`'s scene-node fan-out (every node the clip's channels target), there is exactly one clip being referenced, so no fan-out is needed here. `event/onSelect|onHoverIn|onHoverOut` (`UX-1101`) never appears in this index (a `nodeIndex` config can only ever address a scene node). Same `UX-1105` "omit an out-of-range/unresolvable reference, never guess" policy, applied against `json.materials`/`json.meshes`'s own bounds.
+- [UX-1116] (active) A scene-tree row or asset-browser row (meshes/materials/animations) with 1+ references in the relevant index (`UX-1100..1105`'s scene-node map for a scene-tree row; `UX-1115`'s asset-entity index for an asset-browser row) shows a small "⚡" badge with a tooltip reading "N reference"/"N references". Clicking a scene-tree row's badge selects that scene node and flashes/scrolls the Inspector's "Used in behavior" section (`UX-1106`) into view — the section is already there once the node is selected, so this is a discoverability affordance, not a new view. Clicking an asset-browser row's badge — a material/mesh/animation has no Inspector section of its own (unlike a scene node) — jumps to its FIRST reference in the Behavior graph instead, reusing `UX-1107`'s "→ Graph" jump verbatim (a documented, deliberate simplification for a row with more than one reference, not a promise of "the most relevant one").
+- [UX-1117] (active) A single view toggle (mirroring `specs/ux-scene-tree.md`'s existing "show indices" toggle in placement and session-only persistence) shows/hides every `UX-1116` badge across BOTH the scene tree and the asset browser at once — one app-wide setting, not a toggle per panel, the same relationship `showIndices` already has to both panels. Defaults to ON (unlike `showIndices`, which defaults off) — the badge is meant to be discovered, not opted into.
+
+### Live "Attach behavior…" menu (Phase 2)
+
+- [UX-1118] (active) Supersedes `UX-1109`'s Phase-2 stub entries: a zero-reference node's "Attach behavior…" menu's `event/onSelect`-prefixed entries now create real content, each as ONE undoable command wiring a fresh `event/onSelect` node (`configuration.nodeIndex` set to the selected scene node) by a single flow edge into a fresh effect node, landing in and focusing the Behavior graph (reusing `UX-1107`'s own selection/focus mechanism) — never two separate history entries for what the user experiences as one action:
+  - "On select → Set property…"/"On select → Interpolate…" add a `pointer/set`/`pointer/interpolate` node defaulting to the selected node's own `/translation` (the same universal per-node default `specs/ux-graph-canvas.md`'s scene-tree-drop menu already uses for a fresh pointer node), then immediately opens the pointer picker (`specs/ux-pointer-picker.md`) preset to that node so the placeholder path can be retargeted right away — the picker can only ever retarget an ALREADY-EXISTING node, which is exactly why the node is created with a placeholder path first rather than the picker creating it directly.
+  - "On select → Play sound" is offered only when the selected node's own `extensions.KHR_audio_emitter.emitter` is set (never for a node with no emitter) — it adds a `pointer/set` targeting that emitter's first `sources[]` entry's `/extensions/KHR_audio_emitter/sources/{S}/playing` one-shot trigger pointer (`specs/engine-api.md`'s `AH-pointer-value-tbd` resolution). Its own boolean literal is left unset, same as any other freshly-added pointer node (`UX-1109`'s pre-Phase-2 "Add pointer/set to graph" precedent) — wiring `true` is a graph-canvas edit like any other.
+  - "On select → Play animation ▸" expands a submenu (one entry per `json.animations[]`, the same submenu-as-one-menu-entry convention `specs/ux-scene-tree.md`'s "Mesh ▸" add-menu item already established) and, on a choice, adds an `animation/start` node with a `ref`-typed `values.animation` literal naming that clip (the same encoding `UX-1102`/`graph-canvas`'s `handleSetAnimationValue` already use).
+  "✦ Ask Copilot about this node" (already real since Phase 1) is unchanged.
+
+### Script-tab pointer-path links (Phase 2)
+
+- [UX-1119] (active) In the Script tab, every quoted pointer-path string literal the emitted code contains for a family this index resolves (`/nodes/*`, `/materials/*`, `/meshes/*`, `/animations/*`, `/extensions/KHR_audio_emitter/{emitters,sources}/*`) is a clickable Monaco link — the reverse direction of `UX-1108`'s Inspector → Script jump, making the two bidirectional inside the Script tab. Clicking one resolves the path back to the ONE `pointer/get|set|interpolate` graph node whose own literal `configuration.pointer` equals it (a plain first-match scan over the current graph — the same kind of best-effort, undisambiguated-beyond-that heuristic `OPEN(UX-usage-script-jump-multi-occurrence)` already accepts for the opposite direction, not a new correctness gap), then:
+  - selects that graph node, driving `UX-1110`'s amber reference highlight whenever it resolves a scene-node reference (`UX-1100`/`UX-1103`), and, whenever it does, ALSO selects that scene node outright (the ordinary blue selection + Inspector) — the click reads as "take me there," not merely a highlight;
+  - for a `/materials/{M}`/`/meshes/{M}` path (no scene node to select, `UX-1115`), selects the corresponding Asset Browser row instead.
+  Never switches the active dock tab — staying inside the Script tab while the tree/viewport/inspector/asset-browser update around it is the whole point (unlike `UX-1107`/`UX-1108`, which are deliberate tab-switching jumps).
+
 ## Implementation notes
 
 `packages/usage-index` (M9): a small, dependency-light package (`@gltfi/kernel`'s
@@ -60,13 +81,28 @@ both `packages/app` and `packages/graph-canvas` in the dependency graph). Unit-t
 a correct reference count and a generous time budget (`UX-1113`) — measured well under a
 millisecond on a dev machine; see the PR description for the exact figure.
 
-`packages/app`'s `UsageSection.tsx` (Inspector, `UX-1106..1109`, `UX-1114`) and the reference-highlight wiring
-(`UX-1110..1112`, `Viewport.tsx`/`SceneTree.tsx`) are documented in `specs/ux-shell.md`'s own
+`packages/app`'s `UsageSection.tsx` (Inspector, `UX-1106..1109`, `UX-1114`, `UX-1118`) and the reference-highlight wiring
+(`UX-1110..1112`, `Viewport.tsx`/`SceneTree.tsx`) plus the `UX-1116`/`UX-1117` badges (`SceneTree.tsx`/
+`AssetBrowser.tsx`) are documented in `specs/ux-shell.md`'s own
 usage-mapping implementation note (that file, not this one, owns `packages/app/**`); the graph-
 canvas-side additions (`focusRequest`, `NodeDetails`' "Reveal in viewport") are documented in
 `specs/ux-graph-canvas.md`'s own usage-mapping implementation note; the `RenderHost` reference-
 highlight tier the viewport wiring calls (`setReferenceHighlight`) is `RH-029`/`RH-030` in
-`specs/render-host.md`.
+`specs/render-host.md`; `UX-1119`'s Monaco link provider/command registration is documented in
+`specs/ux-script.md`'s own usage-mapping implementation note (that file owns `packages/script-panel/**`).
+
+`buildAssetUsageIndex` (`UX-1115`) sits in the same `usage-index.ts` module as `buildUsageIndex`,
+sharing every helper (`resolveConcretePointer`, `literalValueNumber`, `usageRefPathText`) rather than
+duplicating the pointer-template/literal-vs-value-ref resolution logic a second time — the two
+functions differ only in WHICH map a resolved reference lands in (scene-node index vs
+material/mesh/animation index), never in how a reference is resolved. `findGraphNodeIndexForPointer`
+(`UX-1119`) is the new reverse primitive: given a literal pointer-path string, the first
+`pointer/get|set|interpolate` node in a graph whose own `configuration.pointer` equals it exactly, or
+`null`. All three are covered by the same racer-scale sanity test `UX-1113`'s pre-existing one lives
+next to — `buildAssetUsageIndex` against the real `r4-racer.glb` fixture asserts a nonzero material-
+reference count (most of that racer's 40 `pointer/set` nodes target `/materials/*`, previously
+entirely outside this package's scope per `UX-1105`), confirming the new asset-entity family is
+exercised at real scale, not merely a synthetic unit fixture.
 
 `UX-1108`/`UX-1114`'s pointer-path fallback and disabled-state check share one primitive,
 `findEnclosingHandlerRoot` (exported from `packages/usage-index`, not the Inspector or the Script
@@ -89,14 +125,21 @@ how that request is constructed or dispatched.
 
 ## Open questions
 
-- OPEN(UX-usage-animation-encoding-tbd): `UX-1102`'s "literal clip index" assumes
-  `animation/start|stop|stopAt`'s `values.animation` literal encodes the target animation as a
-  plain numeric index (the same convention `@gltf-studio/graph-canvas`'s `handleSetAnimationValue`
-  already writes, and the same shape `variable/get`'s `configuration.variable`/`event/send`'s
-  `configuration.event` use for their own referenced-collection indices) — this repo has no real
-  asset exercising `animation/start` yet to confirm against (the `r4-racer.glb` racer-scale fixture
-  `UX-1113` cites has none), so this is a documented assumption, not a verified fact, until a real
-  asset using the op turns up.
+- RESOLVED(UX-usage-animation-encoding-tbd) (by Usage Mapping Phase 2, `UX-1115`/`UX-1118`):
+  `UX-1102`'s "literal clip index" assumption (`animation/start|stop|stopAt`'s `values.animation`
+  literal encodes the target animation as a plain numeric index, the same convention
+  `@gltf-studio/graph-canvas`'s `handleSetAnimationValue` already writes) is now exercised against a
+  real, complete, engine-loadable glTF asset for the first time: `e2e/usage-mapping-p2-fixture.ts`'s
+  "Spin" animation clip (a real 2-keyframe rotation channel with real accessors/bufferViews/buffer
+  bytes, not a bare JSON stub) plus a real `animation/start` graph node naming it by plain index —
+  both `buildAssetUsageIndex`'s unit coverage and `e2e/usage-mapping-p2.spec.ts`'s end-to-end Animations-
+  tab badge/jump test confirm the assumed encoding round-trips correctly through the real app.
+  `UX-1118`'s "On select → Play animation…" attach flow ALSO now writes this exact same encoding when
+  creating a fresh `animation/start` node, so this convention is exercised from both the read side
+  (indexing) and the write side (attach) as of this pass. `r4-racer.glb` (`UX-1113`'s own racer-scale
+  fixture) still has no `animation/start` usage of its own — this resolution rests on a hand-authored-
+  but-real fixture asset, not a naturally-encountered production one, which is exactly what this open
+  question asked for ("a real asset using the op"), not a stronger "found in the wild" claim.
 - OPEN(UX-usage-reveal-flash-tbd): the approved mockup's "Reveal in viewport" additionally pulses a
   transient highlight flash (`flash-highlight-ref`) on top of framing the camera, since its mock
   renderer has no real camera to move. The real `RenderHost` DOES have one (`frameNode`,
@@ -110,10 +153,14 @@ how that request is constructed or dispatched.
   `kind: "pointer"` rows. `animation/start|stop|stopAt` nodes (`UX-1102`) get no `sourceNodeIds`
   entry either (same `@gltfi/ir` "inlined statement, no identifier" shape as `pointer/set`), so
   their own "→ Script" jump is very likely just as unresolvable today as `pointer/*` rows were
-  before this pass — but it's untested and unfixed here (no real asset in this repo's e2e fixtures
-  currently exercises `animation/start`, per the open question above), and their button stays
-  unconditionally enabled rather than checked. A future pass should either extend the pointer-path-
-  style fallback to the animation index literal or add the same reachability check to `UX-1114`.
+  before this pass — still untested and unfixed here, and their button stays unconditionally enabled
+  rather than checked. Usage Mapping Phase 2 does now give this repo a real `animation/start`-
+  exercising e2e fixture (`RESOLVED(UX-usage-animation-encoding-tbd)` above), so this gap is no
+  longer blocked on "no asset to test it against" the way it was — it remains open purely because
+  fixing it (extending the pointer-path-style fallback, or the same reachability check, to the
+  animation index literal) was judged out of scope for this pass, which deliberately left its own
+  new fixture's `animation/start` node unreachable from any handler (see that fixture's own header
+  comment) rather than incidentally papering over this exact gap by accident.
 - OPEN(UX-usage-script-jump-multi-occurrence): `UX-1108`'s handler-context disambiguation
   (`findEnclosingHandlerRoot` + a textual brace-matching scan of the handler's own emitted function
   body, `cross-highlight.ts`) is a heuristic, not a proof: a pointer path set from two different
@@ -124,3 +171,20 @@ how that request is constructed or dispatched.
   remove the need for text search entirely, but touches a vendored package this repo does not
   maintain (`vendor/gltfi-ir-*.tgz`, `scripts/refresh-vendor.mjs`) and was judged not worth
   requesting for a same-tier disambiguation nicety.
+- OPEN(UX-usage-p2-gaps-tbd): three honest simplifications from this Phase-2 pass, each real but
+  narrow enough not to block it:
+  - `UX-1118`'s "On select → Play sound" gating (only offered when the node has an emitter) is
+    e2e-tested for the POSITIVE case (`e2e/usage-mapping-p2.spec.ts`) but not the negative one (the
+    menu item is absent for a node with no emitter) — that fixture's own zero-ref node happens to
+    carry an emitter for the positive test's sake, and no second zero-ref-AND-emitterless node was
+    added to also cover the negative case.
+  - `UX-1119`'s Monaco link click is exercised via `GltfStudioScriptTestHook.clickPointerLink` (a new
+    test seam invoking the exact same `onPointerLinkClick` handler the real "command:" URI click
+    does) rather than a real pixel/DOM click through Monaco's own link-widget rendering (hover/
+    modifier-key gated, thin, and inconsistent enough across platforms that this repo's own
+    established precedent — `GltfStudioScriptTestHook.setValue`/`GraphCanvasTestHook.simulateConnect`
+    — already avoids exactly this kind of interaction elsewhere). The link's on-screen
+    presence/styling itself is unverified by any test.
+  - `UX-1116`'s asset-browser badge click ("jumps to its first reference") has no test asserting
+    behavior when an asset has 2+ references and a specific (non-first) one would arguably be more
+    relevant — only ever exercised here against single-reference rows.
