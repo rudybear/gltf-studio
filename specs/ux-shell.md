@@ -343,6 +343,14 @@ process.
   cross-reference; the shortcut reuses `dispatchCommand`'s existing play-mode freeze guard rather
   than adding a new one.
 
+- Handler-node target legibility (`BehaviorGraphPanel.tsx` — same `packages/app/**` catch-all as the
+  notes above; the substantive spec change is `specs/ux-graph-canvas.md`'s new `UX-512`/`UX-513`/
+  `UX-514`): `BehaviorGraphPanel.tsx` gains one new one-line wire-up, `<GraphCanvas onSelectSceneNode
+  ={selectNode}>` — the new target-chip click handler `@gltf-studio/graph-canvas`'s card now exposes
+  for `event/onSelect`/`onHoverIn`/`onHoverOut` nodes, pointed straight at the store's pre-existing
+  `selectNode` scene-selection action (no new store field or action needed). No other `ux-shell.md`-
+  owned behavior changed.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one
