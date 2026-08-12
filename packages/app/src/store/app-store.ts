@@ -13,19 +13,29 @@ import { create } from "zustand";
 import { parseContainer, type Container } from "@gltfi/gltf";
 import {
   applyPatches,
+  combineCommandParts,
   createDocument,
   CycleReparentError,
   DocumentFrozenError,
   getIn,
   GraphEdit,
   HistoryStack,
+  makeCommandId,
   save,
   SceneEdit,
   type Command,
   type EditorDocument
 } from "@gltf-studio/editor-core";
 import { setPointerConfig } from "@gltf-studio/graph-canvas";
-import { findEnclosingHandlerRoot, graphNodeSceneRef, type UsageDocJson, type UsageGraphNode, type UsageInteractivityGraph, type UsageRef } from "@gltf-studio/usage-index";
+import {
+  findEnclosingHandlerRoot,
+  findGraphNodeIndexForPointer,
+  graphNodeSceneRef,
+  type UsageDocJson,
+  type UsageGraphNode,
+  type UsageInteractivityGraph,
+  type UsageRef
+} from "@gltf-studio/usage-index";
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import { createPlayController } from "@gltf-studio/play";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
@@ -255,6 +265,8 @@ export interface AppState {
   // -- scene tree / asset browser ephemeral UI (UX-2xx) --
   collapsedNodes: Set<number>;
   showIndices: boolean; // UX-203/204: session-only, always starts off
+  /** UX-1117 (specs/ux-usage-mapping.md): session-only, like `showIndices` above — but DEFAULT ON (the ambient ⚡ reference badge is meant to be discoverable, not opt-in). */
+  showUsageBadges: boolean;
   activeAssetTab: AssetTab;
   selectedAsset: { tab: AssetTab; index: number } | null;
 
@@ -452,10 +464,31 @@ export interface AppState {
   referenceHighlightSceneNodeIndex(): number | null;
   /** UX-1111: "Reveal in viewport" — frames the given scene node (reusing `requestFrame`'s cross-component signal) and confirms via a toast. */
   revealSceneNodeInViewport(nodeIndex: number): void;
+  /**
+   * UX-1119 (specs/ux-usage-mapping.md): the Script tab's Monaco pointer-
+   * path link click — the reverse of UX-1108's Inspector → Script jump.
+   * Resolves `pointerPath` back to the ONE `pointer/get|set|interpolate`
+   * graph node that carries it (`@gltf-studio/usage-index`'s
+   * `findGraphNodeIndexForPointer`), selects that graph node (driving the
+   * SAME amber reference highlight `UX-1110` already shows off a graph-node
+   * selection — no separate highlight mechanism needed), and, whenever that
+   * graph node resolves to a real scene node (`referenceHighlightSceneNodeIndex`,
+   * the `/nodes/*`/audio-emitter families UX-1100/UX-1103 cover), ALSO
+   * selects that scene node outright (the ordinary blue selection +
+   * Inspector, on top of the amber highlight) so the click reads as a real
+   * "take me there," not merely a highlight. For a `/materials/*`/`/meshes/*`
+   * pointer (UX-1115 — no scene node to select) falls back to selecting the
+   * corresponding Asset Browser row instead. Deliberately does NOT switch
+   * `activeDockTab` — the whole point is staying inside the Script tab
+   * while the tree/viewport/inspector update around it.
+   */
+  jumpScriptPointerToScene(pointerPath: string, graphIndex: number): void;
   setHover(index: number | null): void;
   setGizmoMode(mode: GizmoMode): void;
   toggleCollapsed(nodeIndex: number): void;
   toggleShowIndices(): void;
+  /** UX-1117: shows/hides every scene-tree/asset-browser ⚡ reference badge (UX-1116) — session-only, default ON. */
+  toggleShowUsageBadges(): void;
   setActiveAssetTab(tab: AssetTab): void;
   selectAsset(tab: AssetTab, index: number, containerPointer: string): void;
   /** UX-805/UX-800: passive Data-tab update — never switches `activeDockTab` (unlike `selectAsset`). */
@@ -481,6 +514,53 @@ export interface AppState {
    * undoable command; switches the bottom dock to the Behavior graph tab.
    */
   addPointerGraphNode(kind: "set" | "interpolate", pointerPath: string, signature: string): void;
+
+  /**
+   * UX-1118 (specs/ux-usage-mapping.md): the Inspector's zero-ref "Attach
+   * behavior…" menu's "On select → Set property…"/"On select →
+   * Interpolate…" entries — the FIRST entries that menu makes real (it was
+   * a Phase-1 honest stub, `UX-1109`). Creates a real `event/onSelect`
+   * (`configuration.nodeIndex: nodeIndex`) wired by ONE flow edge into a new
+   * `pointer/set`/`pointer/interpolate` node defaulting to `nodeIndex`'s own
+   * `/translation` (the same universal-default convention
+   * `@gltf-studio/graph-canvas`'s scene-tree-drop menu already uses for a
+   * fresh pointer node) — all as ONE undoable command (`combineCommandParts`),
+   * never two separate history entries for what the user experiences as one
+   * action. Switches to the Behavior graph tab, selects + focuses the new
+   * pointer node (reusing `jumpUsageRefToGraph`'s own selection/focus
+   * pattern), then immediately opens the pointer picker (`openPointerPicker`)
+   * preset to that node so the user can retarget the default `/translation`
+   * guess to whatever property they actually meant — the picker can only
+   * ever retarget an EXISTING node (`PointerPickerRequest.nodeIndex`,
+   * `specs/ux-pointer-picker.md`), which is exactly why the node is created
+   * with a placeholder path FIRST.
+   */
+  attachOnSelectPointerNode(nodeIndex: number, kind: "set" | "interpolate"): void;
+  /**
+   * UX-1118: "On select → Play sound" — only ever offered (`UsageSection.tsx`
+   * gates the menu item itself) when `nodeIndex`'s own
+   * `extensions.KHR_audio_emitter.emitter` is set. Wires an `event/onSelect`
+   * into a `pointer/set` targeting that emitter's own first
+   * `sources[]` entry's nonstandard-but-established one-shot trigger pointer,
+   * `/extensions/KHR_audio_emitter/sources/{S}/playing`
+   * (`specs/engine-api.md`'s `AH-pointer-value-tbd` resolution) — as one
+   * undoable command, same shape as `attachOnSelectPointerNode` above. Does
+   * NOT preset the pointer/set's own boolean literal (consistent with
+   * `addPointerGraphNode`'s existing precedent of leaving a freshly-added
+   * pointer node's value unset) — the graph canvas's own bool-literal editor
+   * is where the user wires `true`, same as any other fresh pointer/set node.
+   */
+  attachOnSelectPlaySound(nodeIndex: number): void;
+  /**
+   * UX-1118: "On select → Play animation…" — the menu's animation-clip
+   * submenu (one entry per `json.animations[]`) commits by wiring an
+   * `event/onSelect` into a new `animation/start` node whose `values.animation`
+   * is a `ref`-typed literal naming `animationIndex` (the same
+   * `values.animation`/`ref`-type convention `graph-canvas`'s own
+   * `handleSetAnimationValue`/scene-tree-drop-menu animation branch already
+   * establish) — one undoable command, same shape as the two actions above.
+   */
+  attachOnSelectPlayAnimation(nodeIndex: number, animationIndex: number): void;
 
   // -- copilot actions (specs/ux-copilot.md UX-10xx, AG-###) --
   /** UX-1001/UX-1002/AG-013: adds a context chip, de-duped by an equality key derived from `ref` (see `contextRefKey` — same selection/graph-node/pointer counts as "already attached", regardless of `label`). */
@@ -832,6 +912,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   collapsedNodes: new Set(),
   showIndices: false,
+  showUsageBadges: true,
   activeAssetTab: "meshes",
   selectedAsset: null,
 
@@ -1290,6 +1371,33 @@ export const useAppStore = create<AppState>((set, get) => {
     pushToast(`Framed ${label} in viewport`);
   },
 
+  jumpScriptPointerToScene(pointerPath, graphIndex) {
+    const { history, selectedGraphIndex, setSelectedGraphIndex, selectGraphNode, selectNode, referenceHighlightSceneNodeIndex, pushToast } = get();
+    if (!history) return;
+    const graph = getIn(history.document.json, ["extensions", "KHR_interactivity", "graphs", graphIndex]) as UsageInteractivityGraph | undefined;
+    const graphNodeIndex = graph ? findGraphNodeIndexForPointer(graph, pointerPath) : null;
+    if (graphNodeIndex === null || graphNodeIndex === undefined) {
+      pushToast(`No graph node found for "${pointerPath}".`);
+      return;
+    }
+    if (graphIndex !== selectedGraphIndex) setSelectedGraphIndex(graphIndex);
+    selectGraphNode(graphNodeIndex); // UX-1110: drives the amber reference highlight, when this resolves to a scene node.
+    const sceneNodeIndex = referenceHighlightSceneNodeIndex();
+    if (sceneNodeIndex !== null) {
+      selectNode(sceneNodeIndex); // Real (blue) selection + Inspector, on top of the amber highlight above.
+      return;
+    }
+    // UX-1115/UX-1119: a /materials/{M} or /meshes/{M} pointer has no scene
+    // node to select — falls back to the Asset Browser row instead, WITHOUT
+    // `selectAsset`'s own dock-tab-switching side effect (unlike a
+    // deliberate "inspect this" action, this jump's whole point is staying
+    // inside the Script tab while the tree/asset-browser update around it).
+    const materialMatch = /^\/materials\/(\d+)(?:\/|$)/.exec(pointerPath);
+    const meshMatch = /^\/meshes\/(\d+)(?:\/|$)/.exec(pointerPath);
+    if (materialMatch) set({ selectedAsset: { tab: "materials", index: Number(materialMatch[1]) }, activeAssetTab: "materials" });
+    else if (meshMatch) set({ selectedAsset: { tab: "meshes", index: Number(meshMatch[1]) }, activeAssetTab: "meshes" });
+  },
+
   setHover(index) {
     set({ hoveredNodeIndex: index });
   },
@@ -1309,6 +1417,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
   toggleShowIndices() {
     set((state) => ({ showIndices: !state.showIndices }));
+  },
+
+  toggleShowUsageBadges() {
+    set((state) => ({ showUsageBadges: !state.showUsageBadges }));
   },
 
   setActiveAssetTab(tab) {
@@ -1376,6 +1488,137 @@ export const useAppStore = create<AppState>((set, get) => {
     dispatchCommand(command);
     setActiveDockTab("graph");
     pushToast(`Added ${kind === "set" ? "pointer/set" : "pointer/interpolate"} node for ${pointerPath}.`);
+  },
+
+  attachOnSelectPointerNode(nodeIndex, kind) {
+    const { history, dispatchCommand, setActiveDockTab, selectGraphNode, requestGraphNodeFocus, openPointerPicker, pushToast } = get();
+    if (!history) return;
+    const graphIndex = 0; // same hardcoded-graph-0 convention `addPointerGraphNode` already uses.
+    const pointerPath = `/nodes/${nodeIndex}/translation`;
+    const signature = "float3";
+
+    const ensureGraphCmd = GraphEdit.ensureGraph(history.document, graphIndex);
+    const jsonAfterGraph = ensureGraphCmd.patches.length > 0 ? applyPatches(history.document.json, ensureGraphCmd.patches) : history.document.json;
+    const docAfterGraph: EditorDocument = { ...history.document, json: jsonAfterGraph };
+
+    const onSelectIndex = ((getIn(jsonAfterGraph, ["extensions", "KHR_interactivity", "graphs", graphIndex, "nodes"]) as unknown[] | undefined) ?? []).length;
+    const pointerNodeIndex = onSelectIndex + 1;
+
+    const onSelectCmd = GraphEdit.addNode(docAfterGraph, graphIndex, "event/onSelect", {
+      extension: "KHR_node_selectability",
+      configuration: { nodeIndex: { value: [nodeIndex] } }
+    });
+    const jsonAfterOnSelect = applyPatches(jsonAfterGraph, onSelectCmd.patches);
+    const docAfterOnSelect: EditorDocument = { ...history.document, json: jsonAfterOnSelect };
+
+    const pointerCmd = GraphEdit.addPointerNode(docAfterOnSelect, graphIndex, kind, pointerPath, signature);
+    const jsonAfterPointer = applyPatches(jsonAfterOnSelect, pointerCmd.patches);
+    const docAfterPointer: EditorDocument = { ...history.document, json: jsonAfterPointer };
+
+    const connectCmd = GraphEdit.connectFlow(docAfterPointer, graphIndex, onSelectIndex, "out", pointerNodeIndex, "in");
+
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd]);
+    const label = `On select → ${kind === "set" ? "Set" : "Interpolate"} property`;
+    dispatchCommand({ id: makeCommandId("attach-onselect-pointer"), label, patches: combined.patches, inverse: combined.inverse });
+
+    setActiveDockTab("graph");
+    selectGraphNode(pointerNodeIndex);
+    requestGraphNodeFocus(pointerNodeIndex);
+    pushToast(`${label} — pick the exact property in the pointer picker.`);
+    // UX-1118: the picker can only ever retarget an EXISTING node — this is
+    // why the node above was created with a placeholder `/translation`
+    // path FIRST, then immediately handed to the picker for retargeting.
+    openPointerPicker({ nodeIndex: pointerNodeIndex, currentPath: pointerPath, currentType: signature });
+  },
+
+  attachOnSelectPlaySound(nodeIndex) {
+    const { history, dispatchCommand, setActiveDockTab, selectGraphNode, requestGraphNodeFocus, pushToast } = get();
+    if (!history) return;
+    const json = history.document.json as { nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number } } }>; extensions?: { KHR_audio_emitter?: { emitters?: Array<{ sources?: number[] }> } } };
+    const emitterIndex = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter?.emitter;
+    const sourceIndex = emitterIndex !== undefined ? json.extensions?.KHR_audio_emitter?.emitters?.[emitterIndex]?.sources?.[0] : undefined;
+    if (sourceIndex === undefined) {
+      pushToast("This node has no audio emitter source to trigger.");
+      return;
+    }
+    const graphIndex = 0;
+    const pointerPath = `/extensions/KHR_audio_emitter/sources/${sourceIndex}/playing`;
+    const signature = "bool";
+
+    const ensureGraphCmd = GraphEdit.ensureGraph(history.document, graphIndex);
+    const jsonAfterGraph = ensureGraphCmd.patches.length > 0 ? applyPatches(history.document.json, ensureGraphCmd.patches) : history.document.json;
+    const docAfterGraph: EditorDocument = { ...history.document, json: jsonAfterGraph };
+
+    const onSelectIndex = ((getIn(jsonAfterGraph, ["extensions", "KHR_interactivity", "graphs", graphIndex, "nodes"]) as unknown[] | undefined) ?? []).length;
+    const pointerNodeIndex = onSelectIndex + 1;
+
+    const onSelectCmd = GraphEdit.addNode(docAfterGraph, graphIndex, "event/onSelect", {
+      extension: "KHR_node_selectability",
+      configuration: { nodeIndex: { value: [nodeIndex] } }
+    });
+    const jsonAfterOnSelect = applyPatches(jsonAfterGraph, onSelectCmd.patches);
+    const docAfterOnSelect: EditorDocument = { ...history.document, json: jsonAfterOnSelect };
+
+    const pointerCmd = GraphEdit.addPointerNode(docAfterOnSelect, graphIndex, "set", pointerPath, signature);
+    const jsonAfterPointer = applyPatches(jsonAfterOnSelect, pointerCmd.patches);
+    const docAfterPointer: EditorDocument = { ...history.document, json: jsonAfterPointer };
+
+    const connectCmd = GraphEdit.connectFlow(docAfterPointer, graphIndex, onSelectIndex, "out", pointerNodeIndex, "in");
+
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd]);
+    dispatchCommand({ id: makeCommandId("attach-onselect-play-sound"), label: "On select → Play sound", patches: combined.patches, inverse: combined.inverse });
+
+    setActiveDockTab("graph");
+    selectGraphNode(pointerNodeIndex);
+    requestGraphNodeFocus(pointerNodeIndex);
+    pushToast("Added On select → Play sound — wire a \"true\" value to trigger playback.");
+  },
+
+  attachOnSelectPlayAnimation(nodeIndex, animationIndex) {
+    const { history, dispatchCommand, setActiveDockTab, selectGraphNode, requestGraphNodeFocus, pushToast } = get();
+    if (!history) return;
+    const json = history.document.json as { animations?: Array<{ name?: string }> };
+    const anim = json.animations?.[animationIndex];
+    if (!anim) return;
+    const graphIndex = 0;
+
+    const ensureGraphCmd = GraphEdit.ensureGraph(history.document, graphIndex);
+    const jsonAfterGraph = ensureGraphCmd.patches.length > 0 ? applyPatches(history.document.json, ensureGraphCmd.patches) : history.document.json;
+    const docAfterGraph: EditorDocument = { ...history.document, json: jsonAfterGraph };
+
+    const onSelectIndex = ((getIn(jsonAfterGraph, ["extensions", "KHR_interactivity", "graphs", graphIndex, "nodes"]) as unknown[] | undefined) ?? []).length;
+    const animNodeIndex = onSelectIndex + 1;
+
+    const onSelectCmd = GraphEdit.addNode(docAfterGraph, graphIndex, "event/onSelect", {
+      extension: "KHR_node_selectability",
+      configuration: { nodeIndex: { value: [nodeIndex] } }
+    });
+    const jsonAfterOnSelect = applyPatches(jsonAfterGraph, onSelectCmd.patches);
+    const docAfterOnSelect: EditorDocument = { ...history.document, json: jsonAfterOnSelect };
+
+    // UX-1118: `values.animation` is a `ref`-typed literal, the same
+    // convention `@gltf-studio/graph-canvas`'s `handleSetAnimationValue`/
+    // scene-tree-drop-menu "animation/start" branch already establish.
+    const { command: ensureRefTypeCmd, index: refTypeIndex } = GraphEdit.ensureType(docAfterOnSelect, graphIndex, "ref");
+    const jsonAfterRefType = ensureRefTypeCmd.patches.length > 0 ? applyPatches(jsonAfterOnSelect, ensureRefTypeCmd.patches) : jsonAfterOnSelect;
+    const docAfterRefType: EditorDocument = { ...history.document, json: jsonAfterRefType };
+
+    const animCmd = GraphEdit.addNode(docAfterRefType, graphIndex, "animation/start", {
+      values: { animation: { type: refTypeIndex, value: [animationIndex] } }
+    });
+    const jsonAfterAnim = applyPatches(jsonAfterRefType, animCmd.patches);
+    const docAfterAnim: EditorDocument = { ...history.document, json: jsonAfterAnim };
+
+    const connectCmd = GraphEdit.connectFlow(docAfterAnim, graphIndex, onSelectIndex, "out", animNodeIndex, "in");
+
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, ensureRefTypeCmd, animCmd, connectCmd]);
+    const label = `On select → Play animation "${anim.name ?? `#${animationIndex}`}"`;
+    dispatchCommand({ id: makeCommandId("attach-onselect-play-animation"), label, patches: combined.patches, inverse: combined.inverse });
+
+    setActiveDockTab("graph");
+    selectGraphNode(animNodeIndex);
+    requestGraphNodeFocus(animNodeIndex);
+    pushToast(label + ".");
   },
 
   addCopilotContextChip(ref, label) {

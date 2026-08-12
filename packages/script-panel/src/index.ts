@@ -3,3 +3,4 @@ export { ScriptPanel, type ScriptPanelProps, type GltfStudioScriptTestHook } fro
 export { buildEmitView, namesForModule, provenanceComment, type EmitView } from "./emit-view.js";
 export { checkEquivalence, type EquivalenceResult } from "./equivalence.js";
 export { findHighlightForNode, offsetToLineColumn, type HighlightMatch } from "./cross-highlight.js";
+export { findPointerPathLinks, type PointerLinkMatch } from "./pointer-links.js";

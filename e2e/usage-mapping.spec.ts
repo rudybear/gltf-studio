@@ -172,7 +172,7 @@ test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
     await expect(page.getByTestId("inspector.usage.row.0.to-graph")).toBeEnabled();
   });
 
-  test("zero-reference node shows the Attach-behavior stub; Ask Copilot opens with context; Phase-2 entries toast (UX-1109)", async ({ page }) => {
+  test("zero-reference node shows the Attach-behavior menu; Ask Copilot opens with context; 'On select → Set property…' is now LIVE, not a stub (UX-1109/UX-1118, specs/ux-usage-mapping.md Phase 2)", async ({ page }) => {
     await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_03}`).click();
     await expect(page.getByTestId("inspector.usage.section")).toContainText("Not referenced in behavior");
     await expect(page.getByTestId("inspector.usage.section")).not.toContainText("Used in behavior (");
@@ -180,10 +180,20 @@ test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
     await page.getByTestId("inspector.usage.attach").click();
     await expect(page.getByTestId("inspector.usage.attach-menu")).toHaveClass(/open/);
 
-    // A Phase-2 stub entry: real, clickable, toasts rather than mutating.
-    await page.getByTestId("inspector.usage.attach-menu.add-pointer-set").click();
-    await expect(page.getByTestId("toast")).toContainText("coming in a later phase");
+    // Phase 2 (UX-1118): "On select → Set property…" now creates a REAL
+    // event/onSelect + pointer/set node pair (one undo step) rather than
+    // toasting "coming in a later phase" — see e2e/usage-mapping-p2.spec.ts
+    // for this menu's full live-flow coverage (interpolate/play-sound/
+    // play-animation too); this test just confirms the SAME fixture/node
+    // Phase 1's own zero-ref case already covers picks it up correctly.
+    await page.getByTestId("inspector.usage.attach-menu.set-property").click();
+    await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
+    await expect(page.getByTestId("gcanvas.details")).toContainText("pointer/set");
+    await expect(page.getByTestId("gcanvas.details")).toContainText(`/nodes/${USAGE_FIXTURE_NODE.PROP_03}/translation`);
+    await page.getByTestId("pointer-picker.cancel").click(); // close the auto-opened retarget picker before interacting with the rest of the page
+    await page.getByTestId("topbar.undo").click(); // restores PROP_03 to zero-ref for the assertions below
 
+    await page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_03}`).click();
     await page.getByTestId("inspector.usage.attach").click();
     await page.getByTestId("inspector.usage.attach-menu.ask-copilot").click();
     await expect(page.getByTestId("right-panel.tab.copilot")).toHaveClass(/active/);

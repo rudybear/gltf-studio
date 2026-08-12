@@ -17,7 +17,27 @@ import type * as Monaco from "monaco-editor";
 import { buildEmitView, namesForModule } from "./emit-view.js";
 import { checkEquivalence, type EquivalenceResult } from "./equivalence.js";
 import { findHighlightForNode, offsetToLineColumn, type FindHighlightOptions, type HighlightMatch } from "./cross-highlight.js";
+import { findPointerPathLinks } from "./pointer-links.js";
 import { ParseClient } from "./parse-client.js";
+
+/**
+ * specs/ux-usage-mapping.md UX-1119: the Monaco "command:" URI this
+ * module's link provider points every pointer-path link at, and the one
+ * standalone command registered (once, module-scope) to handle a click on
+ * any of them — Monaco's default link opener recognizes a `command:` scheme
+ * URI specially and dispatches it through `editor.registerCommand`'s global
+ * command service, the standard way to make a Monaco link DO something
+ * other than navigate to a real URL (the same trick VS Code's own webviews
+ * use). Registered once per page load (guarded by `pointerLinkCommandRegistered`
+ * below), not once per `ScriptPanel` mount — `monaco.editor.registerCommand`
+ * has no notion of "already registered, replace the handler," so this
+ * module keeps exactly one mutable handler ref for it to always call
+ * through, and every mounted `ScriptPanel` instance (there is normally only
+ * ever one, the Script tab is a singleton) just repoints that ref.
+ */
+const POINTER_LINK_COMMAND_ID = "gltf-studio.usage.jumpScriptPointerToScene";
+let pointerLinkCommandRegistered = false;
+let pointerLinkClickHandler: ((pointerPath: string) => void) | null = null;
 
 const PARSE_DEBOUNCE_MS = 300;
 const MARKER_OWNER = "gltf-studio-script";
@@ -60,6 +80,16 @@ export type ScriptPanelProps = {
   } | null;
   onLog?: (level: "info" | "warn" | "error", text: string) => void;
   onToast?: (text: string) => void;
+  /**
+   * specs/ux-usage-mapping.md UX-1119: fired when the user clicks a Monaco
+   * pointer-path link (`pointer-links.ts`) — the reverse direction of
+   * UX-1108's Inspector → Script jump. `app-store.ts`'s
+   * `jumpScriptPointerToScene` resolves `pointerPath` back to a graph node
+   * and drives the scene-tree/viewport selection + amber reference
+   * highlight from there; this component itself has no glTF-document
+   * knowledge to do that resolution on its own (it only knows emitted TEXT).
+   */
+  onPointerLinkClick?: (pointerPath: string) => void;
 };
 
 type Mode = "view" | "edit";
@@ -99,6 +129,26 @@ export interface GltfStudioScriptTestHook {
    * without reimplementing Monaco's own line-to-pixel geometry.
    */
   getLineScreenRect(lineNumber: number): { top: number; left: number; width: number; height: number } | null;
+  /**
+   * e2e-only (specs/ux-usage-mapping.md UX-1119): every pointer-path link
+   * `pointer-links.ts` currently finds in the emitted code — lets a test
+   * assert WHICH links exist without depending on Monaco's own link-widget
+   * DOM (a thin, hover/modifier-key-gated target real browsers render
+   * differently across platforms).
+   */
+  getPointerLinks(): string[];
+  /**
+   * e2e-only: invokes `onPointerLinkClick` for `pointerPath` exactly as the
+   * real Monaco "command:" URI click does (`registerCommand`'s handler
+   * calls the SAME module-scope `pointerLinkClickHandler` this seam calls
+   * directly) — same "avoid a flaky pixel-perfect interaction, exercise the
+   * real result-producing code path instead" precedent `setValue`/
+   * `simulateConnect` above already establish for this file/`graph-canvas`
+   * respectively. Returns `false` (no-op) if `pointerPath` isn't among the
+   * links `getPointerLinks()` currently reports, so a test typo doesn't
+   * silently pass by clicking nothing.
+   */
+  clickPointerLink(pointerPath: string): boolean;
 }
 
 declare global {
@@ -122,7 +172,7 @@ function extractDiagnosticLine(message: string): number | null {
   return Number.isFinite(line) && line > 0 ? line : null;
 }
 
-export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, focusRequest, onLog, onToast }: ScriptPanelProps): JSX.Element {
+export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, focusRequest, onLog, onToast, onPointerLinkClick }: ScriptPanelProps): JSX.Element {
   const graphs = getIn(document.json, ["extensions", "KHR_interactivity", "graphs"]) as Graph[] | undefined;
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
   const rawGraph = hasGraph ? graphs![graphIndex] : undefined;
@@ -320,6 +370,18 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     codeRef.current = code;
   }, [code]);
 
+  // UX-1119: keeps the module-scope pointer-link click handler pointed at
+  // THIS mount's latest `onPointerLinkClick` prop — the Monaco command
+  // registered below (module-scope, once per page load) always calls
+  // through this ref rather than closing over a stale prop from whichever
+  // render happened to be current when it was registered.
+  useEffect(() => {
+    pointerLinkClickHandler = onPointerLinkClick ?? null;
+    return () => {
+      if (pointerLinkClickHandler === (onPointerLinkClick ?? null)) pointerLinkClickHandler = null;
+    };
+  }, [onPointerLinkClick]);
+
   // UX-700/UX-701: regenerate the Emit view whenever the document's graph
   // changes, while in view mode.
   useEffect(() => {
@@ -435,6 +497,34 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
         const monacoApi = loadMonaco();
         if (cancelled || !containerRef.current) return;
         monacoRef.current = monacoApi;
+
+        // UX-1119: registered ONCE per page load (Monaco has no notion of
+        // "already registered, replace the handler" for either API) — a
+        // later remount of this component just keeps calling through the
+        // SAME command/provider via `pointerLinkClickHandler`'s module-scope
+        // ref (kept current by the effect above), never re-registering.
+        if (!pointerLinkCommandRegistered) {
+          pointerLinkCommandRegistered = true;
+          monacoApi.editor.registerCommand(POINTER_LINK_COMMAND_ID, (_accessor: unknown, pointerPath: string) => {
+            pointerLinkClickHandler?.(pointerPath);
+          });
+          monacoApi.languages.registerLinkProvider("typescript", {
+            provideLinks(linkModel) {
+              const text = linkModel.getValue();
+              const links: Monaco.languages.ILink[] = findPointerPathLinks(text).map((found) => {
+                const start = offsetToLineColumn(text, found.offset);
+                const end = offsetToLineColumn(text, found.offset + found.length);
+                return {
+                  range: new monacoApi.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+                  tooltip: `Select "${found.pointerPath}" in the scene`,
+                  url: `command:${POINTER_LINK_COMMAND_ID}?${encodeURIComponent(JSON.stringify([found.pointerPath]))}`
+                };
+              });
+              return { links };
+            }
+          });
+        }
+
         const model = monacoApi.editor.createModel(codeRef.current, "typescript", monacoApi.Uri.parse("file:///script-tab-module.ts"));
         const editor = monacoApi.editor.create(containerRef.current, {
           model,
@@ -698,6 +788,13 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
         if (!visible) return null;
         const rect = domNode.getBoundingClientRect();
         return { top: rect.top + visible.top, left: rect.left, width: rect.width, height: visible.height };
+      },
+      getPointerLinks: () => findPointerPathLinks(codeRef.current).map((l) => l.pointerPath),
+      clickPointerLink: (pointerPath: string) => {
+        const found = findPointerPathLinks(codeRef.current).some((l) => l.pointerPath === pointerPath);
+        if (!found) return false;
+        pointerLinkClickHandler?.(pointerPath);
+        return true;
       }
     };
     return () => {

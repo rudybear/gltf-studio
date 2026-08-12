@@ -337,6 +337,46 @@ process.
   the enabled/disabled state and the jump's own disambiguation hint are one derivation, not two);
   it does not invoke `@gltfi/emit-ts` just to decide a button's state.
 
+- M9 Phase 2 (usage mapping continued — ambient reference badges, live "Attach behavior…", `specs/ux-
+  usage-mapping.md`'s `UX-1115..1118`, this file's own `packages/app/**` catch-all again): a new
+  shared hook, `hooks/use-usage-indexes.ts`'s `useUsageIndexes(json)`, wraps BOTH
+  `@gltf-studio/usage-index`'s `buildUsageIndex` and its new `buildAssetUsageIndex` (`UX-1115`) behind
+  one `useMemo` keyed on `json`'s identity — `UsageSection.tsx` (now reading it instead of calling
+  `buildUsageIndex` directly), `SceneTree.tsx`, and `AssetBrowser.tsx` all derive from this single
+  hook rather than each independently re-deriving the same index. A new shared presentational
+  component, `components/UsageBadge.tsx`, renders `UX-1116`'s "⚡" badge (count tooltip,
+  `stopPropagation` so it never also fires the row's own click) for both `SceneTree.tsx` (per scene-
+  tree row, from `useUsageIndexes(...).nodes`) and `AssetBrowser.tsx` (per Materials/Meshes/Animations
+  row, from `.assets.{materials,meshes,animations}` — the Audio Clips tab stays unwired, same as its
+  pre-existing "None in this document" empty state). A new session-only store field,
+  `showUsageBadges` (default `true`, `UX-1117`), toggled by a new header button in `SceneTree.tsx`
+  (`scene-tree.toggle-usage-badges`, styled identically to the pre-existing `showIndices` toggle) —
+  `AssetBrowser.tsx` reads the SAME field with no toggle button of its own, mirroring how it already
+  reads `showIndices` today. A scene-tree badge click selects the node and reuses the pre-existing
+  `flashTarget`/`triggerFlash` "inspector-section" convention (a new `"usage"` id, alongside the
+  existing `"mesh"`/`"audio"` ones) to scroll+flash `UsageSection.tsx` into view; `Inspector.tsx`
+  gained the matching `usageSectionRef` + scroll-on-flash effect for this (placed BEFORE the
+  component's early-return "nothing selected" guard — a real bug this pass caught and fixed: a hook
+  placed after a conditional return is only called on SOME renders, which React's rules of hooks
+  forbid and enforces at runtime, not merely a style nit). An asset-browser badge click has no
+  Inspector section of its own to flash, so it calls the pre-existing `jumpUsageRefToGraph` action
+  directly instead (`UX-1116`'s own documented "first reference" simplification).
+  `UsageSection.tsx`'s zero-state menu (`UX-1109`'s Phase-1 stub) is now REAL (`UX-1118`): three new
+  store actions (`attachOnSelectPointerNode`, `attachOnSelectPlaySound`, `attachOnSelectPlayAnimation`)
+  each build a combined `event/onSelect` + effect-node command via `editor-core`'s `combineCommandParts`
+  over a chain of intermediate `EditorDocument`s (`{ ...history.document, json: <patches-applied> }`
+  after each step) — the same "compute the next step against an as-if-already-applied document"
+  pattern `GraphEdit.addPointerNode`/`setVariableType` already use internally, just composed one
+  level higher here across TWO node-adds plus a flow-connect rather than inside one factory.
+  "Set property…"/"Interpolate…" finish by calling the pre-existing `openPointerPicker` action against
+  the freshly-created node. A new store action, `jumpScriptPointerToScene` (`UX-1119`), is the
+  Script tab's own wiring target — see `specs/ux-script.md`'s own implementation note for the Monaco-
+  side half of this; it resolves via `@gltf-studio/usage-index`'s new `findGraphNodeIndexForPointer`,
+  reuses `selectGraphNode`/`selectNode`/`referenceHighlightSceneNodeIndex` (no new selection/highlight
+  state at all), and for a `/materials/*`/`/meshes/*` path sets `selectedAsset`/`activeAssetTab`
+  directly (NOT via the pre-existing `selectAsset` action, which forces `activeDockTab: "data"` — this
+  jump's whole point is staying on the Script tab).
+
 - M8-lite (scene tree "+ Add" menu creates real content, `SceneTree.tsx`, `app.css` — the
   substantive spec change lives in `specs/ux-scene-tree.md`'s revised `UX-206`, this file's own
   `packages/app/**` catch-all is what makes touching `SceneTree.tsx` also a `specs/ux-shell.md`

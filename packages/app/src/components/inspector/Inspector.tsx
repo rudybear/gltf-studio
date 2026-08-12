@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useAppStore } from "../../store/app-store";
 import { iconForNode, type GltfJsonShape } from "../../lib/gltf-scene";
 import { uniqueMaterialIndices } from "../../lib/mesh-info";
@@ -33,6 +33,26 @@ export function Inspector(): JSX.Element {
 
   const meshSectionRef = useRef<HTMLDivElement>(null);
   const audioSectionRef = useRef<HTMLDivElement>(null);
+  // UX-1116 (specs/ux-usage-mapping.md): the scene tree/asset browser's ⚡
+  // badge click flashes+scrolls to this section from OUTSIDE the Inspector
+  // (unlike the identity strip's own chips, which scroll via their local
+  // `scrollAndFlash` call below) — see the `flashTarget` effect further
+  // down that reacts to an externally-set flash the same way.
+  const usageSectionRef = useRef<HTMLDivElement>(null);
+
+  // UX-1116: a flash targeting THIS section that originated OUTSIDE the
+  // Inspector (the scene tree/asset browser's ⚡ badge, which selects the
+  // node and triggers the flash directly — it has no `usageSectionRef` of
+  // its own to scroll with) still scrolls the section into view here, the
+  // same end result `scrollAndFlash` below gives the identity-chip case.
+  // MUST run unconditionally (before the early-return guard below) — every
+  // hook in a component must run on every render regardless of which branch
+  // that render takes, or React throws (a real regression this fix caught:
+  // "Rendered fewer hooks than expected" the instant selection changes).
+  const usageFlashed = flashTarget?.kind === "inspector-section" && flashTarget.id === "usage";
+  useEffect(() => {
+    if (usageFlashed) usageSectionRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [usageFlashed]);
 
   const json = document?.json as GltfJsonShape | undefined;
   const node = selectedNodeIndex !== null ? json?.nodes?.[selectedNodeIndex] : undefined;
@@ -165,7 +185,11 @@ export function Inspector(): JSX.Element {
         </div>
       )}
 
-      {json && <UsageSection nodeIndex={selectedNodeIndex} json={json} />}
+      {json && (
+        <div ref={usageSectionRef} className={usageFlashed ? "flash-highlight" : undefined}>
+          <UsageSection nodeIndex={selectedNodeIndex} json={json} />
+        </div>
+      )}
     </div>
   );
 }

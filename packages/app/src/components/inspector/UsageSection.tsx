@@ -1,22 +1,28 @@
-import { useMemo, useState } from "react";
-import { buildUsageIndex, findEnclosingHandlerRoot, NO_USAGE_REFS, type UsageDocJson, type UsageRef } from "@gltf-studio/usage-index";
+import { useState } from "react";
+import { findEnclosingHandlerRoot, NO_USAGE_REFS, type UsageDocJson, type UsageRef } from "@gltf-studio/usage-index";
 import { useAppStore } from "../../store/app-store";
+import { useUsageIndexes } from "../../hooks/use-usage-indexes";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
 
-/** UX-1109's Phase-2 "Attach behavior…" menu entries — not yet real (no structural graph-scaffolding command exists for them here), shown anyway so the menu's eventual shape is visible rather than hidden until it is (same "stable stub, honest toast" convention specs/ux-scene-tree.md's UX-206 add-menu already established). */
-const ATTACH_STUB_ENTRIES = [
-  { key: "add-pointer-set", label: "Add pointer/set to graph" },
-  { key: "add-onselect", label: "Add event/onSelect (this node)" }
-] as const;
-
 /**
- * specs/ux-usage-mapping.md UX-1106..1109: "Used in behavior" — every
- * `@gltf-studio/usage-index` reference to the selected node, across every
- * graph in the document. Memoized on `json`'s own identity (UX-1113) —
- * exactly the convention `@gltf-studio/graph-canvas`'s `mapGraph` and
- * `buildPointerContentTree` already use, since `editor-core`'s patches
- * always produce a fresh top-level `json` object on a real edit, never on
- * an unrelated selection change.
+ * specs/ux-usage-mapping.md UX-1106..1109/UX-1118: "Used in behavior" —
+ * every `@gltf-studio/usage-index` reference to the selected node, across
+ * every graph in the document. Memoized on `json`'s own identity (UX-1113),
+ * shared via `useUsageIndexes` with the scene tree's/asset browser's own ⚡
+ * badge derivation (`SceneTree.tsx`/`AssetBrowser.tsx`) — one derivation,
+ * not three independently-computed copies of the same index.
+ *
+ * UX-1118 (Phase 2): the zero-ref "Attach behavior…" menu's `event/onSelect`-
+ * prefixed entries are now REAL — each creates an `event/onSelect` node
+ * wired by one flow edge into a freshly-added effect node (a `pointer/set`/
+ * `pointer/interpolate`, a `pointer/set` audio trigger, or an
+ * `animation/start`), as ONE undoable command (`app-store.ts`'s
+ * `attachOnSelectPointerNode`/`attachOnSelectPlaySound`/
+ * `attachOnSelectPlayAnimation`), landing in and focusing the Behavior
+ * graph. "Play sound" is only offered when this node's own
+ * `extensions.KHR_audio_emitter.emitter` is set; "Play animation…" expands
+ * a submenu of the document's own animation clips (same submenu-as-one-
+ * entry convention `SceneTree.tsx`'s "Mesh ▸" add-menu item already uses).
  */
 export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: GltfJsonShape }): JSX.Element {
   const jumpUsageRefToGraph = useAppStore((s) => s.jumpUsageRefToGraph);
@@ -24,11 +30,18 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
   const setActiveRightTab = useAppStore((s) => s.setActiveRightTab);
   const addCopilotContextChip = useAppStore((s) => s.addCopilotContextChip);
   const requestCopilotComposerFocus = useAppStore((s) => s.requestCopilotComposerFocus);
-  const pushToast = useAppStore((s) => s.pushToast);
+  const attachOnSelectPointerNode = useAppStore((s) => s.attachOnSelectPointerNode);
+  const attachOnSelectPlaySound = useAppStore((s) => s.attachOnSelectPlaySound);
+  const attachOnSelectPlayAnimation = useAppStore((s) => s.attachOnSelectPlayAnimation);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [animSubmenuOpen, setAnimSubmenuOpen] = useState(false);
 
-  const usageIndex = useMemo(() => buildUsageIndex(json as UsageDocJson), [json]);
-  const refs: UsageRef[] = usageIndex.get(nodeIndex) ?? NO_USAGE_REFS;
+  const usageIndexes = useUsageIndexes(json);
+  const refs: UsageRef[] = usageIndexes.nodes.get(nodeIndex) ?? NO_USAGE_REFS;
+
+  const emitterIndex = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter?.emitter;
+  const canPlaySound = emitterIndex !== undefined;
+  const animations = json.animations ?? [];
 
   /**
    * UX-1108's disabled-state case: a `pointer/set`/`pointer/interpolate` ref
@@ -62,6 +75,11 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
     requestCopilotComposerFocus();
   }
 
+  function closeAttachMenu(): void {
+    setAttachMenuOpen(false);
+    setAnimSubmenuOpen(false);
+  }
+
   return (
     <div className="inspector-section" data-testid="inspector.usage.section">
       <h4>Used in behavior{refs.length > 0 ? ` (${refs.length})` : ""}</h4>
@@ -69,7 +87,17 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
         {refs.length === 0 ? (
           <div className="empty-note usage-empty" style={{ position: "relative" }}>
             Not referenced in behavior —{" "}
-            <button type="button" className="btn small" data-testid="inspector.usage.attach" onClick={() => setAttachMenuOpen((v) => !v)}>
+            <button
+              type="button"
+              className="btn small"
+              data-testid="inspector.usage.attach"
+              onClick={() =>
+                setAttachMenuOpen((v) => {
+                  if (v) setAnimSubmenuOpen(false);
+                  return !v;
+                })
+              }
+            >
               Attach behavior…
             </button>
             <ul className={`add-menu${attachMenuOpen ? " open" : ""}`} data-testid="inspector.usage.attach-menu">
@@ -78,21 +106,71 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
                   ✦ Ask Copilot about this node
                 </button>
               </li>
-              {ATTACH_STUB_ENTRIES.map((entry) => (
-                <li key={entry.key}>
+              <li>
+                <button
+                  type="button"
+                  data-testid="inspector.usage.attach-menu.set-property"
+                  onClick={() => {
+                    closeAttachMenu();
+                    attachOnSelectPointerNode(nodeIndex, "set");
+                  }}
+                >
+                  On select → Set property…
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  data-testid="inspector.usage.attach-menu.interpolate"
+                  onClick={() => {
+                    closeAttachMenu();
+                    attachOnSelectPointerNode(nodeIndex, "interpolate");
+                  }}
+                >
+                  On select → Interpolate…
+                </button>
+              </li>
+              {canPlaySound && (
+                <li>
                   <button
                     type="button"
-                    className="menu-item-stub"
-                    data-testid={`inspector.usage.attach-menu.${entry.key}`}
+                    data-testid="inspector.usage.attach-menu.play-sound"
                     onClick={() => {
-                      setAttachMenuOpen(false);
-                      pushToast(`${entry.label}: coming in a later phase.`);
+                      closeAttachMenu();
+                      attachOnSelectPlaySound(nodeIndex);
                     }}
                   >
-                    {entry.label} <span className="dim">(soon)</span>
+                    On select → Play sound
                   </button>
                 </li>
-              ))}
+              )}
+              {animations.length > 0 && (
+                <li>
+                  <button
+                    type="button"
+                    data-testid="inspector.usage.attach-menu.play-animation"
+                    onClick={() => setAnimSubmenuOpen((v) => !v)}
+                  >
+                    On select → Play animation ▸
+                  </button>
+                  <ul className={`add-menu add-submenu${animSubmenuOpen ? " open" : ""}`} data-testid="inspector.usage.attach-menu.play-animation-submenu">
+                    {animations.map((anim, i) => (
+                      <li key={i}>
+                        <button
+                          type="button"
+                          data-testid={`inspector.usage.attach-menu.play-animation.${i}`}
+                          onClick={() => {
+                            closeAttachMenu();
+                            attachOnSelectPlayAnimation(nodeIndex, i);
+                          }}
+                        >
+                          {anim.name ?? `Animation ${i}`}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              )}
             </ul>
           </div>
         ) : (

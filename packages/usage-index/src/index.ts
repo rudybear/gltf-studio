@@ -1,4 +1,5 @@
 export type {
+  AssetUsageIndex,
   UsageAnimation,
   UsageAnimationChannel,
   UsageDocJson,
@@ -12,4 +13,13 @@ export type {
   UsageRef,
   UsageRefKind
 } from "./usage-index.js";
-export { buildUsageIndex, findEnclosingHandlerRoot, graphNodeSceneRef, usageRefPathText, NO_USAGE_REFS } from "./usage-index.js";
+export {
+  buildAssetUsageIndex,
+  buildUsageIndex,
+  findEnclosingHandlerRoot,
+  findGraphNodeIndexForPointer,
+  graphNodeSceneRef,
+  usageRefPathText,
+  NO_ASSET_USAGE_INDEX,
+  NO_USAGE_REFS
+} from "./usage-index.js";
