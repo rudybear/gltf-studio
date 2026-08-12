@@ -75,6 +75,20 @@ export interface GraphCanvasTestHook {
    * itself is synthesized.
    */
   simulateExternalDrop(kind: DropKind, refId: number, flowPosition: { x: number; y: number }): void;
+  /**
+   * Bug-fix note (node-click/resize race, see the `nodesRef` doc comment in
+   * `GraphViewInner`): a freshly-rendered node's bounding box starts at
+   * ELK's ESTIMATED size and is corrected to its real measured DOM size a
+   * tick later by React Flow's own ResizeObserver — a `locator.click()`
+   * computed against the estimate can land on a child element (e.g. a
+   * literal-input row) once the real resize lands, instead of the node's
+   * own chrome, silently losing the click. `true` once every currently-
+   * rendered node has its final measured size (React Flow's own
+   * `node.measured`) — a spec should `expect.poll` this before clicking a
+   * node by testid/bounding box, so the click point Playwright computes is
+   * never stale.
+   */
+  nodesDimensionsSettled(): boolean;
 }
 
 declare global {
@@ -136,13 +150,69 @@ function GraphViewInner(props: GraphViewProps) {
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState<LayoutEngineMode>("elk");
-  const [nodes, setNodes, onNodesChange] = useNodesState<OpNodeType>([]);
+  const [nodes, setNodes, onNodesChangeRaw] = useNodesState<OpNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [pendingDrop, setPendingDrop] = useState<PendingExternalDrop | null>(null);
   const reactFlow = useReactFlow();
   // Always-current handler ref so the test-hook effect below (installed
   // once) never closes over a stale `handleConnect` from an earlier render.
   const handleConnectRef = useRef<OnConnect>(() => {});
+  // Bug-fix note (node-click/resize race, found stabilizing
+  // e2e/graph-canvas.spec.ts under artificial CI-like CPU contention): a
+  // freshly-rendered node is first laid out at ELK's ESTIMATED width/height
+  // (`nodePosition`'s fallback / `NODE_METRICS`), then React Flow's own
+  // internal ResizeObserver measures its REAL rendered DOM size a tick
+  // later and reports it via `onNodesChange`'s `"dimensions"` change —
+  // visibly two (sometimes three, for a config-row-bearing node) separate
+  // size updates per node. Because a node's `x`/`y` is a fixed top-left
+  // anchor, that resize moves the node's on-screen geometric CENTER.
+  // Playwright's `locator.click()` computes its target point from the
+  // element's bounding-box CENTER once its own actionability/"stability"
+  // check passes, then dispatches the real mousedown/mouseup a tick later —
+  // under heavy scheduling contention (a saturated 4-vCPU CI runner is
+  // exactly this), that gap can straddle the SECOND (real) resize: the
+  // click fires at a screen point computed for the smaller estimate box,
+  // but by the time the browser processes it the node has already grown,
+  // so that pixel can land on a CHILD element instead of the node's own
+  // chrome — concretely, `op-node.tsx`'s literal-value `<input>`, whose
+  // `onClick={(e) => e.stopPropagation()}` (there so editing a literal
+  // doesn't ALSO reselect the node) then silently swallows the click before
+  // it ever reaches React Flow's node-click delegation. No exception, no
+  // slow-but-eventually-correct behavior — `onSelectNode` simply never
+  // fires, forever, however long a test waits afterward (this is why
+  // widening this file's assertion timeouts up to 120000ms never actually
+  // fixed the flake it was chasing).
+  //
+  // `nodesDimensionsSettled` below is the real fix: a live readiness check
+  // (not a longer timeout) a test can poll BEFORE clicking a node by
+  // testid/bounding box, so Playwright only ever computes a click point
+  // once every currently-rendered node's box is at its FINAL, measured
+  // size. `nodesRef` mirrors `nodes` on every render so the test-hook
+  // effect (installed once, below) never reads a stale snapshot.
+  //
+  // A node's `measured.width`/`.height` is already non-zero at the FIRST
+  // (estimate) measurement, not only once the real one lands — so "is
+  // measured non-zero" alone doesn't distinguish "mid-cascade" from
+  // "actually done" (confirmed the hard way: an earlier version of this
+  // fix that only checked non-zero `measured` still reproduced the click
+  // race under CPU contention, just far more rarely). What DOES
+  // distinguish them is TIME: every real dimensions cascade observed
+  // (offline, under artificial contention) lands as a tight burst of
+  // `"dimensions"` changes a few animation frames apart, then goes
+  // completely quiet — so `nodesDimensionsSettled` reports true only once
+  // no `"dimensions"` change has landed for `DIMENSIONS_QUIET_MS`, an
+  // adaptive debounce (it keeps waiting exactly as long as real resizing
+  // keeps happening, how long real resizing was), not a fixed guess.
+  const nodesRef = useRef<OpNodeType[]>([]);
+  nodesRef.current = nodes;
+  const DIMENSIONS_QUIET_MS = 300;
+  const lastDimensionsChangeAtRef = useRef<number>(performance.now());
+  const onNodesChange: typeof onNodesChangeRaw = (changes) => {
+    if (changes.some((c) => c.type === "dimensions")) {
+      lastDimensionsChangeAtRef.current = performance.now();
+    }
+    onNodesChangeRaw(changes);
+  };
 
   // Bug fix (hidden-mount `fitView`, same class as the Script tab's Monaco
   // sizing bug — see specs/ux-shell.md's follow-up note): BottomDock.tsx
@@ -360,7 +430,11 @@ function GraphViewInner(props: GraphViewProps) {
       simulateExternalDrop: (kind, refId, flowPosition) => {
         const screen = reactFlow.flowToScreenPosition(flowPosition);
         setPendingDrop({ kind, refId, flowPosition, screenPosition: screen });
-      }
+      },
+      nodesDimensionsSettled: () =>
+        nodesRef.current.length > 0 &&
+        nodesRef.current.every((n) => (n.measured?.width ?? 0) > 0 && (n.measured?.height ?? 0) > 0) &&
+        performance.now() - lastDimensionsChangeAtRef.current > DIMENSIONS_QUIET_MS
     };
     return () => {
       delete window.__gltfStudioGraphCanvasTest;

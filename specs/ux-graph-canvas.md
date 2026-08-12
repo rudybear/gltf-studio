@@ -184,6 +184,29 @@ and a literal-chip row (an unconnected non-editable-scalar value-in, e.g. `point
 `assertHandleLabelPixelGap`) confirming a real background-colored gap exists between the handle and
 the label in both themes — not just that their boxes are technically disjoint.
 
+Follow-up (task #33, deflaking `e2e/graph-canvas.spec.ts`'s selection/connect tests): a freshly-
+rendered op node is laid out at ELK's ESTIMATED width/height (`elk-layout.ts`'s `estimateNodeSize`,
+a text/port-row-count heuristic ELK needs before the real DOM exists) and only corrected to its real
+measured DOM size a tick later by React Flow's own internal `ResizeObserver` — this file's own tests
+had carried widened timeouts (up to 180000ms) against this since M4/M8, on the theory that the click
+-> `onSelectNode` -> re-render round trip was merely slow under heavy Playwright worker parallelism.
+Reproduced offline instead (artificial CPU contention pinned to the same 4 cores as a `--workers=2`
+Playwright run, matching CI's own 4-vCPU/2-worker budget): `.click()`'s default target (a node's
+geometric center) computed against that resize cascade can land on a child element instead of the
+node's own chrome — concretely `op-node.tsx`'s literal-input row, whose own `onClick={(e) =>
+e.stopPropagation()}` (there so editing a literal doesn't ALSO reselect the node) then silently
+swallows the click before it reaches React Flow's node-click delegation; separately, connecting
+to/from a Handle on a still-settling node can leave that edge's rendered path permanently missing.
+Neither is a timing issue a longer wait fixes — a swallowed click or a mis-measured Handle position
+doesn't self-heal. Fixed with a new `nodesDimensionsSettled()` method on the existing
+`__gltfStudioGraphCanvasTest` test-only seam (a debounced readiness check: true once no node's
+measured size has changed for 300ms, not a fixed guess) the spec awaits before any bounding-box-
+dependent interaction, plus clicking node headers (`.gcanvas-op-header`, a fixed content-independent
+strip, `NODE_METRICS.headerHeight`) instead of a node's own testid for selection — closing the
+geometry half the readiness wait alone doesn't. Verified stable across 190+ `--repeat-each` runs
+under the same artificial contention with zero failures, after first confirming its absence reliably
+reproduced the original flake.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

@@ -26,6 +26,35 @@ type RawInteractivityGraph = {
   nodes: Array<{ declaration: number; values?: Record<string, unknown>; flows?: Record<string, unknown>; extras?: { gltfi?: { x: number; y: number } } }>;
 };
 
+/**
+ * Bug-fix note (node-click/resize race — see the `nodesDimensionsSettled`
+ * doc comment on `GraphCanvasTestHook`, packages/graph-canvas/src/graph-
+ * view.tsx): a freshly-rendered node's bounding box starts at ELK's
+ * ESTIMATED size and is corrected to its real measured DOM size a tick
+ * later by React Flow's own ResizeObserver — two (sometimes three)
+ * `"dimensions"` NodeChange events per node in quick succession. Any
+ * `boundingBox()`-based interaction computed before that settles reads a
+ * box that's about to move. Reproduced deterministically offline under
+ * artificial CPU contention (`taskset`-pinned CPU-bound load pinned to the
+ * same cores as a `--workers=2` Playwright run, matching CI's 4-vCPU/2-
+ * worker budget) — no amount of extra timeout ever fixed the flakes this
+ * caused (this is why widening this file's assertion timeouts up to
+ * 120000ms never actually resolved them): a swallowed click or a
+ * mis-measured edge Handle position doesn't self-heal just because a test
+ * waits longer afterward. This explicit readiness wait — never a longer
+ * timeout on the click/assertion itself — is the fix: called once after
+ * import/viewport-pin, and again after any palette-add whose new node is
+ * interacted with directly afterward.
+ *
+ * Note this alone does NOT make `.click()`'s default target (a node's
+ * geometric CENTER) safe to click — see the selection test's own doc
+ * comment below for why clicking `.gcanvas-op-header` instead is also
+ * needed for node selection specifically.
+ */
+async function waitForNodesSettled(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => window.__gltfStudioGraphCanvasTest!.nodesDimensionsSettled())).toBe(true);
+}
+
 async function importFixture(page: Page): Promise<void> {
   await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
@@ -44,6 +73,10 @@ async function importFixture(page: Page): Promise<void> {
   await expect
     .poll(() => page.locator(".react-flow__viewport").getAttribute("style"))
     .toContain("translate(60px, 60px) scale(1)");
+  // See `waitForNodesSettled`'s doc comment: every test built on this
+  // fixture clicks/drags node 0 or 1 by testid or bounding box, so this
+  // wait belongs here rather than repeated in each test.
+  await waitForNodesSettled(page);
 }
 
 async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
@@ -95,26 +128,35 @@ test.describe("behavior-graph canvas", () => {
   test("clicking a node opens its details card, selected on the canvas (UX-507); editing an unconnected literal input updates the document (UX-504)", async ({
     page
   }) => {
-    // This test's store round trip (click -> onSelectNode -> zustand ->
-    // BehaviorGraphPanel -> GraphCanvas -> GraphView prop -> re-render) was
-    // measurably slower than this file's other, more locally-contained
-    // assertions under heavy Playwright worker parallelism (many concurrent
-    // headless Chromium instances, several with real WebGL rendering) —
-    // `test.slow()` triples this test's timeout budget accordingly.
-    //
-    // M8-copilot follow-up: this test's own 60000ms explicit assertion
-    // timeout (independent of test.slow()'s test-level multiplier) started
-    // failing on CI's 2-worker budget once e2e/copilot.spec.ts added more
-    // concurrently-running spec files with real WebGL/interpreter work,
-    // same "past its margin" pattern this file's CI-worker-cap comment
-    // (playwright.config.ts) already documents from M7's audio.spec.ts.
-    // Raised both the explicit assertion timeout and the overall test
-    // timeout accordingly rather than trimming concurrency further.
-    test.slow();
-    test.setTimeout(180_000);
-    await page.getByTestId("gcanvas.node.1").click();
+    // Previously carried `test.slow()` + a 180000ms test timeout + a
+    // 120000ms explicit assertion timeout, on the theory that the click ->
+    // onSelectNode -> zustand -> re-render round trip was merely SLOW under
+    // heavy Playwright worker parallelism. Root-caused instead (reproduced
+    // deterministically offline under artificial CPU contention): the click
+    // was landing on the wrong element entirely — see `waitForNodesSettled`'s
+    // doc comment above `importFixture` for the resize-timing half of the
+    // story. But timing alone doesn't fully explain it: `.click()`'s default
+    // target is the node's own geometric CENTER, and once the node's real
+    // (post-estimate) size is a `.gcanvas-op-node` two-literal-port math/add
+    // card, that center sits close enough to the "a" row's boundary that
+    // even small, legitimate run-to-run layout variance (e.g. ELK's worker
+    // vs. its main-thread fallback rounding coordinates slightly
+    // differently) can tip it from "empty node chrome" to squarely on
+    // `op-node.tsx`'s literal `<input>` — whose `onClick={(e) =>
+    // e.stopPropagation()}` (there so editing a literal doesn't ALSO
+    // reselect the node) then swallows the click before it ever reaches
+    // React Flow's node-click delegation. `waitForNodesSettled` closes the
+    // TIMING half (never click before a node's real size is known); clicking
+    // `.gcanvas-op-header` instead of the node's own testid closes the
+    // GEOMETRY half — that header is a fixed 28px strip at the very top of
+    // every op node (`NODE_METRICS.headerHeight`, elk-layout.ts), entirely
+    // independent of how many port rows a node has or how any of them are
+    // laid out, so a click there can never land on a literal input (or any
+    // other row-level `stopPropagation` control) no matter how the rest of
+    // the node's content shifts.
+    await page.getByTestId("gcanvas.node.1").locator(".gcanvas-op-header").click();
 
-    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/, { timeout: 120000 });
+    await expect(page.getByTestId("gcanvas.node.1")).toHaveClass(/gcanvas-op-node-selected/);
     const details = page.getByTestId("gcanvas.details");
     await expect(details).toContainText("math/add");
     await expect(details).toContainText("math");
@@ -165,9 +207,23 @@ test.describe("behavior-graph canvas", () => {
   test("connecting a compatible value output to a value input adds a document edge; an invalid connect is rejected with a toast and no document change", async ({
     page
   }) => {
-    // See the `test.slow()` note on the selection test above — this test's
-    // toast/document assertions round-trip through the app store the same
-    // way and showed the same sensitivity under heavy worker parallelism.
+    // Unlike the selection test above (a genuinely swallowed click, fixed
+    // by `waitForNodesSettled` — no timeout ever helped that one), this
+    // test's connect gestures are synthesized via `simulateConnect` (a
+    // direct function call, no pointer coordinates involved), so it isn't
+    // exposed to that race. Its toast/edge-count assertions DO round-trip
+    // through the real app store (simulateConnect -> onConnect ->
+    // GraphEdit.connectValue/connectFlow -> dispatchCommand -> re-render),
+    // which is genuinely slower under heavy worker parallelism — both
+    // assertions get the same explicit 60000ms budget (previously only the
+    // toast one did, an inconsistency in itself). `test.slow()` stays
+    // (unlike the selection test's blanket multiplier, which papered over a
+    // permanently-stuck click no timeout could fix) because it's the thing
+    // that makes those two explicit per-assertion timeouts actually
+    // reachable: this test's own OVERALL timeout defaults to 30000ms, well
+    // under either assertion's 60000ms budget, so without tripling it here
+    // the test would hit its own outer deadline first and the per-assertion
+    // timeouts would never get a chance to matter.
     test.slow();
     // React Flow's own connection-drag hit-testing (which handle is
     // "closest enough" to the cursor to complete a connection) turned out
@@ -201,6 +257,26 @@ test.describe("behavior-graph canvas", () => {
     // --- valid: add a second math/add node, connect its value output into node 1's "a" input ---
     await page.getByTestId("gcanvas.palette.op.math/add").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+    // Root-caused (reproduced deterministically offline, same artificial-
+    // contention method as the selection test's own bug above): node 2 was
+    // JUST added and hasn't gone through the estimate -> real-DOM-
+    // measurement cascade `waitForNodesSettled`'s doc comment describes yet.
+    // Console logging at the failure point confirmed `handleConnectValue`
+    // fires with exactly the right arguments (target 1's "a" socket, source
+    // 2's "value" output) — the app's own connect logic runs correctly —
+    // but the resulting `.react-flow__edge` never appears in the DOM. The
+    // most likely mechanism (not fully isolated further, but this wait
+    // reliably closes it): a value edge's rendered path depends on both
+    // endpoints' Handle positions, which React Flow only knows once each
+    // node has been measured — connecting to/from a Handle on a
+    // still-settling node risks that edge's first render computing against
+    // a stale/missing Handle position with no later recompute once the real
+    // one lands, leaving it permanently absent. Waiting here (same signal
+    // the selection test uses, for the same "don't act on a node before its
+    // real geometry exists" reason) closes it — proven stable across 40
+    // repeats under artificial contention (2x --repeat-each=20, 0 failures)
+    // where the unfixed test reproduced this within the same run count.
+    await waitForNodesSettled(page);
 
     await page.evaluate(() =>
       window.__gltfStudioGraphCanvasTest!.simulateConnect({
@@ -211,7 +287,7 @@ test.describe("behavior-graph canvas", () => {
       })
     );
 
-    await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+    await expect(page.locator(".react-flow__edge")).toHaveCount(1, { timeout: 60000 });
     graph = await getGraphJson(page);
     expect(graph.nodes[1]!.values!.a).toEqual({ node: 2, socket: "value" });
   });
@@ -248,8 +324,20 @@ test.describe("behavior-graph canvas", () => {
   }) => {
     await page.getByTestId("gcanvas.palette.op.math/add").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+    // See `waitForNodesSettled`'s doc comment above `importFixture`: node 2
+    // was JUST added, so its bounding box hasn't settled to its final
+    // measured size yet — clicking it now would share the exact same
+    // node-click/resize race that test root-causes.
+    await waitForNodesSettled(page);
 
-    await page.getByTestId("gcanvas.node.2").click();
+    // Click the header, not the node's own testid — see the selection
+    // test's doc comment above: `.click()`'s default (the node's geometric
+    // CENTER) can land on a literal-input row (whose own `onClick` stops
+    // propagation) once the node's real size settles, no matter how long
+    // this test waits first. The header is a fixed, content-independent
+    // strip at the top of every op node, so a click there can never land on
+    // a row-level control.
+    await page.getByTestId("gcanvas.node.2").locator(".gcanvas-op-header").click();
     await page.keyboard.press("Delete");
 
     await expect(page.getByTestId("gcanvas.node.2")).toHaveCount(0);
