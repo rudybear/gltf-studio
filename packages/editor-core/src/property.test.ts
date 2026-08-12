@@ -655,3 +655,107 @@ describe("property: SceneEdit add/remove/reparent/duplicate mixed sequences stay
     );
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// DOC-055: GraphEdit's variable-management factories (renameVariable,
+// setVariableType, setVariableDefault, removeVariable). A SEPARATE, small,
+// self-contained property block rather than new cases folded into `Step`
+// above: those factories never reference a graph NODE index (`Model`'s own
+// `graphNodeCount` bookkeeping), only the graph's `variables[]` table, and
+// `removeVariable`'s block-when-used policy (`VariableInUseError`) would
+// need `Step`'s interpreter to track which variables are referenced by which
+// nodes to stay a meaningful (non-vacuous) generator — this block sidesteps
+// that entirely by never generating a `variable/get|set|interpolate` node in
+// the first place, so every variable stays unreferenced and `removeVariable`
+// never throws mid-run (matching the SAME "never generate a step that can
+// throw" discipline `Step`'s own `disconnect`/`removeNode` cases already
+// use elsewhere in this file).
+// ---------------------------------------------------------------------------
+
+type VarStep =
+  | { kind: "add"; id: string; value: number }
+  | { kind: "rename"; pick: number; id: string }
+  | { kind: "retype"; pick: number; sig: string }
+  | { kind: "setDefault"; pick: number; value: number }
+  | { kind: "remove"; pick: number };
+
+/** `GraphEdit.setVariableType`'s `signature` parameter is plain `string` (KHR_interactivity type signatures are free-form text, not restricted to this editor's own picker vocabulary) — this list is just this test's own sample of realistic ones, not a type constraint. */
+const VALUE_TYPE_SIGS: string[] = ["bool", "int", "float", "float2", "float3", "float4"];
+
+const varStepArb: fc.Arbitrary<VarStep> = fc.oneof(
+  fc.record({ kind: fc.constant("add" as const), id: fc.string({ minLength: 1, maxLength: 6 }), value: fc.integer() }),
+  fc.record({ kind: fc.constant("rename" as const), pick: nonNegInt, id: fc.string({ minLength: 1, maxLength: 6 }) }),
+  fc.record({ kind: fc.constant("retype" as const), pick: nonNegInt, sig: fc.constantFrom(...VALUE_TYPE_SIGS) }),
+  fc.record({ kind: fc.constant("setDefault" as const), pick: nonNegInt, value: fc.integer() }),
+  fc.record({ kind: fc.constant("remove" as const), pick: nonNegInt })
+);
+
+/** Mirrors `interpretStep`'s "returns `undefined` for a step that's a no-op given current state" contract, tracking only `variableCount` (mutated in place, same convention as `Model` above). */
+function interpretVarStep(document: EditorDocument, step: VarStep, model: { variableCount: number }): Command | undefined {
+  const n = model.variableCount;
+  switch (step.kind) {
+    case "add":
+      model.variableCount += 1;
+      return GraphEdit.addVariable(document, 0, { id: step.id, type: 0, value: [step.value] });
+    case "rename":
+      if (n === 0) return undefined;
+      return GraphEdit.renameVariable(document, 0, step.pick % n, step.id);
+    case "retype":
+      if (n === 0) return undefined;
+      return GraphEdit.setVariableType(document, 0, step.pick % n, step.sig);
+    case "setDefault":
+      if (n === 0) return undefined;
+      return GraphEdit.setVariableDefault(document, 0, step.pick % n, [step.value]);
+    case "remove":
+      if (n === 0) return undefined;
+      model.variableCount -= 1;
+      return GraphEdit.removeVariable(document, 0, step.pick % n);
+  }
+}
+
+describe("property: GraphEdit variable factories — round-trip and undo≡initial (DOC-055)", () => {
+  it("applying patches then inverse restores the pre-command json, for every command in a random sequence", () => {
+    fc.assert(
+      fc.property(fc.array(varStepArb, { maxLength: 40 }), (steps) => {
+        let document = freshDocument(); // fixtureGltfJson() already declares one variable ("v0"), unreferenced by any node
+        const model = { variableCount: 1 };
+        for (const step of steps) {
+          const command = interpretVarStep(document, step, model);
+          if (!command) continue;
+          const before = document.json;
+          const after = applyPatches(before, command.patches);
+          const restored = applyPatches(after, command.inverse);
+          expect(deepEqualJson(restored, before)).toBe(true);
+          document = applyCommand(document, command);
+        }
+        // Cross-check the model's own bookkeeping against the real document, same invariant `checkInvariants` establishes above for graph/scene node counts.
+        const variables = getIn(document.json, ["extensions", "KHR_interactivity", "graphs", "0", "variables"]) as unknown[] | undefined;
+        expect(variables?.length ?? 0).toBe(model.variableCount);
+      }),
+      { numRuns: 200 }
+    );
+  });
+
+  it("undo-all ≡ initial for random variable add/rename/retype/setDefault/remove sequences", () => {
+    fc.assert(
+      fc.property(fc.array(varStepArb, { maxLength: 40 }), (steps) => {
+        const initial = freshDocument();
+        const stack = new HistoryStack(initial);
+        const model = { variableCount: 1 };
+        let pushCount = 0;
+
+        for (const step of steps) {
+          const command = interpretVarStep(stack.document, step, model);
+          if (!command) continue;
+          stack.push(command);
+          pushCount += 1;
+        }
+
+        for (let i = 0; i < pushCount; i += 1) stack.undo();
+        expect(deepEqualJson(stack.document.json, initial.json)).toBe(true);
+      }),
+      { numRuns: 200 }
+    );
+  });
+});

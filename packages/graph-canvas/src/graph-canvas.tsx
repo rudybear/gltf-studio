@@ -6,13 +6,27 @@
 // Command and handed to `dispatchCommand`; this is the ONLY module in the
 // package that calls those command factories.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GraphEdit, applyPatches, combineCommandParts, getIn, makeCommandId, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import {
+  GraphEdit,
+  applyPatches,
+  combineCommandParts,
+  countEventUsage,
+  countVariableUsage,
+  getIn,
+  makeCommandId,
+  VariableInUseError,
+  CustomEventInUseError,
+  type Command,
+  type EditorDocument
+} from "@gltf-studio/editor-core";
 import type { ValueType } from "@gltfi/kernel";
 import { graphNodeSceneRef, type UsageDocJson, type UsageGraphNode } from "@gltf-studio/usage-index";
 import { mapGraph, type InteractivityGraph, type MappedGraph } from "./map-graph.js";
 import { GraphView } from "./graph-view.js";
 import { PalettePanel } from "./palette-panel.js";
 import { NodeDetails } from "./node-details.js";
+import { VariablesPanel } from "./variables-panel.js";
+import type { LiteralValue } from "./literal-editors.js";
 import { validateInteractivityGraph, type ValidationResult } from "./validation.js";
 import { setLiteralValue } from "./graph-edit-ext.js";
 import { ensureGraphScaffold } from "./ensure-graph.js";
@@ -107,6 +121,15 @@ export function GraphCanvas({
   onSelectSceneNode
 }: GraphCanvasProps): JSX.Element {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  // Task ("in the node graph there is no way to edit variables"): defaults
+  // COLLAPSED (unlike `detailsCollapsed` above) — this is a brand new panel
+  // with no prior on-screen footprint, and every existing e2e/graph-canvas.spec.ts
+  // pixel/zoom assertion was written against the pre-existing three-pane
+  // (palette/canvas/details) layout; starting collapsed keeps that geometry
+  // byte-for-byte unchanged for anyone who never opens it, while still
+  // giving it the always-visible collapsed-rail expand affordance
+  // `NodeDetails`'s own collapse pattern already establishes.
+  const [variablesCollapsed, setVariablesCollapsed] = useState(true);
   const [validation, setValidation] = useState<ValidationResult>(EMPTY_VALIDATION);
   const validationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoggedKey = useRef<string>("");
@@ -133,6 +156,16 @@ export function GraphCanvas({
   const docNames = useMemo(() => ({ sceneNodeNames, animationNames }), [sceneNodeNames, animationNames]);
 
   const mapped: MappedGraph | null = useMemo(() => (rawGraph ? mapGraph(rawGraph, graphIndex) : null), [rawGraph, graphIndex]);
+
+  // DOC-055: usage counts for the Variables panel's "Used" column + delete-button gate — the SAME `GraphEdit.countVariableUsage`/`countEventUsage` `removeVariable`/`removeCustomEvent` themselves use, so the panel's displayed count and the command's actual block/allow decision can never drift apart.
+  const variableUsageCounts = useMemo(
+    () => (rawGraph?.variables ?? []).map((_, i) => countVariableUsage(rawGraph as unknown as Parameters<typeof countVariableUsage>[0], i)),
+    [rawGraph]
+  );
+  const eventUsageCounts = useMemo(
+    () => (rawGraph?.events ?? []).map((_, i) => countEventUsage(rawGraph as unknown as Parameters<typeof countEventUsage>[0], i)),
+    [rawGraph]
+  );
 
   // UX-506: validation runs debounced on graph changes, joined by node index.
   // `sceneNodeNames.length` (the document's real scene-node count) additionally
@@ -275,6 +308,101 @@ export function GraphCanvas({
     dispatchCommand({ id: makeCommandId("add-event-and-set"), label: `Add event "${id}" and assign to node ${nodeIndex}`, patches: combined.patches, inverse: combined.inverse });
   }
 
+  /**
+   * DOC-055: the Variables panel's "+ Add variable" — a fresh, unreferenced
+   * `bool`-typed variable named "New Variable" (renamed inline immediately
+   * after, same "create blank, then edit" flow the config editor's own
+   * `DeclarationSelect` "+ New variable..." mini-form uses, just without
+   * that form's up-front name/type prompt — this affordance has no node
+   * context to ask "assign to which field" the config editor's version
+   * does).
+   */
+  function handleAddVariable() {
+    const { workingDocument, index } = resolveTargetDocumentAndGraphIndex();
+    const command = GraphEdit.addVariable(workingDocument, index, { id: "New Variable", type: 0, value: [false] });
+    dispatchCommand(command);
+  }
+
+  function handleRenameVariable(variableIndex: number, id: string) {
+    dispatchCommand(GraphEdit.renameVariable(document, graphIndex, variableIndex, id));
+  }
+
+  function handleSetVariableType(variableIndex: number, signature: string) {
+    dispatchCommand(GraphEdit.setVariableType(document, graphIndex, variableIndex, signature));
+  }
+
+  function handleSetVariableDefault(variableIndex: number, value: LiteralValue) {
+    dispatchCommand(GraphEdit.setVariableDefault(document, graphIndex, variableIndex, value));
+  }
+
+  /** DOC-055's block-when-used policy surfaces here as a toast (mirroring `handleConnectRejected`'s own "reject, don't throw past the UI" convention) rather than an uncaught exception reaching the app shell. */
+  function handleRemoveVariable(variableIndex: number) {
+    try {
+      dispatchCommand(GraphEdit.removeVariable(document, graphIndex, variableIndex));
+    } catch (err) {
+      if (err instanceof VariableInUseError) {
+        onToast?.(err.message);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  function handleAddEvent() {
+    const { workingDocument, index } = resolveTargetDocumentAndGraphIndex();
+    dispatchCommand(GraphEdit.addCustomEvent(workingDocument, index, { id: "New Event" }));
+  }
+
+  function handleRenameEvent(eventIndex: number, id: string) {
+    dispatchCommand(GraphEdit.renameCustomEvent(document, graphIndex, eventIndex, id));
+  }
+
+  function handleRemoveEvent(eventIndex: number) {
+    try {
+      dispatchCommand(GraphEdit.removeCustomEvent(document, graphIndex, eventIndex));
+    } catch (err) {
+      if (err instanceof CustomEventInUseError) {
+        onToast?.(err.message);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Task ("wire selection/usage to the existing usage-index if cheap"):
+   * clicking a variable's usage-count chip selects the FIRST graph node that
+   * references it (`variable/get|set|interpolate`'s `configuration.variable`/
+   * `variables`) — a real but intentionally minimal wiring (a variable can be
+   * referenced by many nodes; this is "jump to one of them", not a
+   * multi-select highlight-all, which `onSelectNode`'s single-selection
+   * contract doesn't support today anyway).
+   */
+  function handleSelectVariableUsage(variableIndex: number) {
+    if (!rawGraph) return;
+    const declarations = rawGraph.declarations ?? [];
+    const idx = rawGraph.nodes.findIndex((node) => {
+      const op = declarations[node.declaration]?.op;
+      if (op === "variable/get" || op === "variable/interpolate") return node.configuration?.variable?.value?.[0] === variableIndex;
+      if (op === "variable/set") {
+        const arr = node.configuration?.variables?.value;
+        return Array.isArray(arr) && arr.includes(variableIndex);
+      }
+      return false;
+    });
+    if (idx !== -1) onSelectNode(idx);
+  }
+
+  function handleSelectEventUsage(eventIndex: number) {
+    if (!rawGraph) return;
+    const declarations = rawGraph.declarations ?? [];
+    const idx = rawGraph.nodes.findIndex((node) => {
+      const op = declarations[node.declaration]?.op;
+      return (op === "event/send" || op === "event/receive") && node.configuration?.event?.value?.[0] === eventIndex;
+    });
+    if (idx !== -1) onSelectNode(idx);
+  }
+
   /** `animation/start`/`animation/stop`'s "animation" socket is a VALUE (ref-typed literal), not a `configuration` field — see handleCreateFromDrop's own doc comment for why `ref` needs its own `types[]` entry. */
   function handleSetAnimationValue(nodeIndex: number, animationIndex: number) {
     dispatchCommand(setLiteralValue(document, graphIndex, nodeIndex, "animation", "ref", [animationIndex]));
@@ -371,6 +499,25 @@ export function GraphCanvas({
   return (
     <div className="gcanvas-root" data-testid="gcanvas.root">
       <PalettePanel onAddNode={(op) => handleAddNode(op)} onAskCopilot={onAskCopilot} />
+      <VariablesPanel
+        collapsed={variablesCollapsed}
+        onToggleCollapsed={() => setVariablesCollapsed((v) => !v)}
+        variables={rawGraph?.variables ?? []}
+        events={rawGraph?.events ?? []}
+        types={rawGraph?.types ?? []}
+        variableUsageCounts={variableUsageCounts}
+        eventUsageCounts={eventUsageCounts}
+        onAddVariable={handleAddVariable}
+        onRenameVariable={handleRenameVariable}
+        onSetVariableType={handleSetVariableType}
+        onSetVariableDefault={handleSetVariableDefault}
+        onRemoveVariable={handleRemoveVariable}
+        onAddEvent={handleAddEvent}
+        onRenameEvent={handleRenameEvent}
+        onRemoveEvent={handleRemoveEvent}
+        onSelectVariable={handleSelectVariableUsage}
+        onSelectEvent={handleSelectEventUsage}
+      />
       {mapped ? (
         <GraphView
           graph={mapped}
@@ -414,6 +561,7 @@ export function GraphCanvas({
           onSetEventConfig={handleSetEventConfig}
           onAddEventAndSetConfig={handleAddEventAndSetConfig}
           onSetAnimationValue={handleSetAnimationValue}
+          onLiteralCommit={handleLiteralCommit}
           onOpenPointerPicker={onOpenPointerPicker ? (nodeIndex) => handlePointerIconClick(nodeIndex) : undefined}
           sceneRef={selectedNodeSceneRef}
           onRevealInViewport={onRevealInViewport}

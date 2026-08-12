@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyCommand } from "./document.js";
 import { applyPatches } from "./patch.js";
 import { deepEqualJson } from "./json-pointer.js";
-import { GraphEdit } from "./graph-edit.js";
+import { GraphEdit, VariableInUseError, CustomEventInUseError } from "./graph-edit.js";
 import { fixtureDocument } from "./test-fixtures.js";
 import type { Command } from "./command.js";
 import type { EditorDocument } from "./document.js";
@@ -342,5 +342,237 @@ describe("GraphEdit.addVariable / addCustomEvent", () => {
     const command = GraphEdit.addCustomEvent(doc, 0, { id: "e1" });
     const after = expectRoundTrip(doc.json, command);
     expect(graph0(after).events).toEqual([{ id: "e1" }]);
+  });
+});
+
+type FullGraph = {
+  types: Array<{ signature: string }>;
+  declarations: Array<{ op: string }>;
+  variables?: Array<{ id?: string; type: number; value: Array<number | boolean | string> }>;
+  events?: Array<{ id?: string }>;
+  nodes: Array<{ declaration: number; configuration?: Record<string, { value: Array<number | boolean | string> }>; values?: unknown; flows?: unknown }>;
+};
+
+function fullGraph0(json: unknown): FullGraph {
+  return (json as { extensions: { KHR_interactivity: { graphs: FullGraph[] } } }).extensions.KHR_interactivity.graphs[0];
+}
+
+/** A graph with two declared variables (v0, v1), one variable/get node referencing v1, and enough declarations for variable/get|set. */
+function docWithVariables(): EditorDocument {
+  return fixtureDocument({
+    asset: { version: "2.0" },
+    extensions: {
+      KHR_interactivity: {
+        graph: 0,
+        graphs: [
+          {
+            types: [{ signature: "float" }, { signature: "bool" }],
+            declarations: [{ op: "variable/get" }, { op: "variable/set" }, { op: "math/add" }],
+            variables: [
+              { id: "v0", type: 0, value: [1] },
+              { id: "v1", type: 0, value: [2] }
+            ],
+            events: [{ id: "e0" }, { id: "e1" }],
+            nodes: [
+              { declaration: 0, configuration: { variable: { value: [1] } } }, // references v1
+              { declaration: 2 }
+            ]
+          }
+        ]
+      }
+    }
+  });
+}
+
+describe("GraphEdit.renameVariable (DOC-055)", () => {
+  it("renames the variable's id and round-trips", () => {
+    const doc = docWithVariables();
+    const before = doc.json;
+    const command = GraphEdit.renameVariable(doc, 0, 0, "renamed");
+    const after = expectRoundTrip(before, command);
+    expect(fullGraph0(after).variables?.[0]?.id).toBe("renamed");
+    expect(fullGraph0(after).variables?.[1]?.id).toBe("v1"); // untouched
+  });
+
+  it("does not disturb any node's reference (references are by index, not id)", () => {
+    const doc = docWithVariables();
+    const command = GraphEdit.renameVariable(doc, 0, 1, "renamed");
+    const after = applyPatches(doc.json, command.patches);
+    expect(fullGraph0(after).nodes[0]?.configuration?.variable.value).toEqual([1]);
+  });
+
+  it("throws for a missing variable index", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.renameVariable(doc, 0, 99, "x")).toThrow(/No variable at index 99/);
+  });
+});
+
+describe("GraphEdit.setVariableType (DOC-055)", () => {
+  it("retypes to an existing signature and resizes the default value (pad float -> float3 with zeros)", () => {
+    const doc = docWithVariables();
+    const before = doc.json;
+    const command = GraphEdit.setVariableType(doc, 0, 0, "float"); // no-op signature, reuses types[0]
+    expectRoundTrip(before, command);
+
+    const command2 = GraphEdit.setVariableType(doc, 0, 0, "float3");
+    const after = expectRoundTrip(before, command2);
+    const v0 = fullGraph0(after).variables?.[0];
+    expect(v0?.value).toEqual([1, 0, 0]); // padded, preserving the original component
+    const typeIndex = v0!.type;
+    expect(fullGraph0(after).types[typeIndex]).toEqual({ signature: "float3" });
+  });
+
+  it("truncates the default value when narrowing (float3 -> bool), coercing the kept component to a real boolean", () => {
+    const doc = docWithVariables(); // v0 starts as float [1]
+    const withFloat3 = applyCommand(doc, GraphEdit.setVariableType(doc, 0, 0, "float3")); // -> [1, 0, 0]
+    const command = GraphEdit.setVariableType(withFloat3, 0, 0, "bool");
+    const after = expectRoundTrip(withFloat3.json, command);
+    const v0 = fullGraph0(after).variables?.[0];
+    expect(v0?.value).toEqual([true]); // Boolean(1) === true, not a leftover numeric 1
+  });
+
+  it("reuses an existing types[] entry rather than appending a duplicate", () => {
+    const doc = docWithVariables();
+    const before = doc.json;
+    const command = GraphEdit.setVariableType(doc, 0, 0, "bool"); // types[1] already "bool"
+    const after = expectRoundTrip(before, command);
+    expect(fullGraph0(after).types.length).toBe(2); // no new type appended
+    expect(fullGraph0(after).variables?.[0]?.type).toBe(1);
+  });
+
+  it("allows retyping an IN-USE variable (no usage check — retype is allow + surface-validation, not block)", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.setVariableType(doc, 0, 1, "float3")).not.toThrow(); // v1 is referenced by node 0
+  });
+
+  it("throws for a missing variable index", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.setVariableType(doc, 0, 99, "float")).toThrow(/No variable at index 99/);
+  });
+});
+
+describe("GraphEdit.setVariableDefault (DOC-055)", () => {
+  it("sets the value outright and round-trips", () => {
+    const doc = docWithVariables();
+    const before = doc.json;
+    const command = GraphEdit.setVariableDefault(doc, 0, 0, [42]);
+    const after = expectRoundTrip(before, command);
+    expect(fullGraph0(after).variables?.[0]?.value).toEqual([42]);
+    expect(fullGraph0(after).variables?.[0]?.type).toBe(0); // type untouched
+  });
+
+  it("throws for a missing variable index", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.setVariableDefault(doc, 0, 99, [1])).toThrow(/No variable at index 99/);
+  });
+});
+
+describe("GraphEdit.removeVariable (DOC-055): block-when-used policy", () => {
+  it("throws VariableInUseError (with an accurate usage count) when a variable/get node still references it", () => {
+    const doc = docWithVariables(); // node 0 references v1 (index 1)
+    let caught: unknown;
+    try {
+      GraphEdit.removeVariable(doc, 0, 1);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(VariableInUseError);
+    expect((caught as VariableInUseError).usageCount).toBe(1);
+    expect((caught as VariableInUseError).variableIndex).toBe(1);
+    expect((caught as Error).message).toContain('"v1"');
+  });
+
+  it("counts a variable/set node referencing the same variable across multiple slots exactly once", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [{ signature: "float" }],
+              declarations: [{ op: "variable/set" }],
+              variables: [{ id: "v0", type: 0, value: [0] }],
+              events: [],
+              nodes: [{ declaration: 0, configuration: { variables: { value: [0, 0] } } }]
+            }
+          ]
+        }
+      }
+    });
+    let caught: unknown;
+    try {
+      GraphEdit.removeVariable(doc, 0, 0);
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as VariableInUseError).usageCount).toBe(1);
+  });
+
+  it("removes an UNUSED variable and shifts every surviving variable-index reference above it down by one, round-tripping via inverse", () => {
+    const doc = docWithVariables(); // v0 unused, v1 used by node 0 (index 1, above v0)
+    const before = doc.json;
+    const command = GraphEdit.removeVariable(doc, 0, 0); // remove v0 (unused)
+    const after = expectRoundTrip(before, command);
+    const g = fullGraph0(after);
+    expect(g.variables).toEqual([{ id: "v1", type: 0, value: [2] }]);
+    expect(g.nodes[0]?.configuration?.variable.value).toEqual([0]); // shifted 1 -> 0
+  });
+
+  it("throws for a missing variable index", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.removeVariable(doc, 0, 99)).toThrow(/No variable at index 99/);
+  });
+});
+
+describe("GraphEdit.renameCustomEvent / removeCustomEvent (DOC-055)", () => {
+  it("renameCustomEvent renames and round-trips", () => {
+    const doc = docWithVariables();
+    const before = doc.json;
+    const command = GraphEdit.renameCustomEvent(doc, 0, 0, "renamed-event");
+    const after = expectRoundTrip(before, command);
+    expect(fullGraph0(after).events?.[0]?.id).toBe("renamed-event");
+  });
+
+  it("removeCustomEvent blocks deletion of an in-use event with an accurate usage count", () => {
+    const doc = fixtureDocument({
+      asset: { version: "2.0" },
+      extensions: {
+        KHR_interactivity: {
+          graph: 0,
+          graphs: [
+            {
+              types: [],
+              declarations: [{ op: "event/send" }],
+              variables: [],
+              events: [{ id: "e0" }],
+              nodes: [{ declaration: 0, configuration: { event: { value: [0] } } }]
+            }
+          ]
+        }
+      }
+    });
+    let caught: unknown;
+    try {
+      GraphEdit.removeCustomEvent(doc, 0, 0);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CustomEventInUseError);
+    expect((caught as CustomEventInUseError).usageCount).toBe(1);
+  });
+
+  it("removeCustomEvent removes an unused event and shifts surviving references above it, round-tripping via inverse", () => {
+    const doc = docWithVariables(); // e0, e1 both unused
+    const before = doc.json;
+    const command = GraphEdit.removeCustomEvent(doc, 0, 0);
+    const after = expectRoundTrip(before, command);
+    expect(fullGraph0(after).events).toEqual([{ id: "e1" }]);
+  });
+
+  it("throws for a missing event index (both rename and remove)", () => {
+    const doc = docWithVariables();
+    expect(() => GraphEdit.renameCustomEvent(doc, 0, 99, "x")).toThrow(/No event at index 99/);
+    expect(() => GraphEdit.removeCustomEvent(doc, 0, 99)).toThrow(/No event at index 99/);
   });
 });

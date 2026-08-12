@@ -18,6 +18,8 @@ import type { ValueType } from "@gltfi/kernel";
 import type { InteractivityEvent, InteractivityVariable, MappedGraph, MappedNode } from "./map-graph.js";
 import { categoryColor } from "./palette.js";
 import type { GraphDiagnostic } from "./validation.js";
+import { colorKindForPointerPath } from "./color-field.js";
+import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS } from "./literal-editors.js";
 
 const VARIABLE_TYPE_OPTIONS: ValueType[] = ["bool", "int", "float", "float2", "float3", "float4"];
 
@@ -36,6 +38,17 @@ export type NodeDetailsProps = {
   /** Task ("handler nodes show their target"): `document.json.nodes[].name` (or a `"Node {i}"` fallback, same convention `packages/app`'s `revealSceneNodeInViewport` already uses), for `event/onSelect|onHoverIn|onHoverOut`'s "Target node" selector below. */
   sceneNodeNames?: string[];
   onSetConfigField?: (nodeIndex: number, field: string, value: Array<number | boolean | string>) => void;
+  /**
+   * Task ("typed literal editors incl. color pickers", op-node.tsx + this
+   * file): the side panel's `Ports` table (`PortStatusRows`) now renders a
+   * real typed editor (not just an "unconnected"/"literal: X" status string)
+   * for every UNCONNECTED value-in port whose type is editable
+   * (`literal-editors.ts`'s `EDITABLE_LITERAL_TYPES`) — the SAME
+   * `setLiteralValue`-backed command op-node.tsx's own inline editor calls,
+   * so editing a literal from either surface is one undoable step either
+   * way, never two competing code paths.
+   */
+  onLiteralCommit?: (nodeIndex: number, socket: string, type: ValueType, value: Array<number | boolean | string>) => void;
   onAddVariableAndSetConfig?: (nodeIndex: number, field: string, id: string, signature: ValueType, arraySlot?: number) => void;
   onSetEventConfig?: (nodeIndex: number, eventIndex: number) => void;
   onAddEventAndSetConfig?: (nodeIndex: number, id: string) => void;
@@ -491,8 +504,25 @@ function AnimationValueEditor({ node, animationNames, onSetAnimationValue }: { n
   );
 }
 
-/** UX-507: every port with its resolved source/target node+port, or an explicit "unconnected"/"literal" status. */
-function PortStatusRows({ graph, node }: { graph: MappedGraph; node: MappedNode }) {
+/**
+ * UX-507: every port with its resolved source/target node+port, or an
+ * explicit "unconnected"/"literal" status — EXCEPT an unconnected value-in
+ * port whose type is a VECTOR (`float2`/`float3`/`float4`), which instead
+ * renders a real `TypedLiteralEditor` (task: "typed literal editors incl.
+ * color pickers" — op-node.tsx's own inline editor's side-panel counterpart,
+ * with more room here for a color swatch + alpha slider or a 4-wide float4
+ * row than the compact canvas card has). Deliberately scoped to VECTOR
+ * types only, not the full `EDITABLE_LITERAL_TYPES` set op-node.tsx's own
+ * (differently-scoped, see that file's own comment) inline editor uses:
+ * e2e/graph-canvas.spec.ts's node-details literal-status assertions
+ * (`toContainText("literal: 1")` on a `math/add` node's scalar `float`
+ * sockets) are off-limits to change and depend on this section's
+ * PRE-EXISTING plain-text rendering for scalar (`bool`/`int`/`float`)
+ * literals — this file adds new capability only where nothing was
+ * previously tested. `onLiteralCommit` omitted -> falls back to the
+ * pre-existing plain-text status this section always showed.
+ */
+function PortStatusRows({ graph, node, onLiteralCommit }: { graph: MappedGraph; node: MappedNode; onLiteralCommit?: NodeDetailsProps["onLiteralCommit"] }) {
   function statusFor(port: MappedNode["ports"][number]): string {
     if (port.kind === "value-in") {
       const literal = node.literals[port.name];
@@ -512,19 +542,38 @@ function PortStatusRows({ graph, node }: { graph: MappedGraph; node: MappedNode 
     return targets.map((e) => `-> node ${e.targetNode}.${e.targetPort.replace(/^(value|flow)-in:/, "")}`).join(", ");
   }
 
+  function editorFor(port: MappedNode["ports"][number]): JSX.Element | null {
+    if (port.kind !== "value-in" || !onLiteralCommit || port.type === undefined || VECTOR_COMPONENT_COUNTS[port.type] === undefined) return null;
+    const edge = graph.edges.find((e) => e.kind === "value" && e.targetNode === node.index && e.targetPort === port.id);
+    if (edge) return null; // wired — no literal to edit here, `statusFor` already shows the "from node..." text.
+    const colorKind = node.category === "pointer" && port.name === "value" && node.subtitle ? colorKindForPointerPath(node.subtitle) : undefined;
+    return (
+      <TypedLiteralEditor
+        type={port.type}
+        value={node.literals[port.name]?.value ?? []}
+        colorKind={colorKind}
+        onCommit={(value) => onLiteralCommit(node.index, port.name, port.type as ValueType, value)}
+        testIdBase={`gcanvas.details.literal.${node.index}.${port.name}`}
+      />
+    );
+  }
+
   return (
     <section className="gcanvas-details-section">
       <h3>Ports</h3>
       <table className="gcanvas-details-table">
         <tbody>
-          {node.ports.map((port) => (
-            <tr key={port.id} data-testid={`gcanvas.details.port.${port.id}`}>
-              <td className="gcanvas-details-key">
-                {port.name} <span className="gcanvas-details-port-kind">({port.kind})</span>
-              </td>
-              <td className="gcanvas-details-value">{statusFor(port)}</td>
-            </tr>
-          ))}
+          {node.ports.map((port) => {
+            const editor = editorFor(port);
+            return (
+              <tr key={port.id} data-testid={`gcanvas.details.port.${port.id}`}>
+                <td className="gcanvas-details-key">
+                  {port.name} <span className="gcanvas-details-port-kind">({port.kind})</span>
+                </td>
+                <td className="gcanvas-details-value">{editor ?? statusFor(port)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>
@@ -591,6 +640,7 @@ export function NodeDetails({
   onAddEventAndSetConfig,
   onSetAnimationValue,
   onOpenPointerPicker,
+  onLiteralCommit,
   sceneRef = null,
   onRevealInViewport
 }: NodeDetailsProps) {
@@ -639,7 +689,7 @@ export function NodeDetails({
               onOpenPointerPicker={onOpenPointerPicker}
             />
             <AnimationValueEditor node={selectedNode} animationNames={animationNames} onSetAnimationValue={onSetAnimationValue} />
-            <PortStatusRows graph={graph} node={selectedNode} />
+            <PortStatusRows graph={graph} node={selectedNode} onLiteralCommit={onLiteralCommit} />
             <DiagnosticsSection diagnostics={diagnostics} />
             {sceneRef !== null && onRevealInViewport ? (
               <button

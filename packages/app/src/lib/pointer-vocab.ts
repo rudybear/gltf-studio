@@ -166,6 +166,44 @@ export function parsePointerPath(path: string, json: GltfJsonShape | undefined):
 }
 
 // ---------------------------------------------------------------------------
+// Color detection (task: "for such cases as input for material when we
+// clearly know this is color, we can add color pickers" — specs/ux-graph-canvas.md
+// UX-5xx typed-literal-editors work): a pointer PATH (not a value type alone
+// — `float3`/`float4` also cover plain non-color vectors like `translation`
+// or `scale`) that is semantically a color gets a color-picker literal
+// editor instead of grouped numeric fields, in `pointer/set|interpolate`
+// nodes' inline/side-panel literal editors. Pure, path-only pattern
+// matching (no document access needed) — canonical here per this module's
+// own "one vocabulary, never re-derived per call site" header; MIRRORED
+// (not imported — @gltf-studio/graph-canvas has no dependency on
+// packages/app, the reverse of this package's own dependency on
+// @gltf-studio/graph-canvas) as a small zero-dependency copy in that
+// package's own `color-field.tsx`, same convention this codebase already
+// uses for HANDLER_OPS/ANIMATION_OPS across map-graph.ts/op-node.tsx/
+// usage-index. Deliberately NOT exhaustive (same "known gaps" spirit as the
+// rest of this file): `KHR_materials_sheen`'s `sheenColorFactor`,
+// `KHR_materials_specular`'s `specularColorFactor`, and any other
+// extension-authored color factor are real follow-ups, not covered here.
+export type ColorKind = "rgb" | "rgba";
+
+const COLOR_PATH_PATTERNS: ReadonlyArray<{ re: RegExp; kind: ColorKind }> = [
+  // /materials/{i}/pbrMetallicRoughness/baseColorFactor — float4 (RGBA).
+  { re: /\/pbrMetallicRoughness\/baseColorFactor$/, kind: "rgba" },
+  // /materials/{i}/emissiveFactor — float3 (RGB, no alpha channel in glTF core).
+  { re: /\/materials\/\d+\/emissiveFactor$/, kind: "rgb" },
+  // /extensions/KHR_lights_punctual/lights/{i}/color — float3 (RGB).
+  { re: /\/extensions\/KHR_lights_punctual\/lights\/\d+\/color$/, kind: "rgb" }
+];
+
+/** Returns `"rgb"`/`"rgba"` when `pointerPath` names a KNOWN color property, `undefined` otherwise (e.g. `translation`/`scale`/`metallicFactor` — a plain numeric/vector field, not a color, gets the ordinary grouped-numeric-fields editor instead). Matches on the path's SUFFIX (a fixed property name), independent of which node/material index prefixes it or whether that index came from a literal number or a dynamic pointer-template parameter. */
+export function colorKindForPointerPath(pointerPath: string): ColorKind | undefined {
+  for (const { re, kind } of COLOR_PATH_PATTERNS) {
+    if (re.test(pointerPath)) return kind;
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Known gaps (honest, not silently dropped): this vocabulary covers the
 // common TRS + pbrMetallicRoughness/emissive/alphaCutoff families the
 // approved mockup itself demonstrates. NOT covered (a real follow-up, not

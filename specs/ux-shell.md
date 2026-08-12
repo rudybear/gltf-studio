@@ -377,6 +377,15 @@ process.
   (`reparentNode`/`duplicateNode`) wrapping `SceneEdit.reparentNode`/`duplicateNode` (real as of this
   change — `reparentNode` was the last throwing M8 stub). No `ux-shell.md`-owned behavior changed
   beyond that cross-reference.
+- Typed literal editors incl. color pickers (`pointer-vocab.ts` — same `packages/app/**` catch-all
+  as the notes above; the substantive spec change is `specs/ux-graph-canvas.md`'s new `UX-517`/
+  `UX-519`/`UX-520`, `specs/document-model.md`'s new `DOC-055`): `pointer-vocab.ts` gains one new
+  pure function, `colorKindForPointerPath(path)`, the canonical "is this pointer path a known color
+  property" check (`baseColorFactor`, `emissiveFactor`, a `KHR_lights_punctual` light's `color`) —
+  mirrored (not imported, per this codebase's established zero-cross-package-dependency convention)
+  as a small pure copy in `@gltf-studio/graph-canvas`'s own `color-field.tsx`, which is where the
+  actual color-picker UI this check drives lives (that package cannot depend on `packages/app`, the
+  reverse of `packages/app`'s own dependency on it). No other `ux-shell.md`-owned behavior changed.
 
 ## Open questions
 

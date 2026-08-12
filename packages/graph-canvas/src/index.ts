@@ -35,3 +35,12 @@ export { type DropKind } from "./drop-menu.js";
 // itself, in the same package.
 export { GraphView, type GraphViewProps, type GraphCanvasTestHook } from "./graph-view.js";
 export { NodeDetails, type NodeDetailsProps } from "./node-details.js";
+// Task ("in the node graph there is no way to edit variables" / "typed
+// literal editors incl. color pickers"): the new Variables panel + the
+// shared typed-literal/color-field editors it (and op-node.tsx/node-details.tsx)
+// build on — exported for @gltf-studio/app's own reuse of `ColorField`
+// (`MaterialSection.tsx`'s Base Color picker, per that task's "extract/share
+// it rather than duplicate" instruction).
+export { VariablesPanel, type VariablesPanelProps } from "./variables-panel.js";
+export { TypedLiteralEditor, EDITABLE_LITERAL_TYPES, VECTOR_COMPONENT_COUNTS, type TypedLiteralEditorProps, type LiteralValue } from "./literal-editors.js";
+export { ColorField, colorKindForPointerPath, hexToRgb01, rgb01ToHex, useNumericFallbackToggle, type ColorFieldProps, type ColorKind } from "./color-field.js";
