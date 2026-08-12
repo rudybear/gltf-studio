@@ -13,6 +13,8 @@ import { ToastLayer } from "./components/ToastLayer";
 import { PointerPickerDialog } from "./components/pointer-picker/PointerPickerDialog";
 import { MissingFilesDialog } from "./components/import/MissingFilesDialog";
 import { filesFromDataTransfer } from "./lib/file-drop.js";
+import { TourBanner } from "./tour/TourBanner";
+import { TourOverlay } from "./tour/TourOverlay";
 
 /**
  * Test-only seam (no UX-### requirement covers it — same rationale as
@@ -182,6 +184,7 @@ export function App(): JSX.Element {
     <div id="app">
       <TopBar />
       <LockedBanner />
+      <TourBanner />
       <div id="workspace">
         <LeftPanel />
         <ResizeHandle
@@ -214,6 +217,7 @@ export function App(): JSX.Element {
       <ToastLayer />
       <PointerPickerDialog />
       <MissingFilesDialog />
+      <TourOverlay />
     </div>
   );
 }

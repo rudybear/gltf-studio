@@ -31,6 +31,11 @@ snapshots are kept, each normative for what it covers.
   glTF-addressing — identity strip, mesh section, Data tab; v6: usage mapping). v5 and v6 are both
   normative (for their respective surfaces, per above); v2..v4 are provenance only.
 
+`specs/ux-tour.md`'s coach-marks tutorial tour (`UX-12xx`) is the one surface here with **no**
+mockup snapshot at all — it was built directly against the shipped real UI rather than iterated as
+a private clickable mockup first, so there is nothing to add to the list above; its own spec file
+carries the full normative contract instead.
+
 ## The freeze process
 
 UX iterated as private clickable HTML mockups *outside* this repo (see each spec file's

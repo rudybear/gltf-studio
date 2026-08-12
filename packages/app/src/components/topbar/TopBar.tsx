@@ -4,6 +4,7 @@ import { useAppStore } from "../../store/app-store";
 import { useSystemPrefersDark } from "../../hooks/use-system-theme";
 import { HistoryDropdown } from "./HistoryDropdown";
 import { filesFromDataTransfer } from "../../lib/file-drop.js";
+import { useTourState } from "../../tour/tour-state";
 
 // `window.showOpenFilePicker` isn't declared in TypeScript's bundled `dom`
 // lib (same reason `packages/app/src/lib/export.ts`'s own
@@ -29,7 +30,9 @@ function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
  * specs/ux-shell.md UX-100 (top bar), UX-108 (history dropdown), UX-105
  * (theme toggle), UX-111 (testid overlay toggle), UX-106/UX-113 (play-state
  * chrome + real play-bar wiring against `PlayController` via the store's
- * `startPlay`/`pausePlay`/`resumePlay`/`stopPlay`/`setPlayEngine` actions).
+ * `startPlay`/`pausePlay`/`resumePlay`/`stopPlay`/`setPlayEngine` actions),
+ * UX-121 (`topbar.tour-start` — a distinct glyph from UX-111's `?`, starts
+ * `specs/ux-tour.md`'s tour at step 1 regardless of prior state).
  * Export is real as of M3.
  */
 export function TopBar(): JSX.Element {
@@ -48,6 +51,7 @@ export function TopBar(): JSX.Element {
   const toggleThemeOverride = useAppStore((s) => s.toggleThemeOverride);
   const testIdOverlay = useAppStore((s) => s.testIdOverlay);
   const toggleTestIdOverlay = useAppStore((s) => s.toggleTestIdOverlay);
+  const startTour = useTourState((s) => s.start);
   const playState = useAppStore((s) => s.playState);
   const playEngine = useAppStore((s) => s.playEngine);
   const startPlay = useAppStore((s) => s.startPlay);
@@ -256,6 +260,14 @@ export function TopBar(): JSX.Element {
           onClick={toggleTestIdOverlay}
         >
           ?
+        </button>
+        <button
+          className="btn icon-only"
+          data-testid="topbar.tour-start"
+          title="Take the tour"
+          onClick={startTour}
+        >
+          ◎
         </button>
       </div>
     </div>

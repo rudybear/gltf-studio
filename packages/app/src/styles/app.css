@@ -1664,3 +1664,90 @@ body.testid-mode [data-testid] {
 .mf-hint {
   color: var(--text-dim);
 }
+
+/* ---------- tour (specs/ux-tour.md UX-12xx) ---------- */
+.tour-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+  font-size: 12px;
+}
+.tour-banner-text {
+  flex: 1 1 auto;
+  color: var(--text-0);
+}
+
+/* Full-viewport portal root; itself takes no clicks so nothing beneath the
+   dimmed panels or the spotlight cutout is accidentally blocked. */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  pointer-events: none;
+}
+/* Each dimming panel DOES take clicks (so the shell is inert everywhere
+   except the spotlight cutout, UX-1210) — the cutout itself has no panel
+   covering it at all, so clicks reach the real anchor underneath by
+   construction rather than needing an explicit pointer-events hole. */
+.tour-dim {
+  position: fixed;
+  background: rgba(10, 11, 13, 0.72);
+  pointer-events: auto;
+}
+.tour-dim-full {
+  inset: 0;
+}
+.tour-spotlight {
+  position: fixed;
+  border-radius: 6px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  pointer-events: none;
+}
+.tour-card {
+  position: fixed;
+  pointer-events: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  color: var(--text-0);
+}
+.tour-card-title {
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 6px;
+}
+.tour-card-body {
+  font-size: 12.5px;
+  color: var(--text-1);
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+.tour-progress {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.tour-dot.current {
+  background: var(--accent);
+}
+.tour-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tour-card-actions-spacer {
+  flex: 1 1 auto;
+}

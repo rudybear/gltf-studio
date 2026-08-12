@@ -25,6 +25,7 @@
   "packages/audio-webaudio/**": "specs/engine-api.md",
   "packages/audio-graph/**": "specs/engine-api.md",
   "docs/ux/**": "specs/ux-shell.md",
+  "packages/app/src/tour/**": "specs/ux-tour.md",
   "packages/app/**": "specs/ux-shell.md",
   "packages/graph-canvas/**": "specs/ux-graph-canvas.md",
   "packages/audio-canvas/**": "specs/ux-audio-graph.md",
