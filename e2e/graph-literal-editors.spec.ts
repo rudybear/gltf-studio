@@ -70,6 +70,13 @@ async function setInputValue(page: Page, testId: string, value: string): Promise
 }
 
 test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
+  // Same rationale as e2e/graph-variables.spec.ts's own `test.describe.configure`
+  // call — CI's 2-worker cap is documented as fragile to added concurrent
+  // load; serializing this file's own tests avoids increasing peak
+  // concurrency for e2e/graph-canvas.spec.ts's already-marginal drag/pixel
+  // tests, without touching that off-limits file itself.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await importFixture(page);
   });

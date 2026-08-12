@@ -68,6 +68,15 @@ test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)",
   // — off limits to this workstream). Widening just these tests' own page
   // is the narrower, safer fix.
   test.use({ viewport: { width: 1600, height: 900 } });
+  // CI's 2-worker cap (playwright.config.ts) is already documented (see
+  // e2e/graph-canvas.spec.ts's own comments) as fragile to added concurrent
+  // load — several of its drag/pixel-precision-sensitive tests are known to
+  // need extra timeout budget whenever a new spec file adds more
+  // simultaneously-running heavy (ELK layout / React Flow) browser
+  // instances. Serializing THIS file's own tests (rather than editing that
+  // off-limits file's timeouts) keeps this workstream's addition from
+  // increasing peak concurrency, without touching anything it doesn't own.
+  test.describe.configure({ mode: "serial" });
 
   test.beforeEach(async ({ page }) => {
     await importFixtureAndOpenVariables(page);
