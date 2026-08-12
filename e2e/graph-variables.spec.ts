@@ -58,6 +58,17 @@ async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
 }
 
 test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)", () => {
+  // A wider-than-default viewport (this project's other specs all use the
+  // 1280x720 "Desktop Chrome" default): with the Variables panel expanded
+  // ALONGSIDE the pre-existing palette + details panel, three fixed-width
+  // docked columns can leave very little width for the actual canvas at
+  // 1280px — real, but a LOCAL concern of tests that open this new panel,
+  // not a reason to change `.gcanvas-root`'s shared CSS (which would risk
+  // OTHER, unrelated specs' layout, including e2e/graph-canvas.spec.ts's own
+  // — off limits to this workstream). Widening just these tests' own page
+  // is the narrower, safer fix.
+  test.use({ viewport: { width: 1600, height: 900 } });
+
   test.beforeEach(async ({ page }) => {
     await importFixtureAndOpenVariables(page);
   });

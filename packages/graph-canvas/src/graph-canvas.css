@@ -11,19 +11,6 @@
   min-width: 0;
   background: var(--bg-0);
   color: var(--text-0);
-  /* Task (Variables panel): a THIRD fixed-width docked column (alongside the
-     pre-existing palette + details panel) can, on a narrow enough viewport,
-     leave `.gcanvas-canvas-inner`'s own `flex: 1 1 auto; min-width: 0` at
-     literally zero width — without this, its content (React Flow's
-     absolutely-positioned nodes) would still render, just visually
-     UNDER/behind whichever docked panel comes after it in DOM order,
-     silently swallowing clicks meant for the canvas. `overflow-x: auto`
-     turns that failure mode into an honest horizontal scrollbar instead —
-     paired with `.gcanvas-canvas-inner`'s own `min-width` floor below.
-     Never observed at typical desktop widths (only surfaced e2e-side, at
-     Playwright's default 1280px test viewport with a busy Variables +
-     Details panel combination) but a real correctness floor either way. */
-  overflow-x: auto;
 }
 
 /* ---------- palette ---------- */
@@ -136,11 +123,7 @@
 .gcanvas-canvas-inner {
   position: relative;
   flex: 1 1 auto;
-  /* A real floor, not 0 (see `.gcanvas-root`'s own comment on why) — small
-     enough to rarely trigger `.gcanvas-root`'s horizontal scrollbar at
-     ordinary desktop widths, large enough that React Flow's own node
-     rendering never again ends up visually behind a docked panel. */
-  min-width: 240px;
+  min-width: 0;
 }
 .gcanvas-layout-pending {
   flex: 1 1 auto;
