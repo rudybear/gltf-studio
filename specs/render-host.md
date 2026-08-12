@@ -80,6 +80,24 @@ this file now owns the entire `RH` numbering space going forward.
 ## Implementation notes
 
 - Bug fix (M8-lite, `specs/ux-scene-tree.md`'s add-menu real-content change): making the scene tree's "+ Add" menu auto-select a freshly created node (`UX-213`) surfaced a latent race — `Viewport.tsx`'s gizmo-attach effect re-runs on every `selectedNodeIndex` change, but a structural command's `patchScene` -> `loadScene` reload (`RH-011`..`RH-014`) is async, so the effect could fire against the STALE pre-reload node table a moment before the new index existed in it. `attachGizmo` used to throw in that case (`RH-031` above resolves it to a tolerant no-op instead, mirroring `setHighlight`'s convention) and `packages/app/src/components/viewport/Viewport.tsx` gained a `reloadSeq` counter (bumped once a `needs-reload` reload's `loadScene()` promise actually resolves) in the gizmo/selection-highlight/hover effects' dependency arrays, so they get a reactive reason to re-run once the new node genuinely exists — the gizmo/highlight still end up attached to the new node moments later, not just silently dropped.
+- Richer inspector (`specs/ux-inspector.md`'s `UX-415`/`UX-416`): two material patch shapes the
+  vendored `@gltfi/three-adapter`'s own pointer-router has no row for at all — `doubleSided`
+  (`add`/`replace`, a boolean IS a valid non-structural `PointerValue`, so it reaches
+  `applyNonStructuralPatch` but the router doesn't recognize the path) and a texture-info slot
+  CLEAR (a `remove` patch — `applyNonStructuralPatch`'s pre-existing op guard only ever forwarded
+  `add`/`replace` to the router; `remove` fell through as a documented no-op). Both are now applied
+  directly against the live three.js materials in a new `packages/engine-three/src/
+  material-extras.ts` (checked against `tables.materialsByIndex`'s fanout array, same convention
+  the vendored router's own rows use), called from `ThreeRenderHost.applyNonStructuralPatch` ahead
+  of its existing op guard/router call. `RH-020`/`RH-021`/`RH-001`'s existing contracts are
+  unchanged — this is engine-three's own internal dispatch, not a new `RenderHost` interface
+  member. Regression note: undoing a material's FIRST-EVER `doubleSided` write replays a `remove`
+  patch (the inverse of the `add` `SceneEdit.setMaterialProperty` produces via `setPathFragment`
+  when the field didn't previously exist), not a `replace true->false` — `applyDoubleSidedPatch`
+  initially only handled `add`/`replace` and was caught missing the `remove` case by this feature's
+  own e2e coverage (a real screenshot: the live material stayed `DoubleSide` after undo even though
+  the document correctly reverted); fixed, and covered by both an engine-three unit test and the
+  e2e regression it was found in.
 
 ## Open questions
 

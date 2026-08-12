@@ -445,6 +445,16 @@ process.
   actual color-picker UI this check drives lives (that package cannot depend on `packages/app`, the
   reverse of `packages/app`'s own dependency on it). No other `ux-shell.md`-owned behavior changed.
 
+- Richer inspector (`specs/ux-inspector.md`'s `UX-415`..`418`, this file's own `packages/app/**`
+  catch-all ownership — no `ux-shell.md`-owned behavior itself changed): `MaterialSection.tsx`
+  gained emissiveFactor/alphaMode/alphaCutoff/doubleSided fields and a Texture Slots sub-section
+  (thumbnails decoded via `@gltfi/gltf`'s `loadImageBitmaps`, a new `lib/texture-thumbnails.ts` +
+  `hooks/use-texture-thumbnails.ts`); two new components, `LightSection.tsx`/`CameraSection.tsx`,
+  join `Inspector.tsx`'s section list for a node carrying `KHR_lights_punctual`/`camera`. See
+  `specs/ux-inspector.md`'s own implementation notes for the render-path details (which fields go
+  through the vendored pointer-router vs. `engine-three`'s own direct-apply vs. a full reload) and
+  the honest v1 gaps (texture upload, camera live preview, light type editing).
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one
