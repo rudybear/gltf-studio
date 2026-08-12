@@ -129,6 +129,22 @@ rather than duplicating them in `@gltf-studio/audio-canvas`:
   deterministic hash-based fallback color for any category string outside the fixed map, replacing
   the previous flat "anything unrecognized is gray" fallback.
 
+M7 audio-graph EDITING (the follow-up milestone that makes `specs/ux-audio-graph.md`'s canvas
+editable, not just read-only) widens two more things here, for the same "identical engine and
+contract, not a second implementation" reason:
+
+- `GraphViewProps` gained an optional `testHookKey` (default: `"__gltfStudioGraphCanvasTest"`, this
+  package's existing e2e-only connect-simulation hook's global key). `specs/ux-shell.md`'s `UX-103`
+  keeps the Behavior graph tab mounted-but-hidden while another dock tab is active, so this
+  component's own two live instances (Behavior + Audio graph) would otherwise silently steal the one
+  shared `window` key from each other; `@gltf-studio/audio-canvas`'s `AudioGraphCanvas` passes
+  `"__gltfStudioAudioGraphCanvasTest"` so both keep working independently. `e2e/graph-canvas.spec.ts`
+  needed no changes (the default preserves its existing behavior exactly).
+- `DiagnosticSource` (`validation.ts`) gained one new member, `"audio-lint"`, so
+  `@gltf-studio/audio-canvas`'s `audio-diagnostics.ts` can build real `GraphDiagnostic` values from
+  `AudioGraphHost.lint()` results and feed them into this package's existing `diagnosticsByNode`
+  per-node badge rendering (`UX-506`) — see `specs/ux-audio-graph.md`'s `UX-609`.
+
 ## Implementation notes (usage mapping)
 
 `specs/ux-usage-mapping.md`'s `UX-1107`/`UX-1110`/`UX-1111` add two small, additive surfaces to

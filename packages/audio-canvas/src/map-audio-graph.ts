@@ -39,6 +39,34 @@ function portName(indices: Set<number>, index: number): string {
   return indices.size <= 1 ? "in" : `in${index}`;
 }
 
+/**
+ * M7 audio-graph editing: a freshly-`AudioGraphEdit.addNode`-ed node has no
+ * `connections[]`/`inputs[]`/`outputs[]` entry touching it yet, so the OLD
+ * purely-wiring-derived port sets (scanning `graph.connections` etc. below)
+ * would give it ZERO ports — nothing to drag a new connection onto or from,
+ * a chicken-and-egg dead end for a brand new node. Every node kind's single
+ * ALWAYS-present side gets its "slot 0" seeded by default: 1 input + 1
+ * output for the common case (gain/delay/waveshaper/the 8 filter kinds),
+ * 0 input + 1 output for the pure-source `oscillator`. `splitter` (always
+ * exactly one input) and `channelmerger` (always exactly one output) get
+ * their one guaranteed side defaulted too, but NOT their fan side — a
+ * splitter's output COUNT and a merger's input count are genuinely
+ * usage-derived (`KHR_audio_graph.splitter.schema.json`/
+ * `.channelmerger.schema.json` declare no explicit count param), so a
+ * SECOND fan port only appears once an already-authored document's
+ * `connections[]` actually uses that index — not reachable by drag from
+ * this canvas alone yet (known v1 gap, see specs/ux-audio-graph.md's M7
+ * implementation notes). `audiomixer`'s "many inputs summed" Web Audio
+ * semantics also collapses to one input slot 0 here — `AudioGraphEdit
+ * .connectAudio`'s "last write wins" per-input-slot overwrite policy
+ * (DOC-059) means only ONE producer is representable per slot regardless,
+ * a deliberate v1 simplification (see that factory's own doc comment).
+ */
+function defaultPortSlots(kind: string): { inputs: number[]; outputs: number[] } {
+  if (kind === "oscillator") return { inputs: [], outputs: [0] };
+  return { inputs: [0], outputs: [0] };
+}
+
 /** Extracts, per this graph's lint results, the set of node LABELS implicated in a "cycle" violation. */
 function cycleLabelsFor(graphIndex: number, lintResults: AudioGraphLintResult[]): Set<string> {
   const labels = new Set<string>();
@@ -74,13 +102,14 @@ export function mapAudioGraph(
   graph.nodes.forEach((node, i) => {
     const label = node.label ?? `node_${i}`;
     labelOfRawIndex.set(i, label);
+    const defaults = defaultPortSlots(node.kind);
     ensure(`node:${i}`, () => ({
       id: `node:${i}`,
       kind: node.kind,
       subtitle: node.label,
       raw: node,
-      inputs: new Set(),
-      outputs: new Set()
+      inputs: new Set(defaults.inputs),
+      outputs: new Set(defaults.outputs)
     }));
   });
 

@@ -66,6 +66,22 @@ describe("mapAudioGraph", () => {
     expect(mapped.edges.every((e) => e.invalid)).toBe(true);
   });
 
+  it("M7 audio-graph editing: a freshly-added, still-unconnected node has a default in/out port to drag a connection onto (no chicken-and-egg dead end)", () => {
+    const graph: KHRGraph = { nodes: [{ kind: "lowpass", label: "freshFilter", params: { frequency: 500 } }], connections: [] };
+    const mapped = mapAudioGraph(graph, 0);
+    const node = mapped.nodes[0];
+    expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(1);
+    expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
+  });
+
+  it("M7 audio-graph editing: a fresh unconnected oscillator has an output but no input (pure source)", () => {
+    const graph: KHRGraph = { nodes: [{ kind: "oscillator", label: "freshOsc", params: { type: "sine" } }], connections: [] };
+    const mapped = mapAudioGraph(graph, 0);
+    const node = mapped.nodes[0];
+    expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(0);
+    expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
+  });
+
   it("does not mark edges invalid when there is no cycle violation", () => {
     const graph: KHRGraph = {
       nodes: [{ kind: "gain", label: "g" }, { kind: "biquadFilter", label: "f" }],
