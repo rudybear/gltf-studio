@@ -10,7 +10,7 @@
 // and selection/hover/play-mode here, ephemeral, never written to `json`
 // or the sidecar.
 import { create } from "zustand";
-import { parseContainer } from "@gltfi/gltf";
+import { parseContainer, type Container } from "@gltfi/gltf";
 import {
   applyPatches,
   createDocument,
@@ -34,6 +34,7 @@ import type {
   AudioHost,
   EngineKind,
   GizmoMode,
+  JsonPatchOp,
   PlayController,
   Proposal,
   ProjectMeta,
@@ -44,6 +45,10 @@ import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 import { packMultiFileGltf, type PackFileMap } from "../lib/pack-gltf.js";
 import { extractBinaryChunk } from "../lib/audio-container.js";
 import { resolveUrisFromDirectory, type DirectoryHandleLike } from "@gltf-studio/storage";
+import { buildEmptySceneGlb } from "../lib/empty-scene.js";
+import { createAutosaveScheduler, tryCaptureThumbnail } from "../lib/autosave.js";
+import { checkoutProject, readLastProjectId, rememberLastProjectId } from "../lib/project-lifecycle.js";
+import { buildShareLink, decodeShareLink, readShareHash } from "../lib/share.js";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
@@ -158,15 +163,58 @@ export const PANEL_BOUNDS = {
   dock: { min: 140, default: 300 } // max is 70vh, computed against window height where used
 };
 
+/** specs/ux-shell.md UX-123: the top bar's `topbar.save-status` indicator; superseded `projectDirty`'s bare `*`-suffix. */
+export type SaveStatus = "saved" | "saving" | "unsaved";
+
+/**
+ * specs/ux-shell.md UX-125: everything a crash-recovery decision (Recover /
+ * Discard) needs, captured once when the journal-ahead-of-save condition is
+ * first detected so acting on it never has to re-read storage.
+ */
+export interface RecoveryOfferState {
+  projectId: string;
+  projectName: string;
+  meta: ProjectMeta;
+  container: Uint8Array;
+  sidecar: unknown;
+  patches: JsonPatchOp[];
+}
+
+/**
+ * specs/ux-shell.md UX-126: the share dialog's own small state machine —
+ * `"building"` while compressing/measuring, `"ready"` with a usable link,
+ * `"too-large"` when the gzipped asset exceeds `SHARE_LINK_MAX_GZIPPED_BYTES`
+ * (download-only, per UX-126's own fallback), `"error"` for anything that
+ * threw (e.g. `editor-core`'s `save()` itself failing, same failure mode
+ * `exportProject` already handles).
+ */
+export type ShareDialogState =
+  | { status: "building"; filename: string }
+  | { status: "ready"; filename: string; blob: Blob; url: string; gzippedBytes: number }
+  | { status: "too-large"; filename: string; blob: Blob; gzippedBytes: number }
+  | { status: "error"; filename: string; message: string };
+
 export interface AppState {
   // -- project / document (SP-001, DOC-001..031) --
   storage: StorageProvider;
   projectId: string | null;
   projectName: string;
+  /** The authoritative `ProjectMeta` for the current project (createdAt/thumbnail live here); `projectName` mirrors its `name` for convenient direct reads. `null` when no project is open. */
+  projectMeta: ProjectMeta | null;
   projectDirty: boolean;
+  /** specs/ux-shell.md UX-123: the `topbar.save-status` indicator. */
+  saveStatus: SaveStatus;
   history: HistoryStack | null;
   document: EditorDocument | null;
   journalSinceRev: number;
+  // -- project manager (specs/ux-shell.md UX-122) --
+  projectManagerOpen: boolean;
+  /** `StorageProvider.listProjects()`'s result (SP-022 order), refreshed on open and after any action that changes it. */
+  projects: ProjectMeta[];
+  // -- crash recovery (specs/ux-shell.md UX-125) --
+  recoveryOffer: RecoveryOfferState | null;
+  // -- sharing (specs/ux-shell.md UX-126/UX-127) --
+  shareDialog: ShareDialogState | null;
   // `HistoryStack.canUndo()`/`canRedo()` read a mutable class instance, not
   // reactive state on their own — mirrored into real store fields (updated
   // wherever `history` mutates: dispatchCommand/undo/redo) so a component
@@ -467,6 +515,42 @@ export interface AppState {
    * of the save report (spliced roots / reserialized, DOC-026).
    */
   exportProject(): Promise<void>;
+
+  // -- project manager (specs/ux-shell.md UX-122) --
+  openProjectManager(): void;
+  closeProjectManager(): void;
+  refreshProjects(): Promise<void>;
+  /** UX-122's `project-manager.new`: the same `buildEmptySceneGlb` starter UX-120's gallery card uses, opened as the current project. */
+  newProjectFromManager(): Promise<void>;
+  /** UX-122's row Open action: `openProjectById` (UX-125's recovery check included), then closes the dialog. */
+  openProjectFromManager(id: string): Promise<void>;
+  /** UX-125: loads project `id` (last-saved state) and, when its journal is ahead of that (SP-015), sets `recoveryOffer` instead of silently discarding or silently replaying it. Also used by `bootstrapFromEnvironment`'s last-open-project resume. */
+  openProjectById(id: string): Promise<void>;
+  /** UX-122's row Rename action. */
+  renameProject(id: string, name: string): Promise<void>;
+  /** UX-122's row Duplicate action: a new project with the same container/sidecar, original untouched. */
+  duplicateProject(id: string): Promise<void>;
+  /** UX-122's row Delete action (caller is responsible for the confirm step, SP-021). */
+  deleteProject(id: string): Promise<void>;
+  /** UX-125's `recovery.recover`: replays `recoveryOffer.patches` on top of its base state and installs the result as the current (now dirty) project. */
+  applyRecovery(): void;
+  /** UX-125's `recovery.discard`: keeps the already-installed last-saved state and force-saves it as-is to clear the stale journal (SP-016). */
+  discardRecovery(): Promise<void>;
+  /**
+   * Runs once at app start (`App.tsx`'s mount effect): UX-127's share-link
+   * import takes priority over UX-125's last-open-project resume when a URL
+   * carries both.
+   */
+  bootstrapFromEnvironment(): Promise<void>;
+
+  // -- sharing (specs/ux-shell.md UX-126) --
+  /** Builds the share dialog's download blob + (size-permitting) link from the current document's exported bytes. */
+  openShareDialog(): Promise<void>;
+  closeShareDialog(): void;
+  /** Identical delivery to `exportProject`'s browser-download path, reusing the dialog's already-built blob. */
+  downloadShareAsset(): Promise<void>;
+  copyShareLink(): Promise<void>;
+
   setThemeOverride(theme: ThemeOverride): void;
   toggleThemeOverride(systemPrefersDark: boolean): void;
   toggleTestIdOverlay(): void;
@@ -567,14 +651,171 @@ function contextRefKey(ref: AgentContextRef): string {
 // since it belongs to a wholly different controller/lifecycle.
 let tryInPlayDiagnosticsUnsub: (() => void) | null = null;
 
-export const useAppStore = create<AppState>((set, get) => ({
+/** SP-018/SP-021: narrows an unknown rejection to "this StorageError's kind is not-found" without importing the concrete `StorageErrorImpl` class (this package only depends on the `@gltf-studio/engine-api` interface, per SP-001). */
+function isNotFoundStorageError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { kind?: unknown }).kind === "not-found";
+}
+
+/** specs/document-model.md's state-homes policy (SP-009's sidecar): defensively reads back the panel-size sidecar shape `runAutosave` below writes, tolerating an absent/malformed/pre-this-feature sidecar (e.g. `null`, or one from an older session) by simply not restoring anything. */
+function sidecarPanelSizes(sidecar: unknown): Partial<PanelSizes> | undefined {
+  if (!sidecar || typeof sidecar !== "object") return undefined;
+  const panelSizes = (sidecar as { panelSizes?: unknown }).panelSizes;
+  if (!panelSizes || typeof panelSizes !== "object") return undefined;
+  const { leftWidth, rightWidth, dockHeight } = panelSizes as Record<string, unknown>;
+  if (typeof leftWidth !== "number" || typeof rightWidth !== "number" || typeof dockHeight !== "number") return undefined;
+  return { leftWidth, rightWidth, dockHeight };
+}
+
+/**
+ * specs/ux-shell.md UX-123/UX-124: the debounced full-checkpoint autosave --
+ * module-level like `activePlayController` above (nothing outside this file
+ * needs the scheduler itself, only the `saveStatus`/`projectDirty` reactive
+ * state it drives). `scheduleAutosave`/`runAutosave` are hoisted function
+ * declarations specifically so their forward reference to `useAppStore`
+ * (assigned further down this file) is unproblematic -- neither runs until a
+ * real edit happens, long after module evaluation (and `useAppStore`'s own
+ * assignment) has completed.
+ */
+let autosaveInFlight = false;
+const autosaveScheduler = createAutosaveScheduler(() => {
+  void runAutosave();
+});
+
+function scheduleAutosave(): void {
+  autosaveScheduler.schedule();
+}
+
+async function runAutosave(): Promise<void> {
+  if (autosaveInFlight) return;
+  const { history, storage, projectId, projectMeta, projectName, panelSizes, renderHost } = useAppStore.getState();
+  if (!history || !projectId || !projectMeta) return;
+
+  autosaveInFlight = true;
+  useAppStore.setState({ saveStatus: "saving" });
+  try {
+    const result = save(history.document);
+    // UX-124: best-effort -- a missing RenderHost/a rejected snapshot leaves
+    // the project's existing thumbnail untouched rather than failing the save.
+    const thumbnail = await tryCaptureThumbnail(renderHost);
+    const meta: ProjectMeta = {
+      ...projectMeta,
+      name: projectName,
+      updatedAt: new Date().toISOString(),
+      ...(thumbnail ? { thumbnail } : {})
+    };
+    await storage.save(projectId, { meta, container: result.report.bytes as Uint8Array, sidecar: { panelSizes } });
+
+    // A newer edit may have landed while `save()`/the thumbnail capture were
+    // in flight (both `await`); `saveStatus` would already read "unsaved"
+    // for it (dispatchCommand/undo/redo set that synchronously) -- only
+    // overwrite it with "saved" when nothing has, so a genuinely newer edit
+    // never gets misreported as consolidated a beat before it actually is
+    // (the `finally` block below reschedules another run for it regardless).
+    const afterSave = useAppStore.getState();
+    useAppStore.setState({
+      saveStatus: afterSave.saveStatus === "saving" ? "saved" : afterSave.saveStatus,
+      projectMeta: meta,
+      // SP-016: this save just cleared the journal -- the document's CURRENT
+      // rev (which may already be ahead of what `result` above captured)
+      // becomes the new baseline a fresh journal window is measured from;
+      // any edit that raced the save above is still safe because it lives
+      // in `history.document` and the reschedule below will fold it into
+      // the NEXT full save regardless of the journal's own bookkeeping.
+      journalSinceRev: afterSave.history ? afterSave.history.document.rev : afterSave.journalSinceRev
+    });
+    if (afterSave.projectManagerOpen) void useAppStore.getState().refreshProjects();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    useAppStore.setState({ saveStatus: "unsaved" });
+    useAppStore.getState().log("error", `Autosave failed: ${message}`);
+    useAppStore.getState().pushToast(`Autosave failed: ${message}`);
+  } finally {
+    autosaveInFlight = false;
+    // A newer edit may have landed while this save was in flight (e.g. a
+    // fast typist outrunning even the debounce) -- make sure it still gets
+    // consolidated rather than silently stranded until some unrelated later
+    // edit happens to trigger another debounce window.
+    const after = useAppStore.getState();
+    if (after.projectDirty && after.saveStatus !== "saving") scheduleAutosave();
+  }
+}
+
+export const useAppStore = create<AppState>((set, get) => {
+  /**
+   * Installs `container` (+ `meta`) as the CURRENT project, replacing
+   * whatever was open before -- the one reset every entry point (a fresh
+   * import, opening a saved project, applying a crash-recovery replay)
+   * shares, so they can't drift from each other. `options.parsed` lets a
+   * caller that already parsed the container (e.g. `importGlb`, which must
+   * validate before persisting anything) skip a redundant re-parse.
+   * `options.recoveredPatches` (UX-125's "Recover") are replayed on top of
+   * the parsed container's own `json` before the document is installed, and
+   * mark the result dirty so `UX-123`'s own debounce consolidates it.
+   * `options.sidecar` restores whatever `runAutosave` last wrote for this
+   * project (currently just panel sizes, `sidecarPanelSizes` above).
+   */
+  function installProject(
+    meta: ProjectMeta,
+    container: Uint8Array,
+    options: { parsed?: Container; sidecar?: unknown; recoveredPatches?: JsonPatchOp[] } = {}
+  ): void {
+    const parsed = options.parsed ?? parseContainer(container);
+    const baseDocument = createDocument(parsed);
+    const recoveredPatches = options.recoveredPatches ?? [];
+    const document: EditorDocument =
+      recoveredPatches.length > 0 ? { ...baseDocument, json: applyPatches(baseDocument.json, recoveredPatches) } : baseDocument;
+    const history = new HistoryStack(document);
+    const restoredPanelSizes = sidecarPanelSizes(options.sidecar);
+
+    set({
+      projectId: meta.id,
+      projectName: meta.name,
+      projectMeta: meta,
+      projectDirty: recoveredPatches.length > 0,
+      saveStatus: recoveredPatches.length > 0 ? "unsaved" : "saved",
+      history,
+      document,
+      journalSinceRev: document.rev,
+      ...(restoredPanelSizes ? { panelSizes: { ...get().panelSizes, ...restoredPanelSizes } } : {}),
+      canUndo: false,
+      canRedo: false,
+      selectedNodeIndex: null,
+      selectedGraphNodeIndex: null,
+      selectedGraphIndex: 0,
+      hoveredNodeIndex: null,
+      selectedAsset: null,
+      dataPointer: "",
+      collapsedNodes: new Set(),
+      // A new/reopened project is an unrelated document -- any in-flight
+      // Copilot thread/proposal/preview from the previous one no longer
+      // applies, same as the pre-existing importGlb reset this replaces.
+      copilotContextChips: [],
+      copilotThread: [],
+      copilotPrompt: "",
+      tryInPlayController: null,
+      tryInPlayEntryId: null,
+      missingFilesDialog: null,
+      recoveryOffer: null
+    });
+    syncAgentProviderDocument(document);
+    rememberLastProjectId(meta.id);
+    if (recoveredPatches.length > 0) scheduleAutosave();
+  }
+
+  return {
   storage: new IndexedDBStorage(),
   projectId: null,
   projectName: "Untitled Project",
+  projectMeta: null,
   projectDirty: false,
+  saveStatus: "saved",
   history: null,
   document: null,
   journalSinceRev: 0,
+  projectManagerOpen: false,
+  projects: [],
+  recoveryOffer: null,
+  shareDialog: null,
   canUndo: false,
   canRedo: false,
   audioHost: undefined,
@@ -630,44 +871,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   async importGlb(file) {
     const { storage, log, pushToast } = get();
     try {
-      const container = parseContainer(file.bytes);
-      const document = createDocument(container);
-      const history = new HistoryStack(document);
+      // Validate BEFORE persisting anything -- a parse failure must leave
+      // storage untouched (no phantom empty project), same guarantee the
+      // pre-existing code had.
+      const parsed = parseContainer(file.bytes);
 
       const now = new Date().toISOString();
       const name = file.name.replace(/\.(glb|gltf)$/i, "");
       const meta: ProjectMeta = await storage.create({ name, createdAt: now, updatedAt: now });
       await storage.save(meta.id, { meta, container: file.bytes, sidecar: null });
 
-      set({
-        projectId: meta.id,
-        projectName: name,
-        projectDirty: false,
-        history,
-        document,
-        journalSinceRev: document.rev,
-        canUndo: false,
-        canRedo: false,
-        selectedNodeIndex: null,
-        selectedGraphNodeIndex: null,
-        selectedGraphIndex: 0,
-        hoveredNodeIndex: null,
-        selectedAsset: null,
-        dataPointer: "",
-        collapsedNodes: new Set(),
-        // A new project is an unrelated document -- any in-flight Copilot
-        // thread/proposal/preview from the previous one no longer applies.
-        copilotContextChips: [],
-        copilotThread: [],
-        copilotPrompt: "",
-        tryInPlayController: null,
-        tryInPlayEntryId: null,
-        // UX-117: a successful import (whether straight-through or via a
-        // resolved missing-files dialog retry) always closes the dialog --
-        // there is nothing left to resolve once a document is actually open.
-        missingFilesDialog: null
-      });
-      syncAgentProviderDocument(document);
+      installProject(meta, file.bytes, { parsed });
       log("info", `Imported "${file.name}" (${file.bytes.byteLength.toLocaleString()} bytes).`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -803,7 +1017,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       throw err; // anything else is a real bug, don't swallow it
     }
-    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    set({ document: history.document, projectDirty: true, saveStatus: "unsaved", canUndo: history.canUndo(), canRedo: history.canRedo() });
     syncAgentProviderDocument(history.document);
     // SP-004/SP-014: autosave journal wiring — every applied command's
     // forward patches are appended to the project's journal so a crash
@@ -811,6 +1025,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     storage.autosaveJournal(projectId, journalSinceRev, command.patches).catch((error: unknown) => {
       log("error", `Autosave failed: ${error instanceof Error ? error.message : String(error)}`);
     });
+    // UX-123: also schedules the debounced full-checkpoint save (a separate
+    // concern from the immediate journal append above — this one eventually
+    // consolidates the container/sidecar and clears the journal, SP-016).
+    scheduleAutosave();
   },
 
   undo() {
@@ -829,8 +1047,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       throw err;
     }
-    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    set({ document: history.document, projectDirty: true, saveStatus: "unsaved", canUndo: history.canUndo(), canRedo: history.canRedo() });
     syncAgentProviderDocument(history.document);
+    // UX-123: undo/redo are edits too (they change `history.document`) even
+    // though — unlike dispatchCommand/acceptCopilotProposal — neither is
+    // itself appended to the SP-004 journal (a pre-existing gap: replaying
+    // the journal alone cannot reproduce an undo/redo, only forward
+    // commands); the debounced full checkpoint below still captures the
+    // resulting state correctly regardless, since it serializes whatever
+    // `history.document` currently is rather than replaying the journal.
+    scheduleAutosave();
   },
 
   redo() {
@@ -849,8 +1075,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       throw err;
     }
-    set({ document: history.document, projectDirty: true, canUndo: history.canUndo(), canRedo: history.canRedo() });
+    set({ document: history.document, projectDirty: true, saveStatus: "unsaved", canUndo: history.canUndo(), canRedo: history.canRedo() });
     syncAgentProviderDocument(history.document);
+    scheduleAutosave(); // see undo()'s own note on the journal-gap tradeoff
   },
 
   historyEntries() {
@@ -1272,6 +1499,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       document: history.document,
       projectDirty: true,
+      saveStatus: "unsaved",
       canUndo: history.canUndo(),
       canRedo: history.canRedo(),
       copilotThread: state.copilotThread.map((e) => (e.id === entryId && e.kind === "proposal" ? { ...e, state: "accepted" } : e))
@@ -1286,6 +1514,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     storage.autosaveJournal(projectId, journalSinceRev, flattenedPatches).catch((error: unknown) => {
       log("error", `Autosave failed: ${error instanceof Error ? error.message : String(error)}`);
     });
+    scheduleAutosave(); // UX-123, same debounced full-checkpoint dispatchCommand schedules
     pushToast(`Applied: ${proposal.summary}`);
   },
 
@@ -1443,6 +1672,243 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // ---------------------------------------------------------------------
+  // Project manager (specs/ux-shell.md UX-122)
+  // ---------------------------------------------------------------------
+
+  openProjectManager() {
+    set({ projectManagerOpen: true });
+    void get().refreshProjects();
+  },
+
+  closeProjectManager() {
+    set({ projectManagerOpen: false });
+  },
+
+  async refreshProjects() {
+    const { storage, log } = get();
+    try {
+      const projects = await storage.listProjects();
+      set({ projects });
+    } catch (error) {
+      log("error", `Failed to list projects: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  async newProjectFromManager() {
+    // UX-122: the identical starter UX-120's "Empty scene" gallery card
+    // already produces -- one code path for "a brand new blank project",
+    // not a second one.
+    await get().importGlb({ name: "Untitled Project.glb", bytes: buildEmptySceneGlb() });
+    set({ projectManagerOpen: false });
+    void get().refreshProjects();
+  },
+
+  async openProjectFromManager(id) {
+    await get().openProjectById(id);
+    set({ projectManagerOpen: false });
+  },
+
+  async openProjectById(id) {
+    const { storage, log, pushToast } = get();
+    try {
+      const { data, pendingPatches } = await checkoutProject(storage, id);
+      // UX-125: open at the last-SAVED state first -- never a blank/stuck UI
+      // while the user decides -- then separately offer recovery when the
+      // journal is ahead of it.
+      installProject(data.meta, data.container, { sidecar: data.sidecar });
+      if (pendingPatches.length > 0) {
+        set({
+          recoveryOffer: {
+            projectId: id,
+            projectName: data.meta.name,
+            meta: data.meta,
+            container: data.container,
+            sidecar: data.sidecar,
+            patches: pendingPatches
+          }
+        });
+      }
+    } catch (error) {
+      if (isNotFoundStorageError(error)) {
+        // The remembered "last open project" (or a project-manager row built
+        // from a listProjects() snapshot that's since gone stale) no longer
+        // exists -- clear the bookmark so this doesn't keep failing on every
+        // future app load, but this isn't a surprising failure worth a toast.
+        rememberLastProjectId(null);
+        log("warn", `Project "${id}" no longer exists; clearing last-open bookmark.`);
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      log("error", `Failed to open project: ${message}`);
+      pushToast(`Failed to open project: ${message}`);
+    }
+  },
+
+  async renameProject(id, name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const { storage, projectId, log, pushToast } = get();
+    try {
+      const data = await storage.load(id);
+      const updatedMeta: ProjectMeta = { ...data.meta, name: trimmed, updatedAt: new Date().toISOString() };
+      await storage.save(id, { ...data, meta: updatedMeta });
+      set((state) => ({
+        projects: state.projects.map((p) => (p.id === id ? updatedMeta : p)),
+        ...(id === projectId ? { projectName: trimmed, projectMeta: updatedMeta } : {})
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("error", `Rename failed: ${message}`);
+      pushToast(`Rename failed: ${message}`);
+    }
+  },
+
+  async duplicateProject(id) {
+    const { storage, log, pushToast } = get();
+    try {
+      const data = await storage.load(id);
+      const now = new Date().toISOString();
+      const meta = await storage.create({ name: `${data.meta.name} copy`, createdAt: now, updatedAt: now });
+      await storage.save(meta.id, { meta, container: data.container, sidecar: data.sidecar });
+      void get().refreshProjects();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("error", `Duplicate failed: ${message}`);
+      pushToast(`Duplicate failed: ${message}`);
+    }
+  },
+
+  async deleteProject(id) {
+    const { storage, projectId, log, pushToast } = get();
+    try {
+      await storage.delete(id);
+      set((state) => ({ projects: state.projects.filter((p) => p.id !== id) }));
+      if (id === projectId) {
+        // The open project was just deleted out from under itself -- back
+        // out to the same pre-project shape a fresh app load starts in.
+        rememberLastProjectId(null);
+        set({
+          projectId: null,
+          projectMeta: null,
+          projectName: "Untitled Project",
+          projectDirty: false,
+          saveStatus: "saved",
+          history: null,
+          document: null
+        });
+      }
+      pushToast("Project deleted.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log("error", `Delete failed: ${message}`);
+      pushToast(`Delete failed: ${message}`);
+    }
+  },
+
+  // ---------------------------------------------------------------------
+  // Crash recovery (specs/ux-shell.md UX-125)
+  // ---------------------------------------------------------------------
+
+  applyRecovery() {
+    const { recoveryOffer, pushToast } = get();
+    if (!recoveryOffer) return;
+    installProject(recoveryOffer.meta, recoveryOffer.container, {
+      sidecar: recoveryOffer.sidecar,
+      recoveredPatches: recoveryOffer.patches
+    });
+    pushToast("Recovered unsaved changes.");
+  },
+
+  async discardRecovery() {
+    const { recoveryOffer, storage, log } = get();
+    if (!recoveryOffer) return;
+    set({ recoveryOffer: null });
+    try {
+      // SP-016: any successful save clears the journal -- re-saving the
+      // already-installed last-saved data as-is is enough to drop the stale
+      // patches (without this, reopening the same project again would
+      // re-offer the same recovery prompt for patches already declined).
+      await storage.save(recoveryOffer.projectId, {
+        meta: recoveryOffer.meta,
+        container: recoveryOffer.container,
+        sidecar: recoveryOffer.sidecar
+      });
+    } catch (error) {
+      log("error", `Failed to clear recovered journal: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  async bootstrapFromEnvironment() {
+    const { pushToast, log } = get();
+    // UX-127: a share link takes priority over UX-125's last-open-project
+    // resume -- following an explicit link is the more specific intent.
+    const shareEncoded = readShareHash(window.location.hash);
+    if (shareEncoded) {
+      const clearHash = () => window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      try {
+        const bytes = await decodeShareLink(shareEncoded);
+        clearHash();
+        await get().importGlb({ name: "shared-project.glb", bytes });
+        pushToast("Loaded shared project.");
+      } catch (error) {
+        clearHash();
+        const message = error instanceof Error ? error.message : String(error);
+        log("error", `Failed to load shared link: ${message}`);
+        pushToast(`Couldn't load the shared link: ${message}`);
+      }
+      return;
+    }
+
+    const lastProjectId = readLastProjectId();
+    if (lastProjectId) await get().openProjectById(lastProjectId);
+  },
+
+  // ---------------------------------------------------------------------
+  // Sharing (specs/ux-shell.md UX-126)
+  // ---------------------------------------------------------------------
+
+  async openShareDialog() {
+    const { history, projectName } = get();
+    if (!history) return;
+    const filename = `${(projectName || "untitled").trim() || "untitled"}.glb`;
+    set({ shareDialog: { status: "building", filename } });
+    try {
+      const result = save(history.document);
+      const bytes = result.report.bytes as Uint8Array;
+      const blob = new Blob([bytes as BlobPart], { type: "model/gltf-binary" });
+      const link = await buildShareLink(bytes, window.location.href);
+      set({
+        shareDialog: link.ok
+          ? { status: "ready", filename, blob, url: link.url, gzippedBytes: link.gzippedBytes }
+          : { status: "too-large", filename, blob, gzippedBytes: link.gzippedBytes }
+      });
+    } catch (error) {
+      set({ shareDialog: { status: "error", filename, message: error instanceof Error ? error.message : String(error) } });
+    }
+  },
+
+  closeShareDialog() {
+    set({ shareDialog: null });
+  },
+
+  async downloadShareAsset() {
+    const { shareDialog } = get();
+    if (!shareDialog || !("blob" in shareDialog)) return;
+    await triggerBrowserDownload(shareDialog.blob, shareDialog.filename);
+  },
+
+  async copyShareLink() {
+    const { shareDialog, pushToast } = get();
+    if (!shareDialog || shareDialog.status !== "ready") return;
+    try {
+      await navigator.clipboard?.writeText(shareDialog.url);
+      pushToast("Share link copied to clipboard.");
+    } catch {
+      pushToast("Couldn't copy the link — copy it manually from the field below.");
+    }
+  },
+
   setThemeOverride(theme) {
     set({ themeOverride: theme });
   },
@@ -1487,4 +1953,5 @@ export const useAppStore = create<AppState>((set, get) => ({
   dismissToast(id) {
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
   }
-}));
+  };
+});

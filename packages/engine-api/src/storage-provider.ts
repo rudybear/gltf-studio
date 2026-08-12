@@ -24,6 +24,7 @@ export interface StorageError extends Error {
  * IndexedDB, File System Access. Later: HTTP.
  */
 export interface StorageProvider {
+  /** SP-022: ordered by `updatedAt` descending (most-recently-updated project first) — resolves the "recent ordering" open question for the project-manager's "open recent" list. */
   listProjects(): Promise<ProjectMeta[]>;
 
   /** SP-005/SP-006: the provider assigns and stabilizes the returned id. */
@@ -55,6 +56,18 @@ export interface StorageProvider {
 
   /** SP-015: replay = load(id) (the base) + apply `patches` in order. */
   loadJournal(id: string): Promise<{ sinceRev: number; patches: JsonPatchOp[] }>;
+
+  /**
+   * SP-021: removes the project (and, per SP-016's own "a successful write
+   * clears the journal" spirit, its journal too, if any) so neither a
+   * subsequent `listProjects()` nor `load(id)` sees it again — `load(id)`
+   * on a deleted id rejects with SP-018's "not-found" `StorageError`, same
+   * as an id that was never `create()`d. Added for the project-manager's
+   * delete action (specs/ux-shell.md UX-122); idempotent — deleting an
+   * already-deleted/unknown id resolves rather than rejecting, since the
+   * caller's desired end state ("this id has no project") already holds.
+   */
+  delete(id: string): Promise<void>;
 
   readonly capabilities: StorageCapabilities;
 }

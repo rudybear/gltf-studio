@@ -26,7 +26,11 @@ export const storageProviderContractObligations: string[] = [
   "replaying load(id) + loadJournal(id).patches in order reproduces the current document state (SP-015)",
   "a successful save clears the project's journal (SP-016)",
   "loadJournal after a crash-simulated restart replays to the same state autosaveJournal produced (crash recovery ≡ sync protocol)",
-  "capabilities reports exactly { fileHandles, remote } consistent with what the implementation actually supports (SP-013)"
+  "capabilities reports exactly { fileHandles, remote } consistent with what the implementation actually supports (SP-013)",
+  "listProjects orders projects by updatedAt descending (SP-022)",
+  "delete removes a project so it no longer appears in listProjects (SP-021)",
+  "delete makes a subsequent load reject with a StorageError of kind \"not-found\" (SP-021/SP-018)",
+  "delete is idempotent for an id that was never created (SP-021)"
 ];
 
 function freshMeta(name = "Test Project"): Omit<ProjectMeta, "id"> {
@@ -239,6 +243,40 @@ export function describeStorageProviderContract(
       expect(Object.keys(provider.capabilities).sort()).toEqual(["fileHandles", "remote"]);
       expect(typeof provider.capabilities.fileHandles).toBe("boolean");
       expect(typeof provider.capabilities.remote).toBe("boolean");
+    });
+
+    it("listProjects orders projects by updatedAt descending (SP-022)", async () => {
+      const provider = makeProvider();
+      const oldest = await provider.create({ name: "Oldest", createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z" });
+      const middle = await provider.create({ name: "Middle", createdAt: "2021-01-01T00:00:00.000Z", updatedAt: "2021-01-01T00:00:00.000Z" });
+      const newest = await provider.create({ name: "Newest", createdAt: "2022-01-01T00:00:00.000Z", updatedAt: "2022-01-01T00:00:00.000Z" });
+      // create() persists whatever updatedAt the caller passed (no
+      // implicit "now" stamping) -- exercised via a fresh save() too, to
+      // confirm re-ordering follows a real update, not just creation order.
+      await provider.save(oldest.id, { meta: { ...oldest, updatedAt: "2023-01-01T00:00:00.000Z" }, container: new Uint8Array([1]), sidecar: null });
+
+      const list = await provider.listProjects();
+      expect(list.map((p) => p.id)).toEqual([oldest.id, newest.id, middle.id]);
+    });
+
+    it("delete removes a project so it no longer appears in listProjects (SP-021)", async () => {
+      const provider = makeProvider();
+      const created = await provider.create(freshMeta());
+      await provider.delete(created.id);
+      const list = await provider.listProjects();
+      expect(list.map((p) => p.id)).not.toContain(created.id);
+    });
+
+    it('delete makes a subsequent load reject with a StorageError of kind "not-found" (SP-021/SP-018)', async () => {
+      const provider = makeProvider();
+      const created = await provider.create(freshMeta());
+      await provider.delete(created.id);
+      await expect(provider.load(created.id)).rejects.toMatchObject({ kind: "not-found" });
+    });
+
+    it("delete is idempotent for an id that was never created (SP-021)", async () => {
+      const provider = makeProvider();
+      await expect(provider.delete("never-created-id")).resolves.toBeUndefined();
     });
   });
 }

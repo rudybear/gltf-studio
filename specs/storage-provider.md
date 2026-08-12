@@ -55,14 +55,19 @@ Prefix: `SP`. Numbers below continue from the two IDs seeded in `specs/engine-ap
 - [SP-019] (active) A File-System-Access-backed provider's method rejects with a `StorageError` whose `kind` is `"permission-revoked"` when the underlying file handle's permission has been revoked since it was granted.
 - [SP-020] (active) `StorageError` is a distinct error type carrying a `kind` field drawn from the fixed `StorageErrorKind` enum, so callers can branch on error kind rather than string-matching messages.
 
+### Project deletion and list ordering (persistence & sharing, `packages/app`'s project manager)
+
+- [SP-021] (active) `StorageProvider.delete(id)` removes the project (and any journal entry for it) so neither a subsequent `listProjects()` nor `load(id)` sees it again — `load(id)` on a deleted (or never-existing) id rejects per SP-018's "not-found" `StorageError`; `delete(id)` on an id with no project is itself idempotent (resolves rather than rejecting), since the caller's desired end state already holds.
+- [SP-022] (active) `listProjects()` orders its result by `updatedAt` descending (most-recently-updated project first) — resolves the "recent ordering" open question below in favor of the ordering the project-manager's list and its "open recent" shortcut actually need; a `save()`/`create()` that changes `updatedAt` changes the project's position in the next `listProjects()` call accordingly.
+
 ## Implementation notes
 
 - (specs/ux-shell.md UX-117) `packages/storage/src/directory-resolve.ts`'s `resolveUrisFromDirectory`/`listFilesRecursive` are NOT part of the `StorageProvider` interface itself — they're a standalone helper operating on the same `DirectoryHandleLike` (`fs-handle-types.ts`) shape `FileSystemAccessStorage` (SP-013's `capabilities.fileHandles: true` implementation) already accepts, reused by `packages/app`'s missing-files dialog to resolve a `.gltf` import's unresolved external references against a `window.showDirectoryPicker()`-granted directory. Added here (rather than a new spec file) since it lives in this package and shares its `DirectoryHandleLike` structural typing/test-shim conventions (`fs-test-shim.ts`'s `MemoryDirectoryHandle`, reused directly by `directory-resolve.test.ts`) — it does not change `StorageProvider`'s own interface or any `SP-###` requirement above.
 
 ## Open questions
 
-- OPEN: `listProjects()`'s result ordering (e.g. by `updatedAt`, `createdAt`, `name`, or raw insertion order) is not specified by the plan. SP-005/SP-006 pin down id uniqueness/stability but not list order.
-- OPEN: autosave cadence/trigger policy for `autosaveJournal` (debounce interval, whether it is time-based or edit-count-based) is not specified by the plan beyond the general "document frozen during play" invariant (`specs/document-model.md`'s DOC-030), which implies no new patches are produced *during* play but does not itself state an explicit `StorageProvider`-layer autosave cadence.
+- RESOLVED by SP-022 (persistence & sharing): `listProjects()`'s result ordering is `updatedAt` descending.
+- OPEN: autosave cadence/trigger policy for `autosaveJournal` is not specified by this interface-level spec beyond the general "document frozen during play" invariant (`specs/document-model.md`'s DOC-030). `packages/app`'s own concrete choice (a 1.5s idle debounce after the last edit, per `specs/ux-shell.md`'s new UX-123) is an `app`-layer policy decision, not a `StorageProvider` contract obligation — a different caller (or a future HTTP-backed provider with its own sync cadence) is free to choose differently without this interface changing.
 - OPEN: `loadJournal(id)`'s behavior for a project with an empty journal (no patches appended since its last save) is not specified by the plan — whether it resolves to `{ sinceRev: <current rev>, patches: [] }` or something else is left to a future PR.
 - OPEN(SP-create-signature-tbd carried over): `create()`'s full input validation semantics (e.g. behavior on a duplicate `name`, or on partially-invalid `meta`) are not specified by the plan beyond id assignment (SP-005/SP-006).
 - OPEN: `sidecar`'s internal shape (the actual panel-layout/camera-bookmark fields) is opaque to `StorageProvider` per SP-012 and belongs to `editor-core`/the future `app` package; this spec does not enumerate it.
