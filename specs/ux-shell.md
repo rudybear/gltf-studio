@@ -369,6 +369,15 @@ process.
   `selectNode` scene-selection action (no new store field or action needed). No other `ux-shell.md`-
   owned behavior changed.
 
+- M8 part 2 (scene reparent + duplicate — `SceneTree.tsx`, `app-store.ts`, `app.css` — same
+  `packages/app/**` catch-all as the M8-lite/M8-part-1 notes above; the substantive spec change lives
+  in `specs/ux-scene-tree.md`'s new `UX-215`/`UX-216`/`UX-217` and `specs/document-model.md`'s new
+  `DOC-052..054`): the scene tree gains drag-and-drop reparenting, a "Duplicate" and "Reparent to
+  root" context-menu action, and a Ctrl/Cmd+D shortcut, all backed by two new store actions
+  (`reparentNode`/`duplicateNode`) wrapping `SceneEdit.reparentNode`/`duplicateNode` (real as of this
+  change — `reparentNode` was the last throwing M8 stub). No `ux-shell.md`-owned behavior changed
+  beyond that cross-reference.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one
