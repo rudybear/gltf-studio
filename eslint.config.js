@@ -29,6 +29,19 @@ export default tseslint.config(
     }
   },
   {
+    // scripts/capture-landing-screenshots.mjs runs under Node overall, but
+    // its `page.evaluate(() => ...)` callbacks execute IN the browser page
+    // (document/window/getComputedStyle/DOMMatrixReadOnly) — combine both
+    // global sets for this one file rather than the plain Node-only set
+    // above.
+    files: ["scripts/capture-landing-screenshots.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      ecmaVersion: 2022,
+      globals: { ...globals.node, ...globals.browser }
+    }
+  },
+  {
     // packages/app runs in the browser (Vite + React) — DOM globals only,
     // no Node globals, unlike the scripts/**/*.mjs block above.
     files: ["packages/app/**/*.{ts,tsx}"],

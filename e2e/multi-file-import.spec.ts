@@ -53,7 +53,7 @@ test.describe("multi-file .gltf import (UX-115)", () => {
   test("a .gltf + external .bin + external KHR_audio_emitter .wav packs into one self-contained document that actually renders and plays (UX-115)", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', multiFileFixtureComplete());
     await expect(page.getByTestId("topbar.project-name")).toHaveText("multi-file-scene");
 
@@ -97,7 +97,7 @@ test.describe("multi-file .gltf import (UX-115)", () => {
   });
 
   test("a .gltf missing its .bin/.wav siblings fails loudly and leaves the current document untouched (UX-116)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     // Establish a real document first so "untouched" is a meaningful assertion.
     await page.setInputFiles('[data-testid="topbar.import-input"]', multiFileFixtureComplete());

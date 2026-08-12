@@ -11,7 +11,7 @@ import { FIXTURE_GLB_PATH } from "./global-setup.js";
  * dialog, which would hang a headless run) — see lib/export.ts's header.
  */
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
 }
@@ -53,7 +53,7 @@ test.describe("export", () => {
   });
 
   test("export is disabled with no document imported yet (UX-112)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("topbar.export")).toBeDisabled();
   });
 });

@@ -12,7 +12,7 @@ import { assertRegionRendersContent } from "./visual-assert.js";
  */
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
 }
@@ -23,7 +23,7 @@ function audioDiagnostics(page: Page): Promise<string> {
 
 test.describe("audio: Audition control (specs/ux-inspector.md UX-406, AH-001/AH-002)", () => {
   test("audition click creates the AudioContext only after the gesture, and it ends up running with an active voice", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', {
       name: INSPECTOR_FIXTURE_NAME,
       mimeType: "model/gltf-binary",
@@ -75,7 +75,7 @@ test.describe("audio: Audio graph dock tab (specs/ux-audio-graph.md UX-6xx, AGH-
   });
 
   test("shows a lint banner naming the actual cycle path for an invalid graph, and dashes the offending edges (UX-602/UX-603)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', {
       name: AUDIO_GRAPH_INVALID_FIXTURE_NAME,
       mimeType: "model/gltf-binary",

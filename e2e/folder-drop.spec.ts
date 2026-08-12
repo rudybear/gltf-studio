@@ -103,7 +103,7 @@ function dropFilesFromFixture(): DropFile[] {
 
 test.describe("whole-folder drag-and-drop (UX-118)", () => {
   test("dropping a folder onto the Import button imports every file it contains, with no follow-up dialog", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await dropFolderOnto(page, '[data-testid="topbar.import"]', "drum-kit", dropFilesFromFixture());
 
     await expect(page.getByTestId("topbar.project-name")).toHaveText("multi-file-scene");
@@ -112,7 +112,7 @@ test.describe("whole-folder drag-and-drop (UX-118)", () => {
   });
 
   test("dropping a folder anywhere else on the window (not just the Import button) also imports it", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     // #app is the outermost mounted element -- nowhere near the Import
     // button -- proving this is a whole-window drop target (App.tsx), not
     // just TopBar's own button-level handler.
@@ -125,7 +125,7 @@ test.describe("whole-folder drag-and-drop (UX-118)", () => {
   test("a folder missing one of the .gltf's referenced siblings still opens the missing-files dialog (UX-117), same as a flat selection would", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     const incomplete = dropFilesFromFixture().filter((f) => f.name !== MULTI_FILE_WAV_NAME);
     await dropFolderOnto(page, '[data-testid="topbar.import"]', "drum-kit", incomplete);
 
@@ -137,7 +137,7 @@ test.describe("whole-folder drag-and-drop (UX-118)", () => {
   });
 
   test("a drop landing on the Import button does not ALSO get handled a second time by the window-level handler", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await dropFolderOnto(page, '[data-testid="topbar.import"]', "drum-kit", dropFilesFromFixture());
     await expect(page.getByTestId("topbar.project-name")).toHaveText("multi-file-scene");
 
@@ -180,7 +180,7 @@ test.describe("showOpenFilePicker Import button (UX-118)", () => {
       (window as unknown as { showOpenFilePicker: () => Promise<typeof handles> }).showOpenFilePicker = async () => handles;
     }, files);
 
-    await page.goto("/");
+    await page.goto("./");
     await page.getByTestId("topbar.import").click();
 
     await expect(page.getByTestId("topbar.project-name")).toHaveText("multi-file-scene");
@@ -206,7 +206,7 @@ test.describe("showOpenFilePicker Import button (UX-118)", () => {
       (window as unknown as { showOpenFilePicker: () => Promise<typeof handles> }).showOpenFilePicker = async () => handles;
     }, gltfOnly);
 
-    await page.goto("/");
+    await page.goto("./");
     await page.getByTestId("topbar.import").click();
 
     await expect(page.getByTestId("missing-files.dialog")).toBeVisible();

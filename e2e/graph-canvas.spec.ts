@@ -27,7 +27,7 @@ type RawInteractivityGraph = {
 };
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
   await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
@@ -355,7 +355,7 @@ test.describe("behavior-graph canvas — port handle/label overlap regression", 
     // literal (`values.value = [0.5, 0, 0]`) on its unconnected "value" port, which is exactly this
     // case: float3 isn't in op-node.tsx's EDITABLE_SCALAR_TYPES, so it renders "= [0.5,0,0]" as a
     // plain chip beside the port name.
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_PLAY_GLB_PATH);
     await expect(page.getByTestId("topbar.project-name")).toHaveText("play-scene");
     await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
@@ -393,7 +393,7 @@ test.describe("behavior-graph canvas — hidden-mount fitView regression", () =>
   test("importing a document while parked on a different dock tab still renders the graph correctly once the Behavior graph tab is opened", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByTestId("dock.tab.data").click();
     await expect(page.getByTestId("dock.tab.data")).toHaveClass(/active/);
 

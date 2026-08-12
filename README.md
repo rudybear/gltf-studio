@@ -1,18 +1,61 @@
 # gltf-studio
 
-**Live:** https://rudybear.github.io/gltf-studio/ (GitHub Pages, redeployed from `main` after CI
-passes — see `.github/workflows/deploy.yml`). No install needed: open it and click **Load sample
-scene** on the empty-project screen.
+![The R4 Racer sample's real behavior graph — 366 nodes, 395 edges, open in gltf-studio](docs/media/racer-behavior-graph.webp)
+
+**Live:** https://rudybear.github.io/gltf-studio/ — a landing page with two real screenshots and a
+**Launch editor** link (the editor itself lives at `/app/`; see `.github/workflows/deploy.yml`).
+No install needed.
+
+## What it is
+
+`gltf-studio` is a browser editor where the input and the output are both plain glTF — yet the
+file in between can carry a full scene, spatial audio, and a complete game's worth of logic. Wire
+up **KHR_interactivity** behavior graphs, and the exact same behavior is also readable, editable
+TypeScript-flavored code: graphs and scripts are two views of one document, not two things that
+can drift apart. An **EQUIV** badge is the editor proving that on every edit, not just claiming it.
+The point isn't a new engine or a new file format — it's convergence: an artist wiring nodes and a
+developer editing code are shaping the same behavior, in the same file, at the same time.
+
+**This is an early, honest checkpoint** — see [Roadmap](#roadmap) below for what's still ahead.
+
+## Screenshots
+
+| Behavior graph | Script (decompiled, EQUIV) |
+| --- | --- |
+| ![Behavior-graph editor on R4 Racer](docs/media/racer-behavior-graph.webp) | ![Script tab, decompiled code, EQUIV badge](docs/media/racer-script-equiv.webp) |
+
+Both are the real app, driven the same way `e2e/racer.spec.ts` drives it, against the committed
+`samples/r4-racer.glb` — a complete top-down racing game (steering, lap-checkpoint gating with
+anti-cheat, boost, an AI rival, a 12-step finish sequence) in one ~100KB `.glb`, no separate engine
+project.
+
+## Features
+
+- **Graphs ⇄ scripts, one document** — every `KHR_interactivity` graph emits to real code and
+  parses back; editing either side re-derives the other, and the EQUIV/DIVERGED badge
+  (`packages/script-panel`) tells you which state you're in, always against the real graph.
+- **Usage mapping** — select any scene node or graph node and see, both ways, everywhere it's
+  referenced (`Used in behavior`, `→ Graph`/`→ Script` jumps with a visible, persistent
+  highlight) — the two representations stay navigable as one thing, not two.
+- **Real scene + audio authoring** — a proper viewport (gizmos, selection, hover, undo/redo) over
+  `KHR_lights_punctual`, `KHR_audio_emitter`/`_environment`, and a `KHR_audio_graph` patcher.
+- **Play in-editor, two engines** — a reference interpreter and a graph-to-JS compiled engine, side
+  by side for parity, driven from the same document, no separate build step.
+- **Copilot** — a right-panel assistant that proposes graph/scene edits from a prompt, previewable
+  and rejectable before anything commits. **Honest caveat:** today's provider
+  (`packages/agent-mock`) is a small deterministic mock with a handful of prompt templates, not a
+  real LLM — see [Roadmap](#roadmap).
+- **Byte-preserving export** — write the current document back out to `.glb`, preserving container
+  bytes wherever nothing changed, importable by any conformant `KHR_interactivity` runtime.
 
 ## Quickstart
 
-- **Try it now**: open https://rudybear.github.io/gltf-studio/ and click **Load sample scene** —
-  see `samples/README.md` for a guided walkthrough of what to try (viewport, graph, script, play,
-  audio, Copilot, export).
-- **Local dev**:
+- **Use it hosted**: https://rudybear.github.io/gltf-studio/ → **Launch editor** → **R4 Racer** (or
+  **Empty scene**) on the starter gallery.
+- **Run it locally**:
   ```sh
   pnpm install
-  pnpm dev            # http://localhost:5173, hot-reloading
+  pnpm dev            # http://localhost:5173/app/, hot-reloading
   ```
   or build + preview the production bundle the same way CI/Pages does:
   ```sh
@@ -21,57 +64,57 @@ scene** on the empty-project screen.
 - **Regenerate the sample asset** (after changing `scripts/make-sample.mjs`): `pnpm sample` —
   writes and verifies `samples/playground.glb` (structural + headless-interpreter checks; fails
   loudly rather than writing a broken asset).
-- **Project status**: `/STATUS.md` is the generated (never hand-edited) requirement → citing-test
-  traceability matrix — regenerate it with `pnpm status` after touching a `specs/*.md` file.
-- **Architecture, one paragraph**: a Vite + React + zustand app shell (`packages/app`) sits on top
-  of an immutable, patch-based document core (`packages/editor-core`) that every editing surface —
-  the viewport (`packages/engine-three`), the behavior-graph and audio-graph canvases
-  (`packages/graph-canvas`/`audio-canvas`/`audio-graph`), the script tab (`packages/script-panel`),
-  play mode (`packages/play`), and Copilot (`packages/agent-mock`) — reads from and writes back to
-  through the same `Command`/`HistoryStack` mechanism; the vendored `@gltfi/*` packages (see
-  `docs/adr/0003-vendored-gltfi-tarballs.md`) provide the real `KHR_interactivity`
-  parse/verify/interpret/compile/emit pipeline underneath all of it.
 
-## Contributing
+## Architecture
 
-Before pushing, run `pnpm check:ci` — the full local parity gate CI runs on a PR: the drift check
-in simulated-PR mode (`check-drift.mjs --simulate-pr`, catching ownership-drift failures that are
-otherwise invisible until the PR's first CI run), generated-status freshness (`gen-status.mjs
---check`), `pnpm lint`, the drift self-test (`pnpm drift:selftest`), `pnpm build`, and the unit
-test suite (`pnpm test`). It deliberately does **not** run `pnpm test:browser` or `pnpm e2e` —
-those need a real browser/Playwright setup and only run in CI or on demand.
+A Vite + React + zustand app shell (`packages/app`) sits on top of an immutable, patch-based
+document core (`packages/editor-core`) that every editing surface — the viewport
+(`packages/engine-three`), the behavior-graph and audio-graph canvases
+(`packages/graph-canvas`/`audio-canvas`/`audio-graph`), the script tab (`packages/script-panel`),
+usage mapping (`packages/usage-index`), play mode (`packages/play`), and Copilot
+(`packages/agent-mock`) — reads from and writes back to through the same
+`Command`/`HistoryStack` mechanism. Every persistence/rendering/play/audio concern is routed
+through an interface (`StorageProvider`, `RenderHost`, `PlayController`, `AudioHost`/
+`AudioGraphHost`, all in `packages/engine-api`) so a hosted backend and additional engines can
+arrive later without reworking the editor itself. Underneath all of it, the vendored `@gltfi/*`
+packages (`docs/adr/0003-vendored-gltfi-tarballs.md`) provide the real `KHR_interactivity`
+parse/verify/interpret/compile/emit pipeline — the same open-source stack behind the sibling
+`gltf-interactivity` repos below. See `specs/README.md` for the requirement set, `docs/adr/` for
+the standing architecture decisions, and `/STATUS.md` (generated — see below) for the
+requirement → citing-test traceability matrix.
 
-`pnpm install` auto-wires a `pre-push` git hook (via `scripts/setup-hooks.mjs`, which sets `git
-config core.hooksPath .githooks` — plain shell script, no Husky dependency) that runs the fast
-subset automatically on every `git push`: `pnpm check:fast` (just the drift `--simulate-pr` and
-`gen-status --check` steps, well under 10s). Run `pnpm check:ci` by hand before opening a PR for
-the fuller gate.
+## Development model
 
-## About
+The repo follows a spec-gated, "living project state" model, briefly: requirements
+(`/specs/*.md`), UX (`/docs/ux/`), and architecture decisions (`/docs/adr/`) change in the same PR
+as the code they govern; `/STATUS.md` is generated (never hand-edited, regenerate with
+`pnpm status`); and CI-enforced drift checks (`scripts/check-drift.mjs`) fail the build if a test
+cites a retired/unknown requirement or code changes under a spec's ownership without an
+accompanying spec diff. Before pushing, run `pnpm check:ci` (drift `--simulate-pr`, `gen-status
+--check`, lint, drift self-test, build, unit tests — `pnpm install` also wires a fast `pre-push`
+hook automatically); `pnpm test:browser` and `pnpm e2e` need a real browser and only run in CI or
+on demand.
 
-`gltf-studio` is a hosted web editor for glTF experiences: import a glTF/GLB asset, arrange its
-scene tree, wire up **KHR_interactivity** behavior graphs (visually and as scripts, bidirectionally),
-author **KHR_audio_emitter/_environment** and a **KHR_audio_graph** patcher, play-test in place, and
-export a portable `.glb` that runs in any conformant engine. The editor is local-first and
-backend-ready: projects live in browser storage or the local filesystem today, with every
-persistence and rendering concern routed through interfaces (`StorageProvider`, `RenderHost`,
-`PlayController`, `AudioHost`/`AudioGraphHost`) so a hosted backend and additional engines can arrive
-later without reworking the editor itself.
+## Roadmap
 
-The repo follows a spec-gated, "living project state" development model: requirements
-(`/specs/*.md`), UX (`/docs/ux/`), and architecture decisions (`/docs/adr/`) are ordinary repo
-artifacts that change in the same PR as the code they govern, `/STATUS.md` is generated (never
-hand-edited) traceability from requirement to citing test, and CI-enforced drift checks
-(`scripts/check-drift.mjs`) fail the build if a test cites a retired or unknown requirement, a spec
-requirement line is malformed, or (in PR context) code under a spec's ownership changes without an
-accompanying spec diff. Agents implement cited requirements failing-test-first; nothing merges
-without its gate passing.
+This is an early draft, not a finished product. Ahead:
 
-**Status: checkpoint — every planned editor surface is live and e2e-covered.** M0 shipped the
-workspace skeleton, `engine-api`, and the vendored `@gltfi/*`/three.js foundations; M1 added the
-document core (`EditorDocument`, `HistoryStack`, `GraphEdit`/`SceneEdit`); M2–M8 landed the app
-shell, viewport, inspector, behavior-graph and audio-graph canvases, the script tab, play mode
-(interpreter + compiled), real audio, and Copilot, each behind its own `specs/*.md` UX-###
-citations and Playwright coverage (see `/STATUS.md`). This checkpoint adds a generated sample asset
-(`samples/`), a Pages deploy, and `e2e/golden-path.spec.ts` — one scripted pass through every
-surface above against a single built app instance.
+- Deeper scene authoring (more primitive/light/camera types, materials beyond PBR basics).
+- A real LLM-backed Copilot provider, replacing today's deterministic mock.
+- Richer audio authoring (more `KHR_audio_graph` node kinds, effects).
+- Persistence/sharing beyond local browser storage and the local filesystem.
+
+## Ecosystem
+
+Built on the open-source KHR_interactivity stack:
+[gltf-interactivity](https://github.com/rudybear/gltf-interactivity) (the core
+parse/verify/interpret/compile/emit toolchain),
+[gltf-interactivity-three](https://github.com/rudybear/gltf-interactivity-three) (a three.js
+runtime), [gltf-interactivity-game](https://github.com/rudybear/gltf-interactivity-game) (the R4
+Racer game this editor's sample was built from), and
+[gltf-interactivity-vscode](https://github.com/rudybear/gltf-interactivity-vscode) (editor
+tooling outside the browser).
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

@@ -27,7 +27,7 @@ async function startTour(page: Page): Promise<void> {
 
 test.describe("tour (UX-1200)", () => {
   test("first-visit banner appears; dismissing it persists across reload (UX-1201/UX-1202)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.getByTestId("tour.banner")).toBeVisible();
 
     await page.getByTestId("tour.banner.dismiss").click();
@@ -38,7 +38,7 @@ test.describe("tour (UX-1200)", () => {
   });
 
   test("starting the tour from the banner opens it at step 1 (UX-1200/UX-1201)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.getByTestId("tour.banner.start").click();
     await expect(page.getByTestId("tour.overlay")).toBeVisible();
     await expect(page.getByTestId("tour.title")).toHaveText(TOUR_STEPS[0].title);
@@ -50,7 +50,7 @@ test.describe("tour (UX-1200)", () => {
   test(
     "every real tour step anchors on a visible element the spotlight actually overlaps, and pre-action tabs activate (UX-1200/UX-1205/UX-1206/UX-1209)",
     async ({ page }) => {
-      await page.goto("/");
+      await page.goto("./");
       await startTour(page);
 
       for (let i = 0; i < TOUR_STEPS.length; i++) {
@@ -121,7 +121,7 @@ test.describe("tour (UX-1200)", () => {
   test(
     "a step whose anchor genuinely isn't mounted falls back to a centered, spotlight-free card instead of getting stuck (UX-1205)",
     async ({ page }) => {
-      await page.goto("/");
+      await page.goto("./");
       await startTour(page);
       const scriptStepIndex = TOUR_STEPS.findIndex((s) => s.id === "script");
       expect(scriptStepIndex).toBeGreaterThan(0);
@@ -142,7 +142,7 @@ test.describe("tour (UX-1200)", () => {
   test("Escape exits the tour without marking it complete, and topbar.tour-start relaunches it at step 1 (UX-121/UX-1200/UX-1211)", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await startTour(page);
     await page.getByTestId("tour.next").click();
     await page.keyboard.press("Escape");
@@ -154,7 +154,7 @@ test.describe("tour (UX-1200)", () => {
   });
 
   test("relaunching after Skip also restarts at step 1 (UX-1200)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await startTour(page);
     await page.getByTestId("tour.next").click();
     await page.getByTestId("tour.next").click();
@@ -166,7 +166,7 @@ test.describe("tour (UX-1200)", () => {
   });
 
   test("the spotlight overlay renders real visible content in both light and dark theme (UX-1210)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
 
     await startTour(page);
     await assertRegionRendersContent(page.getByTestId("tour.card"));

@@ -78,7 +78,7 @@ async function readVal(row: Locator): Promise<string> {
 }
 
 async function loadRacer(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await expect(page.getByTestId("viewport.gallery")).toBeVisible();
   await expect(page.getByTestId("viewport.gallery.card.racer")).toBeVisible();
   await page.getByTestId("viewport.gallery.card.racer.load").click();

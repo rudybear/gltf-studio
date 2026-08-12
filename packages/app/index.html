@@ -16,10 +16,18 @@
       import map, so one entry here is all that's needed. The target is a
       self-contained bundle (see scripts/bundle-runtime-lib.mjs, run as
       predev/prebuild) written to public/, which Vite serves at this exact
-      path in both `vite` (dev) and `vite build && vite preview`.
+      path (relative to the app's own base) in both `vite` (dev) and
+      `vite build && vite preview`. `%BASE_URL%` is Vite's HTML env
+      replacement (resolves to `import.meta.env.BASE_URL`, i.e. the
+      configured `base` — see vite.config.ts) rather than a hardcoded `/`:
+      this file is static text, not a Vite-processed asset reference, so it
+      would otherwise silently resolve against the document origin instead
+      of wherever the app is actually served from (`/app/` locally,
+      `/<repo>/app/` once deployed) — exactly the class of bug that broke
+      the compiled-engine path on a base-path change once before.
     -->
     <script type="importmap">
-      { "imports": { "@gltfi/runtime-lib": "/gltfi-runtime-lib.mjs" } }
+      { "imports": { "@gltfi/runtime-lib": "%BASE_URL%gltfi-runtime-lib.mjs" } }
     </script>
   </head>
   <body>

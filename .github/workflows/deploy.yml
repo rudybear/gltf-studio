@@ -39,21 +39,40 @@ jobs:
 
       - run: pnpm install
 
-      # BASE_PATH (packages/app/vite.config.ts, PR #6): this repo is served
-      # as a GitHub Pages PROJECT site (https://<owner>.github.io/<repo>/),
-      # not a user/org root site, so every asset URL and the sample-scene
-      # fetch (Viewport.tsx's `import.meta.env.BASE_URL`) need the `/<repo>/`
-      # prefix baked in at build time.
-      - name: Build (BASE_PATH=/${{ github.event.repository.name }}/)
+      # BASE_PATH (packages/app/vite.config.ts, PR #6, revised for the
+      # landing-page restructure): this repo is served as a GitHub Pages
+      # PROJECT site (https://<owner>.github.io/<repo>/), not a user/org
+      # root site, AND the editor no longer occupies that root itself — a
+      # hand-written landing page (`/site/`) does, with the editor one
+      # level below it at `/<repo>/app/`. Every asset URL and the
+      # sample-scene fetch (Viewport.tsx's `import.meta.env.BASE_URL`) need
+      # that full `/<repo>/app/` prefix baked in at build time.
+      - name: Build app (BASE_PATH=/${{ github.event.repository.name }}/app/)
         run: pnpm build
         env:
-          BASE_PATH: /${{ github.event.repository.name }}/
+          BASE_PATH: /${{ github.event.repository.name }}/app/
+
+      # Assembles the deployed site out-of-tree: `/site/*` (the landing
+      # page) at the artifact root, `docs/media/*` (the screenshots the
+      # landing page and README both reference — kept in one committed
+      # location rather than duplicated) copied alongside it, and the
+      # already-built editor under `app/`. Pages serves whatever directory
+      # structure this artifact has, so this one assembly step is the only
+      # place that structure is decided.
+      - name: Assemble Pages site (landing at root, editor at /app/)
+        run: |
+          set -e
+          mkdir -p dist-site
+          cp -r site/. dist-site/
+          mkdir -p dist-site/media
+          cp -r docs/media/. dist-site/media/
+          cp -r packages/app/dist dist-site/app
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/app/dist
+          path: dist-site
 
   deploy:
     needs: build

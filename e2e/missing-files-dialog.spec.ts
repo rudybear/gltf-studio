@@ -114,7 +114,7 @@ test.describe("missing-files dialog (UX-117)", () => {
   test("a single .gltf pick with unresolved references opens the dialog, naming every missing file, with the folder-grant button present", async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', multiFileFixtureGltfOnly());
 
     const dialog = page.getByTestId("missing-files.dialog");
@@ -133,7 +133,7 @@ test.describe("missing-files dialog (UX-117)", () => {
   });
 
   test("Cancel closes the dialog without importing anything, leaving the previously-open document untouched", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', multiFileFixtureGltfOnly());
     await expect(page.getByTestId("missing-files.dialog")).toBeVisible();
 
@@ -155,7 +155,7 @@ test.describe("missing-files dialog (UX-117)", () => {
       "unrelated-readme.txt": base64(Buffer.from("not part of the asset"))
     });
 
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', files);
     await expect(page.getByTestId("missing-files.dialog")).toBeVisible();
 
@@ -174,7 +174,7 @@ test.describe("missing-files dialog (UX-117)", () => {
     // Only ONE of the two missing files lives in the granted folder.
     await stubDirectoryPicker(page, { [MULTI_FILE_BIN_NAME]: base64(binPayload.buffer) });
 
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', files);
     await expect(page.getByTestId("missing-files.dialog")).toBeVisible();
 
@@ -192,7 +192,7 @@ test.describe("missing-files dialog (UX-117)", () => {
     page
   }) => {
     await deleteDirectoryPicker(page);
-    await page.goto("/");
+    await page.goto("./");
     await expect(page.evaluate(() => typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker)).resolves.toBe(
       "undefined"
     );

@@ -31,7 +31,7 @@ type RawInteractivityGraph = {
 };
 
 async function importFixture(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
   await expect(page.getByTestId("topbar.project-name")).toHaveText("simple-scene");
 }
@@ -179,7 +179,7 @@ test.describe("Script tab - no-graph empty state (UX-714)", () => {
   test('shows an honest "no behavior graph" message, not a live-but-empty editor, when the document has no KHR_interactivity graph', async ({
     page
   }) => {
-    await page.goto("/");
+    await page.goto("./");
     await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_NO_GRAPH_GLB_PATH);
     await expect(page.getByTestId("topbar.project-name")).toBeVisible();
     await page.getByTestId("dock.tab.script").click();
