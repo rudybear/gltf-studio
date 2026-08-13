@@ -27,8 +27,8 @@
     "@gltf-studio/storage": "workspace:*",
     "@gltf-studio/usage-index": "workspace:*",
     "@gltfi/gltf": "0.0.1",
-    "audio-graph-js": "0.1.0",
     "@xyflow/react": "^12.11.2",
+    "audio-graph-js": "0.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.14"
@@ -40,6 +40,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "esbuild": "^0.21.5",
     "fake-indexeddb": "^6.0.0",
+    "rollup-plugin-sourcemaps2": "^0.5.8",
     "vite": "^8.2.1"
   }
 }

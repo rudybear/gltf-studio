@@ -160,6 +160,9 @@ importers:
       fake-indexeddb:
         specifier: ^6.0.0
         version: 6.2.5
+      rollup-plugin-sourcemaps2:
+        specifier: ^0.5.8
+        version: 0.5.8(@types/node@22.20.1)(rollup@4.62.4)
       vite:
         specifier: ^8.2.1
         version: 8.2.1(@types/node@22.20.1)(esbuild@0.21.5)
@@ -875,6 +878,15 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
+  '@rollup/pluginutils@5.4.0':
+    resolution: {integrity: sha512-MfPp06CjRLfXQ3wY0R8vJDYBy/MvVcc9OulEfR0B8Iv9ko+GCNaRZ+EpJYFl27LhKsZK0o420sYCRHCjfCgeUg==}
+    engines: {node: '>=14.0.0'}
+    peerDependencies:
+      rollup: ^1.20.0||^2.0.0||^3.0.0||^4.0.0
+    peerDependenciesMeta:
+      rollup:
+        optional: true
+
   '@rollup/rollup-android-arm-eabi@4.62.4':
     resolution: {integrity: sha512-RrPokAb7dmbxFoeO3TloqHyOjgye8RkBhSqmp4aJMIex4c9r46ZstPnleDQOq1t46VOVjwIuwNogIqbodV1Vvg==}
     cpu: [arm]
@@ -1468,6 +1480,9 @@ packages:
     resolution: {integrity: sha512-MMdARuVEQziNTeJD8DgMqmhwR11BRQ/cBP+pLtYdSTnf3MIO8fFeiINEbX36ZdNlfU/7A9f3gUw49B3oQsvwBA==}
     engines: {node: '>=4.0'}
 
+  estree-walker@2.0.2:
+    resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
+
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
@@ -1917,6 +1932,16 @@ packages:
     resolution: {integrity: sha512-rn9wpmxplLf7NLNyCk9FyWh3FM43DbY8jOzCdEPzH7uflhTftRbCEpqi6Ly2osgoU8OwObtmavMbWLaWy4LX7A==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
+
+  rollup-plugin-sourcemaps2@0.5.8:
+    resolution: {integrity: sha512-c5BfiVbKAmaz+RoEhFF44Tg/X2QoLxEB8F7wS/eNWDJF/NKxi0SF7srN3Dg0RUnIcYLyCOwscket5Mr3BImMbg==}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      '@types/node': '>=18.0.0'
+      rollup: '>=4'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   rollup@4.62.4:
     resolution: {integrity: sha512-RXOqwaPsBGjMNMa4sQjDjHieHEZDFoj/Rdr46l2MU5DfEs16wHJPC2RPTPHWhNl+M3aI472LLqFkFKut4SblOg==}
@@ -2564,6 +2589,14 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
+  '@rollup/pluginutils@5.4.0(rollup@4.62.4)':
+    dependencies:
+      '@types/estree': 1.0.9
+      estree-walker: 2.0.2
+      picomatch: 4.0.5
+    optionalDependencies:
+      rollup: 4.62.4
+
   '@rollup/rollup-android-arm-eabi@4.62.4':
     optional: true
 
@@ -3169,6 +3202,8 @@ snapshots:
 
   estraverse@5.3.0: {}
 
+  estree-walker@2.0.2: {}
+
   estree-walker@3.0.3:
     dependencies:
       '@types/estree': 1.0.9
@@ -3549,6 +3584,13 @@ snapshots:
       '@rolldown/binding-openharmony-arm64': 1.2.3
       '@rolldown/binding-win32-arm64-msvc': 1.2.3
       '@rolldown/binding-win32-x64-msvc': 1.2.3
+
+  rollup-plugin-sourcemaps2@0.5.8(@types/node@22.20.1)(rollup@4.62.4):
+    dependencies:
+      '@rollup/pluginutils': 5.4.0(rollup@4.62.4)
+      rollup: 4.62.4
+    optionalDependencies:
+      '@types/node': 22.20.1
 
   rollup@4.62.4:
     dependencies:
