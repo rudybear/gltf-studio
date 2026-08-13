@@ -91,9 +91,33 @@ as the code they govern; `/STATUS.md` is generated (never hand-edited, regenerat
 `pnpm status`); and CI-enforced drift checks (`scripts/check-drift.mjs`) fail the build if a test
 cites a retired/unknown requirement or code changes under a spec's ownership without an
 accompanying spec diff. Before pushing, run `pnpm check:ci` (drift `--simulate-pr`, `gen-status
---check`, lint, drift self-test, build, unit tests — `pnpm install` also wires a fast `pre-push`
-hook automatically); `pnpm test:browser` and `pnpm e2e` need a real browser and only run in CI or
-on demand.
+--check`, tsconfig-strict check, lint, drift self-test, build, unit tests — `pnpm install` also
+wires a fast `pre-push` hook automatically); `pnpm test:browser` and `pnpm e2e` need a real browser
+and only run in CI or on demand.
+
+## Debugging
+
+- **`tsconfig` layout**: `tsconfig.base.json` is the single source of truth for compiler options
+  (`strict: true` included) — every package's `tsconfig.json` (`packages/*/tsconfig.json`)
+  `extends` it, as does the root `tsconfig.json`. The root config is otherwise solution-style
+  (`files: []` + `references` only, no files of its own — `pnpm build`'s `tsc -b` walks those
+  references to build every package) — its `extends` exists so that files with no package of their
+  own (`e2e/**`, `playwright.config.ts`, `vitest.config.ts`, `scripts/**`) still resolve `strict`
+  and the rest of the base options when an editor or a bare `tsc` walks up to the nearest
+  `tsconfig.json`. `pnpm check:strict` (wired into `pnpm check:ci` and CI) asserts every
+  `tsconfig.json` in the repo resolves `strict: true` in its effective, post-`extends` options —
+  see `scripts/check-tsconfig-strict.mjs`.
+- **Source maps**: the built app (`packages/app/vite.config.ts`, `build.sourcemap: true`) ships
+  full external `.map` files for every emitted chunk — the main bundle, the Monaco/parse/layout
+  worker chunks, and `gltfi-runtime-lib.mjs` (bundled separately by
+  `packages/app/scripts/bundle-runtime-lib.mjs`, also `sourcemap: true`). Several packages
+  (`editor-core`, `graph-canvas`, `storage`, …) are consumed as their own pre-compiled
+  `tsc -b` output (`dist/*.js` + `dist/*.js.map`, from `tsconfig.base.json`'s `sourceMap: true`)
+  rather than raw `.ts` — `rollup-plugin-sourcemaps2` (wired into `vite.config.ts`'s
+  `build.rollupOptions.plugins`) chains those existing maps into the app bundle's own map so
+  devtools resolves all the way back to the real `.ts` sources, not just the compiled JS. Open the
+  built/deployed app, open devtools, and any first-party file should show real, multi-line
+  TypeScript, steppable — not one-lined/minified.
 
 ## Roadmap
 

@@ -27,6 +27,11 @@ jobs:
           cache: pnpm
 
       - run: pnpm install
+      # Regression guard for the "strict not inheriting from
+      # tsconfig.base.json" DX bug (external report, fixed by adding
+      # `extends` to the root tsconfig.json): asserts every tsconfig.json
+      # in the repo resolves `strict: true` in its EFFECTIVE options.
+      - run: pnpm check:strict
       - run: pnpm build
       - run: pnpm test
       # packages/engine-three's RenderHost contract suite runs in a real
