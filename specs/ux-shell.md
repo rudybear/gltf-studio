@@ -51,6 +51,17 @@ text Vite does not rewrite as an asset reference the way it does a `<script src>
 replacing it) — the full e2e suite runs against this `/app/` path now, the same shape production
 actually serves, rather than an untested root path.
 
+**DX: tsconfig strict inheritance + shipped source maps (external feedback, no new `UX-###`s — a
+build/debuggability change, not a shell-behavior one):** `packages/app/vite.config.ts` now sets
+`build.sourcemap: true` (plus `rollup-plugin-sourcemaps2`, chaining the workspace packages' own
+`tsc -b`-emitted `.js.map`s through to the app bundle) so the built/deployed app is steppable in
+devtools instead of shipping one-lined minified JS with no map at all. Unrelated to this file's own
+UX-1xx surface, but `packages/app/**` is this spec's ownership catch-all
+(`specs/ownership.json`), and root `tsconfig.json` now `extends: "./tsconfig.base.json"` so
+`strict` (and the rest of the base options) resolve correctly for files outside any package
+(`e2e/**`, `playwright.config.ts`, `vitest.config.ts`) too — see the README's "Debugging" section
+and `scripts/check-tsconfig-strict.mjs` for the regression guard.
+
 Prefix: `UX`. This file owns the `UX-1xx` block (`UX-100`..`UX-1xx`); each other `ux-*.md` file
 owns its own hundred-block (`UX-200` scene tree, `UX-300` viewport, `UX-400` inspector, `UX-500`
 graph canvas, `UX-600` audio graph, `UX-700` script, `UX-800` data tab, `UX-900` pointer picker,
