@@ -86,25 +86,38 @@ export class HistoryStack {
   /**
    * DOC-013: applies the most recently pushed/redone command's inverse and
    * moves it to the redo log. When that entry coalesced multiple commands
-   * (DOC-015), all of them undo together as the entry's one step.
+   * (DOC-015), all of them undo together as the entry's one step. Returns
+   * the exact forward-direction `JsonPatchOp[]` just applied (the same
+   * value passed to `onApply`'s handlers, DOC-040) — task #36's fix for the
+   * SP-004 journal gap: a caller (`packages/app`'s `undo()` store action)
+   * appends this to the autosave journal the same way `dispatchCommand`
+   * already appends a pushed command's `patches`, so `loadJournal` replay
+   * (SP-015) covers undo too instead of only forward edits.
    */
-  undo(): void {
-    if (!this.canUndo()) return;
+  undo(): JsonPatchOp[] {
+    if (!this.canUndo()) return [];
     const entry = this.#undoLog.pop()!;
     const undoCommand = entryToCommand(entry, "undo");
     this.#document = applyCommand(this.#document, undoCommand);
     this.#notifyApply(undoCommand.patches);
     this.#redoLog.push(entry);
+    return undoCommand.patches;
   }
 
-  /** DOC-014: re-applies the most recently undone command's patches and moves it back to the undo log. */
-  redo(): void {
-    if (!this.canRedo()) return;
+  /**
+   * DOC-014: re-applies the most recently undone command's patches and
+   * moves it back to the undo log. Returns the exact forward-direction
+   * `JsonPatchOp[]` just applied — see `undo()`'s doc comment above for why
+   * (task #36, same journal-gap fix, redo side).
+   */
+  redo(): JsonPatchOp[] {
+    if (!this.canRedo()) return [];
     const entry = this.#redoLog.pop()!;
     const redoCommand = entryToCommand(entry, "redo");
     this.#document = applyCommand(this.#document, redoCommand);
     this.#notifyApply(redoCommand.patches);
     this.#undoLog.push(entry);
+    return redoCommand.patches;
   }
 
   /**

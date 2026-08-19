@@ -467,6 +467,66 @@
   border-left: 1px solid var(--border);
   background: var(--bg-1);
 }
+/*
+ * Bug fix (task #35, pointer-interception flake in the "deleting a node"
+ * e2e — and a latent real-user mis-click hazard, same root cause): this
+ * panel is a normal flex sibling of the react-flow pane (never absolutely
+ * positioned, so it can't visually overlap the pane in the layout's
+ * steady state) — but react-flow's own `.react-flow` wrapper clips node
+ * content with `overflow: hidden` at THAT element's own right edge, while
+ * `getBoundingClientRect()` on a node/its header (what a click target's
+ * computed CENTER is based on, e.g. Playwright's `.click()`, or any other
+ * "click the middle of this element" logic) reports the node's full
+ * UNCLIPPED logical box regardless. A node ELK places (or that a narrow
+ * dock/pane leaves) partially past the pane's clipped edge therefore has a
+ * geometric center that lands PAST the pane entirely — directly on top of
+ * whatever real content happens to occupy that same screen position one
+ * flex item over, which is always this panel. Confirmed live via
+ * `document.elementFromPoint()` at a just-added node's header's own
+ * center: it resolved to this panel's Ports-table `<td>`, not the header,
+ * with a normal (unthrottled) machine and no synthetic delay involved —
+ * this is a standing geometric fact of the current layout (palette 220px +
+ * this panel's 260px leaves the react-flow pane under 220px wide against
+ * the default 1280px e2e viewport), not a rare timing artifact by itself;
+ * what makes the resulting FAILURE rare (~2-3% in CI, reproduced offline
+ * via `--repeat-each` under artificial CPU contention, same method as
+ * PR #39/task #33's own node-selection-race fix) is that most of the time
+ * either the click lands on a still-genuinely-clickable part of the
+ * header, or a real `<input>`/`<select>`/`<button>` row in THIS panel
+ * happens to sit there and merely eats a click harmlessly — but when a
+ * plain, non-interactive label cell (e.g. a Ports-table `<td>`) is what's
+ * actually there, the click is silently swallowed: nothing gets
+ * (re)selected, so a subsequent `Delete` keypress has nothing to act on.
+ *
+ * Fix: this panel's PASSIVE content (headings, labels, port-status text,
+ * the graph-summary counts) never needs to be a click TARGET — only its
+ * real form controls do. `pointer-events: none` here, with `auto`
+ * re-enabled below on every actual control class this file's `node-
+ * details.tsx` renders (`button`/`input`/`select`/`a`, covering the
+ * collapse toggle, every `DeclarationSelect`/`TargetNodeSelect`/config
+ * checkbox/generic field, `TypedLiteralEditor`'s numeric/color inputs, and
+ * the "Retarget…"/"Reveal in viewport" buttons), makes a stray click that
+ * lands on this panel's passive surface fall through to whatever's
+ * genuinely underneath (ordinarily nothing interactive) instead of
+ * silently deselecting/no-op'ing — while every real control keeps working
+ * exactly as before, selected node or not. Deliberately broader than "only
+ * when nothing is selected" (the initial hypothesis): the reproduction
+ * above landed with a node ALREADY selected (this panel showing that
+ * node's full details, not the empty graph-summary state), so gating
+ * purely on selection would have left the confirmed failure unfixed —
+ * gating on interactivity-per-element instead covers both states, and the
+ * empty/graph-summary state (zero real controls) ends up fully inert as a
+ * strict consequence, not a special case.
+ */
+.gcanvas-details-panel {
+  pointer-events: none;
+}
+.gcanvas-details-panel button,
+.gcanvas-details-panel input,
+.gcanvas-details-panel select,
+.gcanvas-details-panel a {
+  pointer-events: auto;
+}
 .gcanvas-details-collapsed {
   flex: 0 0 20px;
   background: var(--bg-1);

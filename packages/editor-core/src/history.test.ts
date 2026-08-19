@@ -55,6 +55,43 @@ describe("HistoryStack", () => {
     expect(stack.canRedo()).toBe(false);
   });
 
+  describe("undo()/redo() return the applied patches (DOC-061, task #36 — SP-004 journal-gap fix)", () => {
+    it("undo() returns the command's inverse patches (the same value onApply's handler sees)", () => {
+      const command = setName(0, "Zed", "Alpha");
+      const stack = new HistoryStack(fixtureDocument());
+      stack.push(command);
+      const returned = stack.undo();
+      expect(returned).toEqual(command.inverse);
+    });
+
+    it("redo() returns the command's forward patches (the same value onApply's handler sees)", () => {
+      const command = setName(0, "Zed", "Alpha");
+      const stack = new HistoryStack(fixtureDocument());
+      stack.push(command);
+      stack.undo();
+      const returned = stack.redo();
+      expect(returned).toEqual(command.patches);
+    });
+
+    it("undo()/redo() return an empty array (not undefined, not a throw) when there's nothing to undo/redo", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      expect(stack.undo()).toEqual([]);
+      expect(stack.redo()).toEqual([]);
+    });
+
+    it("a coalesced undo/redo step returns every underlying command's patches, in the same order onApply's own entryToCommand ordering already established (DOC-015)", () => {
+      const stack = new HistoryStack(fixtureDocument());
+      const first = setName(0, "A1", "Alpha", "rename-0");
+      const second = setName(0, "A2", "A1", "rename-0");
+      stack.push(first);
+      stack.push(second);
+      const undone = stack.undo();
+      expect(undone).toEqual([...second.inverse, ...first.inverse]);
+      const redone = stack.redo();
+      expect(redone).toEqual([...first.patches, ...second.patches]);
+    });
+  });
+
   it("coalesces two consecutive commands sharing a coalesceKey into one undo step (DOC-010, DOC-015)", () => {
     const stack = new HistoryStack(fixtureDocument());
     stack.push(setName(0, "A1", "Alpha", "rename-0"));
