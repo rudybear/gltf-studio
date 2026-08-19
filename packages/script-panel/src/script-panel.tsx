@@ -149,6 +149,16 @@ export interface GltfStudioScriptTestHook {
    * silently pass by clicking nothing.
    */
   clickPointerLink(pointerPath: string): boolean;
+  /**
+   * e2e-only (regression coverage for structured-diagnostic-position gutter
+   * markers, gltf-studio #31): the 1-based `startLineNumber` of every error
+   * marker `applyMarkers` currently has installed via
+   * `monaco.editor.setModelMarkers`, in ascending order. Lets a test assert
+   * a known-bad script's markers land on the EXACT line the error is on
+   * (per `@gltfi/ir`'s `Diagnostic.line`) rather than only that some marker
+   * exists somewhere.
+   */
+  getMarkerLines(): number[];
 }
 
 declare global {
@@ -157,19 +167,36 @@ declare global {
   }
 }
 
+/**
+ * Best-effort FALLBACK only, for diagnostics that predate/lack a structured
+ * position. `@gltfi/ir`'s `Diagnostic` (model.ts, since gltf-studio #31)
+ * carries an optional structured `line` field wherever the producing stage
+ * (`@gltfi/parse-ts`'s ts-morph-backed `fail()`/raw-TS-diagnostic passes)
+ * actually knows a location — `diagnosticLine` below prefers that. This
+ * regex path only fires when `d.line` is `undefined` (e.g. a `fail()` with
+ * no AST node to anchor on): TS-checker diagnostics (GI001) embed
+ * "(line N)" in the message text; structural GI1xx errors embed
+ * "<file>:<line>: `...`" instead (see parse-ts's `fail()` helper). Fragile
+ * by nature (a message that happens to contain neither pattern falls back to
+ * line 1) — kept only as a safety net, not the primary source of truth. The
+ * Console line (logDiagnostics below) always shows the full, unambiguous
+ * message regardless of whether this extraction works.
+ */
 function extractDiagnosticLine(message: string): number | null {
-  // Best-effort only: @gltfi/parse-ts's `Diagnostic` (model.ts) carries no
-  // structured line/column field. TS-checker diagnostics (GI001) embed
-  // "(line N)" in the message text; structural GI1xx errors embed
-  // "<file>:<line>: `...`" instead (see parse-ts's `fail()` helper) — both
-  // are parsed out of the message string itself, which is inherently
-  // fragile (a message that happens to contain neither pattern falls back
-  // to line 1). The Console line (logDiagnostics below) always shows the
-  // full, unambiguous message regardless of whether this extraction works.
   const lineMatch = /\(line (\d+)\)/.exec(message) ?? /:(\d+):\s*`/.exec(message);
   if (!lineMatch) return null;
   const line = Number(lineMatch[1]);
   return Number.isFinite(line) && line > 0 ? line : null;
+}
+
+/**
+ * The line a marker for diagnostic `d` should land on: `d.line` (structured,
+ * 1-based, populated by `@gltfi/parse-ts` for every GI0xx/GI1xx diagnostic
+ * anchored on a real AST node — see `@gltfi/ir`'s `Diagnostic` doc comment)
+ * when present, else the regex-on-message fallback above, else line 1.
+ */
+function diagnosticLine(d: Diagnostic): number {
+  return d.line ?? extractDiagnosticLine(d.message) ?? 1;
 }
 
 export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, focusRequest, onLog, onToast, onPointerLinkClick }: ScriptPanelProps): JSX.Element {
@@ -420,7 +447,7 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     const markers: Monaco.editor.IMarkerData[] = diags
       .filter((d) => d.severity === "error")
       .map((d) => {
-        const line = extractDiagnosticLine(d.message) ?? 1;
+        const line = diagnosticLine(d);
         const clampedLine = Math.min(line, model.getLineCount());
         return {
           severity: monacoApi.MarkerSeverity.Error,
@@ -795,6 +822,15 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
         if (!found) return false;
         pointerLinkClickHandler?.(pointerPath);
         return true;
+      },
+      getMarkerLines: () => {
+        const monacoApi = monacoRef.current;
+        const model = editorRef.current?.getModel();
+        if (!monacoApi || !model) return [];
+        return monacoApi.editor
+          .getModelMarkers({ owner: MARKER_OWNER, resource: model.uri })
+          .map((m) => m.startLineNumber)
+          .sort((a, b) => a - b);
       }
     };
     return () => {

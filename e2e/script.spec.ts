@@ -125,6 +125,32 @@ test.describe("Script tab", () => {
     await expect(page.getByTestId("script.apply")).toBeDisabled();
   });
 
+  test("gutter markers land exactly on the diagnostic's structured line, not just the first line (gltf-studio #31: @gltfi/ir's Diagnostic.line replaces the old message-regex heuristic)", async ({
+    page
+  }) => {
+    await page.getByTestId("script.edit-toggle").click();
+
+    const code = await page.evaluate(() => window.__gltfStudioScriptTest!.getCode());
+    const marker = "rt.onStart(() => {";
+    const insertAt = code.indexOf(marker) + marker.length;
+    const before = code.slice(0, insertAt);
+    // `before` ends mid-line, right after the `{` — the number of `\n`s in
+    // it IS the 1-based line that `{` is on. Two harmless comment lines are
+    // pushed ahead of the bad statement specifically so the expected marker
+    // line is NOT 1 and NOT the first line of the edit — a stale
+    // "extractDiagnosticLine falls back to line 1" bug would otherwise pass
+    // this test by accident.
+    const markerLine = before.split("\n").length;
+    const badLine = markerLine + 3; // +1 blank from closing the `{` line, +2 comment lines, then the bad statement.
+    const edited = `${before}\n    // padding line A\n    // padding line B\n    debugger;\n${code.slice(insertAt)}`;
+    await scriptSetValue(page, edited);
+
+    await expect(page.getByTestId("script.diagnostics")).toBeVisible({ timeout: 15000 });
+    await expect
+      .poll(() => page.evaluate(() => window.__gltfStudioScriptTest!.getMarkerLines()), { timeout: 15000 })
+      .toEqual([badLine]);
+  });
+
   // Visual (real-pixel) regression for the `.script-tab-wrap` CSS-collapse bug (see
   // specs/ux-shell.md's bug-fix note): `e2e/global-setup.ts`'s golden-path screenshots (and every
   // test above, which reads Monaco's model text via `getCode()`) never observed that the editor's
