@@ -235,6 +235,49 @@ geometry half the readiness wait alone doesn't. Verified stable across 190+ `--r
 under the same artificial contention with zero failures, after first confirming its absence reliably
 reproduced the original flake.
 
+Follow-up (task #35, a residual flake in `e2e/graph-canvas.spec.ts`'s "deleting a node" test found
+AFTER task #33's fix above — same repeat-each-under-contention method, so this is a genuinely
+different mechanism, not that fix regressing): `UX-507`'s details panel (`node-details.tsx`) is a
+normal flex sibling of the react-flow pane, positioned side-by-side, never overlapping it in the
+layout's steady state — but react-flow's own `.react-flow` wrapper clips node content with
+`overflow: hidden` at THAT element's own (narrower-than-the-node, once the palette's 220px and this
+panel's 260px are subtracted from the dock's own width) right edge, while `getBoundingClientRect()`
+on a node (what `.click()`'s default target, the element's geometric CENTER, is computed from)
+reports its full UNCLIPPED logical box regardless of that clip. A node ELK places (or that a narrow
+dock/pane leaves) partially past the pane's clipped edge therefore has a geometric center that lands
+past the pane entirely, directly on whatever real content occupies that same screen position one
+flex item over — always this panel. Confirmed live (no synthetic delay, no CPU contention needed to
+observe the geometry itself) via `document.elementFromPoint()` at a just-added node's header's own
+computed center: it resolved to this panel's own Ports-table `<td>`, not the header — a standing
+geometric fact of the current layout (palette 220px + this panel's 260px leaves the react-flow pane
+under 220px wide against the default 1280px e2e viewport), not a rare timing artifact by itself. What
+makes the resulting test FAILURE rare (~2-3% in CI; reproduced offline at a higher rate under the
+same artificial-contention method task #33 used, since contention widens the window during which
+Playwright's own actionability retry can land badly) is that most of the time either the click lands
+on a still-genuinely-clickable part of the header, or a real form control in this panel happens to
+sit at that point and merely eats the click harmlessly — but when a plain, non-interactive label cell
+is what's there (e.g. a Ports-table `<td>`), the click is silently swallowed: nothing gets
+(re)selected, so a subsequent `Delete` keypress has nothing to act on, and the node survives. Fixed
+in `graph-canvas.css` (`.gcanvas-details-panel`, see that rule's own doc comment for the full
+writeup): the panel's PASSIVE content (headings, labels, port-status text, the graph-summary counts)
+never needs to be a click TARGET — only its real form controls do — so the panel gets `pointer-events:
+none` with `auto` re-enabled on every actual control class `node-details.tsx` renders
+(`button`/`input`/`select`/`a`), so a stray click that lands on the panel's passive surface falls
+through to whatever's genuinely underneath instead of silently deselecting/no-op'ing, while every
+real control (the collapse toggle, every declaration/target selector, config checkbox/generic field,
+`TypedLiteralEditor`'s numeric/color inputs, "Retarget…"/"Reveal in viewport") keeps working exactly
+as before, selected node or not. Deliberately broader than "only when nothing is selected" (the
+initial hypothesis this task started from): the reproduction above landed with a node ALREADY
+selected (this panel showing that node's own full details, not the empty graph-summary state), so
+gating purely on selection state would have left the confirmed failure unfixed — gating on
+interactivity per element instead covers both states, and the empty/graph-summary state (zero real
+controls) ends up fully inert as a strict consequence, not a special case. Regression coverage:
+`e2e/graph-canvas.spec.ts`'s "details panel's passive surface never intercepts pointer events" test
+asserts the CSS contract directly (computed `pointer-events`, no timing dependency) — the pre-existing
+"deleting a node" test's continued stability under the same repeat-each-under-contention method used
+to reproduce this (0 failures across 100 repeats post-fix, vs. reproducible failures pre-fix at the
+same contention level) is the behavioral proof the specific repro case stays fixed.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

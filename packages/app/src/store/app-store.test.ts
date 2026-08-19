@@ -78,6 +78,16 @@ function dummyCommand(): Command {
   return { id: "cmd-1", label: "test", patches: [{ op: "replace", path: "/nodes/0/name", value: "x" }], inverse: [] };
 }
 
+/** Unlike `dummyCommand` above (a real `inverse: []` no-op, fine for the play-mode-guard tests that never call `undo`/`redo`), this has a REAL inverse -- needed by the task #36 journal tests below, which assert on `undo()`'s returned/journaled patches actually reverting something. */
+function reversibleCommand(): Command {
+  return {
+    id: "cmd-reversible",
+    label: "test reversible",
+    patches: [{ op: "replace", path: "/nodes/0/name", value: "x" }],
+    inverse: [{ op: "replace", path: "/nodes/0/name", value: "A" }]
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   controllerMocks.start.mockResolvedValue(undefined);
@@ -173,5 +183,82 @@ describe("startPlay / stopPlay state transitions (UX-310)", () => {
     const before = useAppStore.getState().history!.document;
     useAppStore.getState().dispatchCommand(dummyCommand());
     expect(useAppStore.getState().history!.document).toBe(before);
+  });
+});
+
+// Task #36 (closes the SP-004 journal gap this store's own undo()/redo()
+// previously documented but didn't fix): before this, only dispatchCommand
+// appended to the autosave journal -- undo/redo changed `history.document`
+// but were invisible to `loadJournal` replay (SP-015), so a crash strictly
+// between an undo/redo and the next debounced full checkpoint (UX-123, up
+// to 1.5s later) recovered to the PRE-undo/redo state. `HistoryStack.undo()`/
+// `redo()` (packages/editor-core/src/history.ts) now RETURN the exact
+// forward-direction patches they just applied (DOC-013/DOC-040 — the same
+// value `onApply`'s handlers already saw) instead of `void`; the store
+// actions below append that return value to the journal the same way
+// dispatchCommand appends a pushed command's own `patches` -- see
+// project-lifecycle.test.ts / e2e/crash-recovery.spec.ts for the
+// checkoutProject/replay side of this same fix.
+describe("undo()/redo() journal-consistency (UX-128, DOC-061, task #36)", () => {
+  it("undo() appends its inverse patches to the autosave journal, scoped to the current journalSinceRev", () => {
+    useAppStore.setState({ journalSinceRev: 3 });
+    const storage = useAppStore.getState().storage as unknown as { autosaveJournal: ReturnType<typeof vi.fn> };
+    const command = reversibleCommand();
+    useAppStore.getState().dispatchCommand(command);
+    storage.autosaveJournal.mockClear(); // isolate undo()'s own call from dispatchCommand's
+
+    useAppStore.getState().undo();
+
+    expect(storage.autosaveJournal).toHaveBeenCalledTimes(1);
+    expect(storage.autosaveJournal).toHaveBeenCalledWith("proj-1", 3, command.inverse);
+  });
+
+  it("redo() appends its (forward) patches to the autosave journal", () => {
+    useAppStore.setState({ journalSinceRev: 3 });
+    const storage = useAppStore.getState().storage as unknown as { autosaveJournal: ReturnType<typeof vi.fn> };
+    const command = reversibleCommand();
+    useAppStore.getState().dispatchCommand(command);
+    useAppStore.getState().undo();
+    storage.autosaveJournal.mockClear();
+
+    useAppStore.getState().redo();
+
+    expect(storage.autosaveJournal).toHaveBeenCalledTimes(1);
+    expect(storage.autosaveJournal).toHaveBeenCalledWith("proj-1", 3, command.patches);
+  });
+
+  it("undo()/redo() are no-ops (no journal call) when there's nothing to undo/redo", () => {
+    const storage = useAppStore.getState().storage as unknown as { autosaveJournal: ReturnType<typeof vi.fn> };
+    storage.autosaveJournal.mockClear();
+
+    useAppStore.getState().undo(); // canUndo() is false -- nothing was pushed this test
+    useAppStore.getState().redo();
+
+    expect(storage.autosaveJournal).not.toHaveBeenCalled();
+  });
+
+  it("a crash strictly between an undo and the next debounced checkpoint recovers to the POST-undo state (journal replay is gap-free)", async () => {
+    // Simulates checkoutProject's own replay (project-lifecycle.ts): load
+    // the last-SAVED json, then apply whatever the journal accumulated
+    // since. Here the "last save" is the document's state BEFORE the
+    // command ever pushed (rev 0), and the journal is exactly what
+    // dispatchCommand's push + this fix's undo() call appended -- i.e.
+    // the net effect of "push, then undo" should replay back to a no-op
+    // (the pre-push state), never landing on the PUSHED (pre-undo) state.
+    const baseJson = useAppStore.getState().history!.document.json;
+    const storage = useAppStore.getState().storage as unknown as { autosaveJournal: ReturnType<typeof vi.fn> };
+    const journal: Array<{ op: string; path: string; value?: unknown }> = [];
+    storage.autosaveJournal.mockImplementation(async (_id: string, _sinceRev: number, patches: typeof journal) => {
+      journal.push(...patches);
+    });
+
+    const command = reversibleCommand();
+    useAppStore.getState().dispatchCommand(command); // "unsaved" edit, journaled
+    useAppStore.getState().undo(); // "crash" happens right after this, before the 1.5s checkpoint
+
+    const { applyPatches } = await import("@gltf-studio/editor-core");
+    const recovered = applyPatches(baseJson, journal as never);
+    expect(recovered).toEqual(baseJson); // POST-undo state: back to where it started, not the pushed edit
+    expect(recovered).toEqual(useAppStore.getState().history!.document.json); // matches live state too
   });
 });

@@ -351,6 +351,38 @@ test.describe("behavior-graph canvas", () => {
     expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
   });
 
+  test("the details panel's passive surface never intercepts pointer events, only its real controls do (task #35 fix)", async ({
+    page
+  }) => {
+    // Root-caused via `document.elementFromPoint()` at a just-added node's
+    // header's own geometric CENTER (what `.click()`'s default target is):
+    // it resolved to THIS panel's own Ports-table `<td>`, not the header —
+    // react-flow's `.react-flow` wrapper clips node content with `overflow:
+    // hidden` at its own (narrower-than-the-node) right edge, but
+    // `getBoundingClientRect()` still reports the node's full UNCLIPPED
+    // logical box, so a click aimed at that box's center can land past the
+    // clip, directly on this always-present sibling panel — see graph-
+    // canvas.css's own doc comment on `.gcanvas-details-panel` for the full
+    // writeup. Fixed there with `pointer-events: none` on the panel and
+    // `auto` re-enabled only on its real controls (`button`/`input`/
+    // `select`/`a`) — asserted here directly (computed style, no timing
+    // dependency) rather than only via the "deleting a node" test's
+    // behavioral coverage above, which only proves the specific repro case
+    // stays fixed, not the general CSS contract.
+    await page.getByTestId("gcanvas.palette.op.math/add").click();
+    await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+
+    const details = page.getByTestId("gcanvas.details");
+    await expect(details).toHaveCSS("pointer-events", "none");
+
+    // A real control (the always-present collapse toggle) must stay fully
+    // interactive regardless — the fix must not turn the WHOLE panel inert.
+    const collapseBtn = details.getByTitle("Collapse details panel");
+    await expect(collapseBtn).toHaveCSS("pointer-events", "auto");
+    await collapseBtn.click();
+    await expect(page.getByTestId("gcanvas.details")).toHaveCount(0);
+  });
+
   test("a validation badge appears for an invalid node (variable/set with no variable) and clears once the invalid node is undone away", async ({
     page
   }) => {

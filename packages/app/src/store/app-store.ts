@@ -1113,14 +1113,15 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   undo() {
-    const { history, playState, pushToast } = get();
+    const { history, storage, projectId, journalSinceRev, playState, pushToast, log } = get();
     if (!history || !history.canUndo()) return;
     if (playState !== "stopped") {
       pushToast("Document locked while playing — Stop to edit.");
       return;
     }
+    let patches: JsonPatchOp[];
     try {
-      history.undo();
+      patches = history.undo();
     } catch (err) {
       if (err instanceof DocumentFrozenError) {
         pushToast("Document locked while playing — Stop to edit.");
@@ -1130,25 +1131,32 @@ export const useAppStore = create<AppState>((set, get) => {
     }
     set({ document: history.document, projectDirty: true, saveStatus: "unsaved", canUndo: history.canUndo(), canRedo: history.canRedo() });
     syncAgentProviderDocument(history.document);
-    // UX-123: undo/redo are edits too (they change `history.document`) even
-    // though — unlike dispatchCommand/acceptCopilotProposal — neither is
-    // itself appended to the SP-004 journal (a pre-existing gap: replaying
-    // the journal alone cannot reproduce an undo/redo, only forward
-    // commands); the debounced full checkpoint below still captures the
-    // resulting state correctly regardless, since it serializes whatever
-    // `history.document` currently is rather than replaying the journal.
+    // Task #36 (closes the previously-documented SP-004 journal gap): undo
+    // is an edit too (it changes `history.document`) — appended to the
+    // journal the SAME way dispatchCommand appends a pushed command's
+    // `patches`, using `history.undo()`'s own return value (DOC-013/DOC-040:
+    // the inverse patches it just applied), not a separately recomputed
+    // diff. Without this, a crash strictly between an undo and the next
+    // debounced checkpoint (below) recovered to the PRE-undo state, since
+    // `loadJournal` replay (SP-015) only ever saw forward commands.
+    if (projectId) {
+      storage.autosaveJournal(projectId, journalSinceRev, patches).catch((error: unknown) => {
+        log("error", `Autosave failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
     scheduleAutosave();
   },
 
   redo() {
-    const { history, playState, pushToast } = get();
+    const { history, storage, projectId, journalSinceRev, playState, pushToast, log } = get();
     if (!history || !history.canRedo()) return;
     if (playState !== "stopped") {
       pushToast("Document locked while playing — Stop to edit.");
       return;
     }
+    let patches: JsonPatchOp[];
     try {
-      history.redo();
+      patches = history.redo();
     } catch (err) {
       if (err instanceof DocumentFrozenError) {
         pushToast("Document locked while playing — Stop to edit.");
@@ -1158,7 +1166,13 @@ export const useAppStore = create<AppState>((set, get) => {
     }
     set({ document: history.document, projectDirty: true, saveStatus: "unsaved", canUndo: history.canUndo(), canRedo: history.canRedo() });
     syncAgentProviderDocument(history.document);
-    scheduleAutosave(); // see undo()'s own note on the journal-gap tradeoff
+    // Task #36: same journal-gap fix as undo() above, redo side.
+    if (projectId) {
+      storage.autosaveJournal(projectId, journalSinceRev, patches).catch((error: unknown) => {
+        log("error", `Autosave failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    scheduleAutosave(); // see undo()'s own note on the journal-gap fix
   },
 
   historyEntries() {
