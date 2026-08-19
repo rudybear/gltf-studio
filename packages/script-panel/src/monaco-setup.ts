@@ -22,7 +22,7 @@ import * as monaco from "monaco-editor";
 // Vite's `?worker` module-suffix import (see worker-imports.d.ts for the ambient type).
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import TsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
-import { RUNTIME_LIB_DTS } from "@gltfi/parse-ts/dist/runtime-lib-dts.js";
+import { RUNTIME_LIB_DTS } from "@gltfi/parse-ts/runtime-lib-dts";
 
 // Version note: `monaco-editor` is pinned to `^0.50.0` (package.json), not
 // latest — 0.55+ restructured `monaco.languages.typescript` into a
@@ -66,13 +66,13 @@ let initialized: typeof monaco | null = null;
  * Idempotent — safe to call from every ScriptPanel mount; only the first
  * call does any work. Registers `MonacoEnvironment.getWorker` (module-level
  * global, Monaco's own contract) and the ambient `@gltfi/runtime-lib` `.d.ts`
- * (`RUNTIME_LIB_DTS`, per this package's brief: "check the installed
- * .d.ts" — it is NOT re-exported from `@gltfi/parse-ts`'s package root
- * `index.d.ts`, only from the `dist/runtime-lib-dts.js` subpath used
- * internally by `parseModule`; that package sets no `"exports"` map, so the
- * subpath import above is a real, if undocumented, public seam) so
- * `rt.`/`m.`/`V.`-style completions and hovers work in the editor exactly
- * as `@gltfi/parse-ts`'s own type-checking pass sees them.
+ * (`RUNTIME_LIB_DTS`, imported via `@gltfi/parse-ts`'s dedicated
+ * `"./runtime-lib-dts"` exports subpath — added upstream specifically for
+ * this use case, gltf-studio #31 finding 1 — so this stays a real `.d.ts`
+ * string import without pulling `@gltfi/parse-ts`'s own `index.js` (and its
+ * ts-morph dependency) into Monaco's lazy-loaded chunk) so `rt.`/`m.`/`V.`-
+ * style completions and hovers work in the editor exactly as
+ * `@gltfi/parse-ts`'s own type-checking pass sees them.
  */
 export function loadMonaco(): typeof monaco {
   if (initialized) return initialized;

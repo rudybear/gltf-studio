@@ -198,6 +198,16 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
     rather than only ever re-checking `getSelectedText()` (an API-level read that, per this bug
     report's own root cause, can pass while a real screen shows nothing different at all).
 
+- UX-709's gutter/inline markers now source their line from `@gltfi/ir`'s `Diagnostic.line` (a
+  structured, 1-based source position `@gltfi/parse-ts` populates from its ts-morph AST for every
+  GI0xx/GI1xx diagnostic anchored on a real node — added upstream for exactly this consumer, see
+  the vendored monorepo's gltf-studio #31 fixes) instead of regexing `"(line N)"`/`` "<file>:<line>:
+  `...`" `` out of the message text. The regex (`extractDiagnosticLine`, `script-panel.tsx`) is kept
+  as a fallback for diagnostics with no structured position (`d.line` undefined — an AST-less
+  `fail()` call), not removed. `GltfStudioScriptTestHook` gains `getMarkerLines()` (every currently-
+  installed error marker's `startLineNumber`, ascending) so an e2e test can assert a known-bad
+  script's marker lands on the exact line the error is on, not merely that some marker exists.
+
 ## Open questions
 
 - OPEN(UX-script-sugar-tbd): **the approved mockup renders script lines using an aspirational

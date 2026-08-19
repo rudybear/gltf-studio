@@ -644,7 +644,7 @@ packages:
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
   '@gltfi/emit-ts@file:vendor/gltfi-emit-ts-0.0.1.tgz':
-    resolution: {integrity: sha512-NXhcAArw1zWUtsmifRuWO0a11PECmpNYY9EzgBUN1L19QNUVmkrxaqQgkSZBSRVxrrNjKTxnvGT7BRihlDWkwQ==, tarball: file:vendor/gltfi-emit-ts-0.0.1.tgz}
+    resolution: {integrity: sha512-8rfs301zkk5Lm8gOY8EGMPPZTJYskpspNn+g6+prSYEpcw7KK0KLB8Lzw5GKF/DXf6wTxBxYC1n/zwURKPWUIQ==, tarball: file:vendor/gltfi-emit-ts-0.0.1.tgz}
     version: 0.0.1
 
   '@gltfi/gltf@file:vendor/gltfi-gltf-0.0.1.tgz':
@@ -652,7 +652,7 @@ packages:
     version: 0.0.1
 
   '@gltfi/ir@file:vendor/gltfi-ir-0.0.1.tgz':
-    resolution: {integrity: sha512-I8U6fP61IfUs97SF9jBak1qmzb777g+jo/XA8WfFynYYCfNQ8PnJz2vF1oBtNVuxVJJYHs5ZJShR3M7qMFthZw==, tarball: file:vendor/gltfi-ir-0.0.1.tgz}
+    resolution: {integrity: sha512-Rclb+M+xnI4wgr4vq2RDS7fNTD3f4G1t/HCO3SAigDUMZ6liBTxTuq81n6L599smoLoC8wzxnla+bRG3WttxOw==, tarball: file:vendor/gltfi-ir-0.0.1.tgz}
     version: 0.0.1
 
   '@gltfi/kernel@file:vendor/gltfi-kernel-0.0.1.tgz':
@@ -660,7 +660,7 @@ packages:
     version: 0.0.1
 
   '@gltfi/parse-ts@file:vendor/gltfi-parse-ts-0.0.1.tgz':
-    resolution: {integrity: sha512-HKlwNXiSI3GliMSFLL/3Y/L67oKDEzchzN+VOqUiKF0CslFhYe5yjWXB07rRANS71FuOEt9Fy1K9GNdyIwmT7g==, tarball: file:vendor/gltfi-parse-ts-0.0.1.tgz}
+    resolution: {integrity: sha512-/bveSOp8jZ8Q3aOzclby/5FL1uwhq4lSbBrp4pNTh6iNHwcX/NIiCT+4zEmqtAQpxTh2CwEvzj/vxUG87OocRw==, tarball: file:vendor/gltfi-parse-ts-0.0.1.tgz}
     version: 0.0.1
 
   '@gltfi/runtime-lib@file:vendor/gltfi-runtime-lib-0.0.1.tgz':
@@ -678,7 +678,7 @@ packages:
       three: '>=0.180.0'
 
   '@gltfi/verify@file:vendor/gltfi-verify-0.0.1.tgz':
-    resolution: {integrity: sha512-bSEpIdhRL/7uwa4+C3DMl0tvjh+DWUw/BxwG8H51TJDVCwJA7UhrEhw3AuGZhH7asCjG3LLvD6VCid7g2qu7tA==, tarball: file:vendor/gltfi-verify-0.0.1.tgz}
+    resolution: {integrity: sha512-HdzHehi8TxqZBZyE7GBh+h0kzmZT+kBOL6bFxdinE8m9hrv3KKoxmos3UOlKHLziCN0e8CwXqkYfOYTfsRl95A==, tarball: file:vendor/gltfi-verify-0.0.1.tgz}
     version: 0.0.1
 
   '@humanfs/core@0.19.2':
@@ -1271,7 +1271,7 @@ packages:
     engines: {node: '>=12'}
 
   audio-graph-js@file:vendor/audio-graph-js-0.1.0.tgz:
-    resolution: {integrity: sha512-X/UQkTk7SP/hR5l7F1YPuSLfWID/EkaqT7Hljm1NiDZXwLvENobWgfvz6fe2Bb+W4eskADBfxdyLxwIejDVbrA==, tarball: file:vendor/audio-graph-js-0.1.0.tgz}
+    resolution: {integrity: sha512-Tb/GJ4TswmtWICRIljlJMN7Qx2+QrhKV4CDqXOAw+RYWPhXwIHDBO7evXbdCDQNem6GNvDGQfKebOcjD1QVCGg==, tarball: file:vendor/audio-graph-js-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=18'}
 
