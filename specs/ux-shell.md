@@ -470,6 +470,16 @@ process.
   through the vendored pointer-router vs. `engine-three`'s own direct-apply vs. a full reload) and
   the honest v1 gaps (texture upload, camera live preview, light type editing).
 
+- Emitter/environment/listener authoring, audio pass 3/3 (`specs/ux-inspector.md`'s `UX-419`..`423`,
+  this file's own `packages/app/**` catch-all ownership — no `ux-shell.md`-owned behavior itself
+  changed): `AudioSection.tsx` gained emitter type/positional-physics/cone/sources fields; a new
+  `AudioEnvironmentSection.tsx` joins `Inspector.tsx`'s section list for `KHR_audio_environment`
+  zone/listener/scene-binding authoring; `CameraSection.tsx` gained a Listener row. See
+  `specs/ux-inspector.md`'s own `UX-423` and implementation notes for the render-path split (live
+  `applyPointer` vs. the pre-existing reload-on-edit fallback) and the honest v1 gaps (single-emitter-
+  per-node, no Add-menu existing-clip picker UI yet, Audition's listener pose not live-fed outside
+  play mode).
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

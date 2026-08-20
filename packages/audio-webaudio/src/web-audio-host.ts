@@ -496,6 +496,56 @@ export class WebAudioHost implements AudioHost {
       return;
     }
 
+    // Emitter/environment authoring (specs/ux-inspector.md UX-419/UX-423,
+    // specs/engine-api.md's extended AH-pointer-value-tbd note): five plain
+    // PannerNode attributes (NOT AudioParams in the Web Audio API — no
+    // setTargetAtTime automation applies, or is needed, for these) applied
+    // directly on the positional emitter's own live panner, so a drag on the
+    // Inspector's ref/max distance or cone fields updates spatialization
+    // with no full-graph rebuild. Cone angles are glTF radians; PannerNode's
+    // own coneInnerAngle/coneOuterAngle are degrees. Deliberately NOT
+    // included here: distanceModel/rolloffFactor (rolloffFactor interacts
+    // with buildEmitterChain's "custom distance curve" special case, which
+    // zeroes it and adds a distanceGain node — a live single-field write
+    // could silently desync from that branch) and shapeType (switching
+    // omnidirectional<->cone changes whether the panner's cone fields apply
+    // at all) — those rely on the reload fallback (see this file's header
+    // and specs/ux-inspector.md's UX-423) like every other topology field.
+    match = pointer.match(/^\/extensions\/KHR_audio_emitter\/emitters\/(\d+)\/positional\/(refDistance|maxDistance)$/);
+    if (match) {
+      const index = Number(match[1]);
+      const property = match[2] as "refDistance" | "maxDistance";
+      for (const instance of this.emitterInstances) {
+        if (instance.emitterIndex === index && instance.panner) {
+          instance.panner[property] = scalar;
+        }
+      }
+      return;
+    }
+
+    match = pointer.match(/^\/extensions\/KHR_audio_emitter\/emitters\/(\d+)\/positional\/(coneInnerAngle|coneOuterAngle)$/);
+    if (match) {
+      const index = Number(match[1]);
+      const property = match[2] as "coneInnerAngle" | "coneOuterAngle";
+      for (const instance of this.emitterInstances) {
+        if (instance.emitterIndex === index && instance.panner) {
+          instance.panner[property] = scalar * RAD_TO_DEG;
+        }
+      }
+      return;
+    }
+
+    match = pointer.match(/^\/extensions\/KHR_audio_emitter\/emitters\/(\d+)\/positional\/coneOuterGain$/);
+    if (match) {
+      const index = Number(match[1]);
+      for (const instance of this.emitterInstances) {
+        if (instance.emitterIndex === index && instance.panner) {
+          instance.panner.coneOuterGain = scalar;
+        }
+      }
+      return;
+    }
+
     match = pointer.match(/^\/extensions\/KHR_audio_emitter\/emitters\/(\d+)\/extensions\/KHR_audio_environment\/(directLevel|reverbLevel)$/);
     if (match) {
       const index = Number(match[1]);
@@ -707,6 +757,26 @@ export class WebAudioHost implements AudioHost {
       return "audio idle";
     }
     return `audio ${this.context.state}, ${this.buffers.size} buffer(s), ${this.emitterInstances.length} emitter(s), last trigger: ${this.lastTrigger}`;
+  }
+
+  /**
+   * Not part of the AudioHost interface (AH-002 fixes the surface exactly)
+   * — a diagnostics-only extra, mirroring `getDiagnostics`'s own rationale.
+   * specs/ux-inspector.md UX-423: exposes the exact `staticPosition` a
+   * positional emitter's `PannerNode` was last placed at — the one piece of
+   * `WebAudioHost`'s internal state an e2e test needs to confirm "an
+   * EDITOR-driven node move (gizmo drag or Inspector Transform-section
+   * edit) re-derives the emitter's world position via the `attachAudioHost`
+   * reload path" without reaching into a private field. Returns `null` for
+   * an unknown emitter index or a `type: "global"` emitter (no panner, no
+   * position).
+   */
+  getEmitterPosition(emitterIndex: number): [number, number, number] | null {
+    const instance = this.emitterInstances.find((candidate) => candidate.emitterIndex === emitterIndex);
+    if (!instance || !instance.panner) {
+      return null;
+    }
+    return [...instance.staticPosition];
   }
 
   // -------------------------------------------------------------------------

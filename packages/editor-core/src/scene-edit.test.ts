@@ -1102,4 +1102,213 @@ describe("SceneEdit.addAudioEmitterNode (DOC-047)", () => {
     const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
     expect(after.nodes[1].children).toContain(index);
   });
+
+  it("the generated positional emitter carries explicit distanceModel/refDistance/maxDistance/rolloffFactor (DOC-062)", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addAudioEmitterNode(doc, "Speaker");
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_audio_emitter?: { emitter: number } } }>;
+      extensions: { KHR_audio_emitter: { emitters: Array<{ positional?: Record<string, unknown> }> } };
+    };
+    const emitterIndex = after.nodes[index].extensions!.KHR_audio_emitter!.emitter;
+    const positional = after.extensions.KHR_audio_emitter.emitters[emitterIndex].positional;
+    expect(positional).toEqual({ shapeType: "omnidirectional", distanceModel: "inverse", refDistance: 1, maxDistance: 0, rolloffFactor: 1 });
+  });
+
+  it("opts.audioIndex reuses an existing clip instead of generating a fresh silent-WAV buffer/bufferView/audio entry (DOC-062)", () => {
+    const doc = fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as Record<string, unknown>),
+        KHR_audio_emitter: { audio: [{ uri: "data:audio/wav;base64,AAAA", mimeType: "audio/wav" }], sources: [], emitters: [] }
+      }
+    });
+    const before = doc.json as { buffers?: unknown[]; bufferViews?: unknown[] };
+    const { command, index } = SceneEdit.addAudioEmitterNode(doc, "Speaker", { audioIndex: 0 });
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_audio_emitter?: { emitter: number } } }>;
+      extensions: {
+        KHR_audio_emitter: {
+          audio: unknown[];
+          sources: Array<{ audio: number }>;
+          emitters: Array<{ sources: number[] }>;
+        };
+      };
+      buffers?: unknown[];
+      bufferViews?: unknown[];
+    };
+    const emitterIndex = after.nodes[index].extensions!.KHR_audio_emitter!.emitter;
+    const sourceIndex = after.extensions.KHR_audio_emitter.emitters[emitterIndex].sources[0];
+    expect(after.extensions.KHR_audio_emitter.sources[sourceIndex].audio).toBe(0); // reuses audio[0], not a freshly-appended entry.
+    expect(after.extensions.KHR_audio_emitter.audio.length).toBe(1); // no new audio[] entry appended.
+    expect(after.buffers?.length ?? 0).toBe(before.buffers?.length ?? 0); // no new buffer/bufferView generated.
+    expect(after.bufferViews?.length ?? 0).toBe(before.bufferViews?.length ?? 0);
+  });
+});
+
+describe("SceneEdit.setAudioSourceProperty (DOC-062)", () => {
+  function sourceFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as Record<string, unknown>),
+        KHR_audio_emitter: {
+          audio: [{ uri: "data:audio/wav;base64,AAAA" }],
+          sources: [{ audio: 0, gain: 1, loop: false, autoplay: false }],
+          emitters: [{ type: "positional", gain: 1, sources: [0] }]
+        }
+      }
+    });
+  }
+
+  it("sets a source property and round-trips", () => {
+    const doc = sourceFixtureDocument();
+    const command = SceneEdit.setAudioSourceProperty(doc, 0, ["gain"], 0.4);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_emitter: { sources: Array<{ gain: number }> } };
+    };
+    expect(after.extensions.KHR_audio_emitter.sources[0].gain).toBe(0.4);
+  });
+
+  it("sets loop/autoplay/playbackRate independently of the sibling emitters[] registry", () => {
+    const doc = sourceFixtureDocument();
+    const command = SceneEdit.setAudioSourceProperty(doc, 0, ["loop"], true);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_emitter: { sources: Array<{ loop: boolean }>; emitters: Array<{ gain: number }> } };
+    };
+    expect(after.extensions.KHR_audio_emitter.sources[0].loop).toBe(true);
+    expect(after.extensions.KHR_audio_emitter.emitters[0].gain).toBe(1); // untouched — separate root array.
+  });
+});
+
+describe("SceneEdit.addAudioEnvironment / setAudioEnvironmentProperty (DOC-062)", () => {
+  it("appends an environment with a reverb preset, scaffolding extensionsUsed", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addAudioEnvironment(doc, "Hall", { reverbPreset: "cathedral" });
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_environment: { environments: Array<{ name: string; reverb: { preset: string } }> } };
+      extensionsUsed: string[];
+    };
+    expect(after.extensions.KHR_audio_environment.environments[index]).toMatchObject({ name: "Hall", reverb: { preset: "cathedral" } });
+    expect(after.extensionsUsed).toContain("KHR_audio_environment");
+  });
+
+  it("does not duplicate extensionsUsed on a second call", () => {
+    const doc = fixtureDocument();
+    const first = SceneEdit.addAudioEnvironment(doc, "Hall");
+    const afterFirst = applyPatches(doc.json, first.command.patches);
+    const secondDoc = { ...doc, json: afterFirst };
+    const second = SceneEdit.addAudioEnvironment(secondDoc, "Cave", { reverbPreset: "cave" });
+    const afterSecond = applyPatches(afterFirst, second.command.patches) as { extensionsUsed: string[] };
+    expect(afterSecond.extensionsUsed.filter((e) => e === "KHR_audio_environment").length).toBe(1);
+  });
+
+  it("setAudioEnvironmentProperty edits reverb.mix and round-trips", () => {
+    const doc = fixtureDocument();
+    const { command: addCommand, index } = SceneEdit.addAudioEnvironment(doc, "Hall");
+    const afterAdd = applyPatches(doc.json, addCommand.patches);
+    const midDoc = { ...doc, json: afterAdd };
+    const command = SceneEdit.setAudioEnvironmentProperty(midDoc, index, ["reverb", "mix"], 0.7);
+    const after = expectRoundTrip(afterAdd, command) as {
+      extensions: { KHR_audio_environment: { environments: Array<{ reverb: { mix: number } }> } };
+    };
+    expect(after.extensions.KHR_audio_environment.environments[index].reverb.mix).toBe(0.7);
+  });
+});
+
+describe("SceneEdit.addAudioListener / setAudioListenerProperty (DOC-062)", () => {
+  it("appends a listener with defaults, scaffolding extensionsUsed", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addAudioListener(doc, "Player");
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_environment: { listeners: Array<{ name: string; gain: number; spatializationModel: string }> } };
+      extensionsUsed: string[];
+    };
+    expect(after.extensions.KHR_audio_environment.listeners[index]).toEqual({ name: "Player", gain: 1, spatializationModel: "HRTF" });
+    expect(after.extensionsUsed).toContain("KHR_audio_environment");
+  });
+
+  it("setAudioListenerProperty edits gain and round-trips", () => {
+    const doc = fixtureDocument();
+    const { command: addCommand, index } = SceneEdit.addAudioListener(doc, "Player");
+    const afterAdd = applyPatches(doc.json, addCommand.patches);
+    const midDoc = { ...doc, json: afterAdd };
+    const command = SceneEdit.setAudioListenerProperty(midDoc, index, ["gain"], 0.6);
+    const after = expectRoundTrip(afterAdd, command) as {
+      extensions: { KHR_audio_environment: { listeners: Array<{ gain: number }> } };
+    };
+    expect(after.extensions.KHR_audio_environment.listeners[index].gain).toBe(0.6);
+  });
+});
+
+describe("SceneEdit.addAudioZone / setNodeAudioEnvironmentProperty (DOC-062)", () => {
+  it("turns a node into a zone in one command, defaulting to a radius-5 sphere, scaffolding extensionsUsed", () => {
+    const doc = fixtureDocument();
+    const command = SceneEdit.addAudioZone(doc, 0, 2);
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_audio_environment?: { environment: number; shape: { type: string; radius: number }; blendDistance: number; priority: number } } }>;
+      extensionsUsed: string[];
+    };
+    expect(after.nodes[0].extensions!.KHR_audio_environment).toEqual({
+      environment: 2,
+      shape: { type: "sphere", radius: 5 },
+      blendDistance: 1,
+      priority: 0
+    });
+    expect(after.extensionsUsed).toContain("KHR_audio_environment");
+  });
+
+  it("setNodeAudioEnvironmentProperty edits one field of an existing zone in place", () => {
+    const doc = fixtureDocument();
+    const zoneCommand = SceneEdit.addAudioZone(doc, 0, 2, { priority: 3 });
+    const afterZone = applyPatches(doc.json, zoneCommand.patches);
+    const midDoc = { ...doc, json: afterZone };
+    const command = SceneEdit.setNodeAudioEnvironmentProperty(midDoc, 0, ["blendDistance"], 4);
+    const after = expectRoundTrip(afterZone, command) as {
+      nodes: Array<{ extensions?: { KHR_audio_environment?: { blendDistance: number; priority: number } } }>;
+    };
+    expect(after.nodes[0].extensions!.KHR_audio_environment!.blendDistance).toBe(4);
+    expect(after.nodes[0].extensions!.KHR_audio_environment!.priority).toBe(3); // untouched.
+  });
+
+  it("setNodeAudioEnvironmentProperty also covers the listener-binding field on a camera node, same JSON location", () => {
+    const doc = fixtureDocument();
+    const command = SceneEdit.setNodeAudioEnvironmentProperty(doc, 1, ["listener"], 0);
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_audio_environment?: { listener: number } } }>;
+    };
+    expect(after.nodes[1].extensions!.KHR_audio_environment!.listener).toBe(0);
+  });
+});
+
+describe("SceneEdit.setSceneAudioEnvironment / setSceneAudioActiveListener (DOC-062)", () => {
+  it("sets the scene's default environment and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = SceneEdit.setSceneAudioEnvironment(doc, 0, 1);
+    const after = expectRoundTrip(doc.json, command) as {
+      scenes: Array<{ extensions?: { KHR_audio_environment?: { environment: number } } }>;
+    };
+    expect(after.scenes[0].extensions!.KHR_audio_environment!.environment).toBe(1);
+  });
+
+  it("clears the scene's default environment when given null", () => {
+    const doc = fixtureDocument();
+    const setCommand = SceneEdit.setSceneAudioEnvironment(doc, 0, 1);
+    const afterSet = applyPatches(doc.json, setCommand.patches);
+    const midDoc = { ...doc, json: afterSet };
+    const clearCommand = SceneEdit.setSceneAudioEnvironment(midDoc, 0, null);
+    const after = expectRoundTrip(afterSet, clearCommand) as {
+      scenes: Array<{ extensions?: { KHR_audio_environment?: { environment?: number } } }>;
+    };
+    expect(after.scenes[0].extensions?.KHR_audio_environment?.environment).toBeUndefined();
+  });
+
+  it("sets the scene's active listener and round-trips", () => {
+    const doc = fixtureDocument();
+    const command = SceneEdit.setSceneAudioActiveListener(doc, 0, 0);
+    const after = expectRoundTrip(doc.json, command) as {
+      scenes: Array<{ extensions?: { KHR_audio_environment?: { activeListener: number } } }>;
+    };
+    expect(after.scenes[0].extensions!.KHR_audio_environment!.activeListener).toBe(0);
+  });
 });
