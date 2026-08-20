@@ -42,9 +42,35 @@ project.
 - **Play in-editor, two engines** — a reference interpreter and a graph-to-JS compiled engine, side
   by side for parity, driven from the same document, no separate build step.
 - **Copilot** — a right-panel assistant that proposes graph/scene edits from a prompt, previewable
-  and rejectable before anything commits. **Honest caveat:** today's provider
-  (`packages/agent-mock`) is a small deterministic mock with a handful of prompt templates, not a
-  real LLM — see [Roadmap](#roadmap).
+  and rejectable before anything commits. Defaults to a small deterministic mock
+  (`packages/agent-mock`) with a handful of prompt templates; Settings → **Local model** points it
+  at any OpenAI-compatible tool-calling endpoint on your own machine instead (Ollama, LM Studio —
+  `packages/agent-llm`, [docs/adr/0005](docs/adr/0005-local-openai-compatible-llm-provider.md)). No
+  hosted/cloud AI, no API keys sent anywhere but the endpoint you configure.
+
+  **Recommended model:** validated live against several installed Ollama models
+  (`scripts/ai-smoke.mjs`'s prompt matrix — spin/move/play-sound/add-cubes/multi-step/out-of-scope/
+  ambiguous). `gemma4:26b` is the suggested default: it matched a much larger 125B-parameter
+  model's accept-when-answerable / refuse-when-not pattern on every prompt tested, while responding
+  in well under a second once warm versus 14-40 seconds for the larger model's own reasoning
+  preamble. This is only a suggestion — the settings dialog's model field is free text, and any
+  tool-calling-capable model works. Not every local model qualifies: e.g. `deepseek-r1:32b` (a
+  reasoning-focused model, no native tool-calling support in this Ollama build) is rejected by the
+  endpoint outright with `does not support tools`.
+
+  **CORS for a local model:** most local servers block cross-origin requests by default, so
+  Settings → **Test connection** may report "CORS-blocked" the first time. For Ollama, set
+  `OLLAMA_ORIGINS` to include every page origin you'll drive it from before restarting it, e.g.:
+  ```sh
+  OLLAMA_ORIGINS="http://localhost:5173,http://localhost:4173,https://rudybear.github.io" ollama serve
+  ```
+  (`5173`/`4173` cover `pnpm dev`/`pnpm build && pnpm preview` locally; the `https://` origin covers
+  driving your own machine's model from the hosted Pages demo — a `https://` page fetching
+  `http://localhost` is allowed by the browser's own "localhost is a secure context" exception, so
+  CORS is genuinely the only thing to configure here, not mixed-content blocking). For LM Studio,
+  enable CORS in the server settings (Developer tab → Server Settings → "Enable CORS"). Some Ollama
+  installs already default to a permissive `Access-Control-Allow-Origin: *` — Test connection tells
+  you definitively whether yours does, rather than guessing from the version/defaults alone.
 - **Byte-preserving export** — write the current document back out to `.glb`, preserving container
   bytes wherever nothing changed, importable by any conformant `KHR_interactivity` runtime.
 
@@ -124,7 +150,6 @@ and only run in CI or on demand.
 This is an early draft, not a finished product. Ahead:
 
 - Deeper scene authoring (more primitive/light/camera types, materials beyond PBR basics).
-- A real LLM-backed Copilot provider, replacing today's deterministic mock.
 - Richer audio authoring (more `KHR_audio_graph` node kinds, effects).
 - Persistence/sharing beyond local browser storage and the local filesystem.
 
