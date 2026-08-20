@@ -305,6 +305,20 @@ than each file re-implementing its own local copy, and documented as the standin
 this repo's e2e testing note) so future canvas specs pick it up by default instead of rediscovering
 task #33's finding piecemeal, file by file.
 
+Follow-up (`GraphCanvasTestHook` gains `simulateMoveNode`, found building `@gltf-studio/audio-canvas`'s
+own `e2e/audio-graph-gaps.spec.ts` terminal-node position-persistence coverage, M7 audio pass 1-2/3):
+`<ReactFlow fitView minZoom={0.05}>` can zoom a small, widely-ELK-spaced graph out far enough (observed
+~0.1x for a 3-node audio graph) that a node card collapses to a few CSS pixels tall on screen — a raw
+pixel-coordinate `page.mouse` drag at that scale is unreliable regardless of how carefully a spec zooms
+back in first, since react-flow's own internal zoom/pan-settled bookkeeping debounces independently of
+when the rendered bounding box visibly stops moving. Same fix as `simulateConnect`'s own precedent
+(`UX-509`'s implementation note above): `graph-view.tsx`'s `GraphCanvasTestHook` gained a
+`simulateMoveNode(nodeId, x, y)` method that invokes the SAME `onMoveNode` handler a real node-header
+drag triggers directly, bypassing raw pointer choreography and React Flow's own drag-gesture
+recognition — every bit of REAL downstream application logic (`GraphEdit`/`AudioGraphEdit.
+setNodePosition`, `dispatchCommand`) still runs. Available on both canvases (`__gltfStudioGraphCanvasTest`
+and `__gltfStudioAudioGraphCanvasTest`) since it lives on the one shared `GraphView` component (`UX-600`).
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

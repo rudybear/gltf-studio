@@ -17,9 +17,9 @@
 // operate on.
 import { useMemo } from "react";
 import { GraphView, NodeDetails, type GraphDiagnostic, type GraphViewProps } from "@gltf-studio/graph-canvas";
-import { AudioGraphEdit, applyPatches, getIn, graphPath, type Command, type EditorDocument } from "@gltf-studio/editor-core";
+import { AudioGraphEdit, SceneEdit, applyPatches, getIn, graphPath, type Command, type EditorDocument } from "@gltf-studio/editor-core";
 import type { AudioGraphHost, AudioGraphLintResult } from "@gltf-studio/engine-api";
-import type { KHRGraph, AudioEmitter } from "audio-graph-js";
+import type { KHRGraph, AudioEmitter, AudioEmitterSource } from "audio-graph-js";
 import { mapAudioGraph } from "./map-audio-graph.js";
 import { identifyMappedNode, findMappedNode, parseInputSocket, parseOutputSocket } from "./audio-entity.js";
 import { buildAudioDiagnosticsByNode } from "./audio-diagnostics.js";
@@ -32,8 +32,10 @@ export interface AudioGraphCanvasProps {
   /** Which `extensions.KHR_audio_graph.graphs[N]` to show/edit. Defaults to 0. */
   graphIndex?: number;
   dispatchCommand: (command: Command) => void;
-  /** `extensions.KHR_audio_emitter.emitters`, for the terminal emitter node's display name (UX-607). */
+  /** `extensions.KHR_audio_emitter.emitters`, for the terminal emitter node's display name (UX-607) and, as of UX-617, its persisted canvas position. */
   emitters?: AudioEmitter[];
+  /** `extensions.KHR_audio_emitter.sources`, for the terminal source node's persisted canvas position (UX-617). */
+  sources?: AudioEmitterSource[];
   /** AudioGraphHost.lint()'s current results for this document. */
   lintResults: AudioGraphLintResult[];
   /** For the audition control (UX-611) — the SAME `AudioGraphJsHost` instance the caller already built `lintResults` from. */
@@ -48,6 +50,7 @@ export function AudioGraphCanvas({
   graphIndex = 0,
   dispatchCommand,
   emitters = [],
+  sources = [],
   lintResults,
   host,
   selectedNodeIndex,
@@ -58,7 +61,10 @@ export function AudioGraphCanvas({
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
   const graph = hasGraph ? graphs![graphIndex] : undefined;
 
-  const mapped = useMemo(() => (graph ? mapAudioGraph(graph, graphIndex, emitters, lintResults) : null), [graph, graphIndex, emitters, lintResults]);
+  const mapped = useMemo(
+    () => (graph ? mapAudioGraph(graph, graphIndex, emitters, lintResults, sources) : null),
+    [graph, graphIndex, emitters, lintResults, sources]
+  );
 
   const diagnosticsByNode: Map<number, GraphDiagnostic[]> = useMemo(
     () => (graph ? buildAudioDiagnosticsByNode(graph, graphIndex, lintResults) : new Map()),
@@ -171,17 +177,38 @@ export function AudioGraphCanvas({
     }
   }
 
+  /**
+   * UX-617 (Track 1 gap closure — supersedes UX-613's original "session-only"
+   * note for the two synthetic terminal kinds): a REAL node's position still
+   * persists via `AudioGraphEdit.setNodePosition` (DOC-058, this graph's own
+   * `graph.nodes[nodeIndex].extras.gltfi`); a source/emitter TERMINAL node is
+   * not a `graph.nodes[]` entry, so its position now persists on the
+   * underlying `KHR_audio_emitter` registry entry instead, via
+   * `SceneEdit.setAudioSourceProperty`/`setAudioEmitterProperty` (DOC-062) —
+   * the same `extras.gltfi` convention, one level over rather than one level
+   * down.
+   */
   function handleMoveNode(nodeIndex: number, x: number, y: number) {
     if (!mapped) return;
     const node = findMappedNode(mapped, nodeIndex);
     if (!node) return;
     const entity = identifyMappedNode(node);
-    if (entity.type !== "node") return; // source/emitter terminal positions are not persisted (see audio-graph-edit.ts's setNodePosition doc comment)
-    dispatchCommand(AudioGraphEdit.setNodePosition(document, graphIndex, entity.rawIndex, x, y));
+    if (entity.type === "node") {
+      dispatchCommand(AudioGraphEdit.setNodePosition(document, graphIndex, entity.rawIndex, x, y));
+    } else if (entity.type === "source") {
+      dispatchCommand(SceneEdit.setAudioSourceProperty(document, entity.sourceIndex, ["extras", "gltfi"], { x, y }));
+    } else {
+      dispatchCommand(SceneEdit.setAudioEmitterProperty(document, entity.emitterIndex, ["extras", "gltfi"], { x, y }));
+    }
   }
 
   function handleSetParam(rawIndex: number, key: string, value: unknown) {
     dispatchCommand(AudioGraphEdit.setNodeParam(document, graphIndex, rawIndex, key, value));
+  }
+
+  /** UX-616: the node's top-level `bypass` field (distinct from `params` — `AudioGraphEdit.setNodeBypass`, DOC-063). */
+  function handleSetBypass(rawIndex: number, value: boolean) {
+    dispatchCommand(AudioGraphEdit.setNodeBypass(document, graphIndex, rawIndex, value));
   }
 
   const graphViewProps: Omit<GraphViewProps, "graph"> = {
@@ -261,9 +288,17 @@ export function AudioGraphCanvas({
             />
             {selectedRawNode && selectedRawIndex !== null ? (
               <AudioParamPanel
+                // Remounts (resetting CurveField/PeriodicWaveField's local
+                // uncommitted-text state, audio-param-panel.tsx's own doc
+                // comment) whenever the SELECTED node changes, rather than
+                // updating in place with a stale previous node's in-progress
+                // curve text.
+                key={selectedRawIndex}
                 kind={selectedRawNode.kind}
                 params={selectedRawNode.params ?? {}}
                 onSetParam={(key, value) => handleSetParam(selectedRawIndex, key, value)}
+                bypass={selectedRawNode.bypass ?? false}
+                onSetBypass={(value) => handleSetBypass(selectedRawIndex, value)}
               />
             ) : null}
           </div>

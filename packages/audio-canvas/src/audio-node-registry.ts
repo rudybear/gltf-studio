@@ -17,7 +17,21 @@
 // `kind` argument must carry — this registry is the palette's only source of
 // truth for "what nodes can this canvas create" (UX-608) and "what does
 // each node's param editor look like" (UX-609/UX-610).
-export type AudioParamFieldType = "number" | "integer" | "boolean" | "enum" | "curve";
+// M7 audio-graph gaps-closed pass (UX-618, "fuller param coverage"): two new
+// field types beyond the original number/integer/boolean/enum set.
+//  - "curve": a flat `number[]` (waveshaper/gain's `curve`) — edited as a
+//    textarea of comma/whitespace-separated numbers, committed as an array.
+//  - "periodic-wave": the oscillator's `{ real: number[]; imag: number[] }`
+//    Fourier-coefficient pair (gap-analysis G2's payload, now real in the
+//    ratified schema) — edited as two "curve"-style textareas, committed
+//    together as one nested object.
+// Both are `optional: true` (see `AudioParamField.optional` below): unlike
+// every other field, `defaultParamsFor` does NOT pre-populate them onto a
+// freshly-created node — an empty `curve: []` would violate the ratified
+// schema's own `minItems: 2`, and an unedited `periodicWave` has no
+// meaningful default shape to force onto every non-"custom" oscillator.
+// They only enter `params` once the author actually edits them.
+export type AudioParamFieldType = "number" | "integer" | "boolean" | "enum" | "curve" | "periodic-wave";
 
 export interface AudioParamField {
   key: string;
@@ -29,6 +43,10 @@ export interface AudioParamField {
   step?: number;
   /** Only for `type: "enum"`. */
   options?: string[];
+  /** M7 gaps-closed pass: excluded from `defaultParamsFor`'s initial params bag — see this file's header comment on "curve"/"periodic-wave". */
+  optional?: boolean;
+  /** M7 gaps-closed pass (UX-618): only rendered/editable in `audio-param-panel.tsx` when `params[showIf.key] === showIf.equals` (falling back to that OTHER field's own registry default when the param bag doesn't have `showIf.key` set yet) — e.g. a gain's `curve` only makes sense once `interpolation` is `"custom"`. */
+  showIf?: { key: string; equals: unknown };
 }
 
 export type AudioNodeCategory = "Generators" | "Filters" | "Dynamics & Shaping" | "Channel Routing";
@@ -61,7 +79,18 @@ export const AUDIO_NODE_REGISTRY: AudioNodeSpec[] = [
       { key: "type", label: "Waveform", type: "enum", default: "sine", options: ["sine", "square", "triangle", "sawtooth", "custom"] },
       { key: "frequency", label: "Frequency (Hz)", type: "number", default: 440, min: 0, step: 1 },
       { key: "detune", label: "Detune (cents)", type: "number", default: 0, step: 1 },
-      { key: "pulseWidth", label: "Pulse width", type: "number", default: 0.5, min: 0, max: 1, step: 0.01 }
+      { key: "pulseWidth", label: "Pulse width", type: "number", default: 0.5, min: 0, max: 1, step: 0.01 },
+      // UX-618 / gap-analysis G2 (resolved in the ratified schema — see
+      // validators.ts's header comment for the runtime-side caveat):
+      // required by the schema when type is "custom", so only shown then.
+      {
+        key: "periodicWave",
+        label: "Custom waveform (Fourier coefficients)",
+        type: "periodic-wave",
+        default: { real: [0, 1], imag: [0, 0] },
+        optional: true,
+        showIf: { key: "type", equals: "custom" }
+      }
     ]
   },
 
@@ -74,7 +103,21 @@ export const AUDIO_NODE_REGISTRY: AudioNodeSpec[] = [
     params: [
       { key: "gain", label: "Gain", type: "number", default: 1.0, min: 0, step: 0.05 },
       { key: "interpolation", label: "Interpolation", type: "enum", default: "linear", options: ["linear", "custom"] },
-      { key: "duration", label: "Duration (s)", type: "number", default: 0, min: 0, step: 0.05 }
+      { key: "duration", label: "Duration (s)", type: "number", default: 0, min: 0, step: 0.05 },
+      // UX-618 / gap-analysis G2 (resolved in the ratified schema): only
+      // meaningful once interpolation is "custom" — see validators.ts's
+      // "gain-curve-runtime-unimplemented" for this runtime's caveat once
+      // it's authored (approximated, not sampled).
+      {
+        key: "curve",
+        label: "Custom curve (gain factors 0-1, sampled over duration)",
+        type: "curve",
+        default: [0, 1],
+        min: 0,
+        max: 1,
+        optional: true,
+        showIf: { key: "interpolation", equals: "custom" }
+      }
     ]
   },
   {
@@ -94,7 +137,38 @@ export const AUDIO_NODE_REGISTRY: AudioNodeSpec[] = [
     description: "Nonlinear distortion/shaping curve.",
     params: [
       { key: "amount", label: "Amount", type: "number", default: 0.5, min: 0, max: 1, step: 0.01 },
-      { key: "oversample", label: "Oversample", type: "enum", default: "none", options: ["none", "2x", "4x"] }
+      { key: "oversample", label: "Oversample", type: "enum", default: "none", options: ["none", "2x", "4x"] },
+      // UX-618: unlike gain's "curve" (approximated at runtime) or
+      // oscillator's "periodicWave" (unread at runtime), the vendored
+      // AudioGraphJS runtime DOES apply this one directly
+      // (`nodes/waveShaper.js` uses `params.curve` verbatim when present,
+      // falling back to an `amount`-derived tanh curve only when absent) —
+      // a genuinely fully-supported param, not just schema-legal.
+      { key: "curve", label: "Explicit shaping curve (-1 to 1, overrides Amount)", type: "curve", default: [-1, 0, 1], min: -1, max: 1, optional: true }
+    ]
+  },
+  // UX-619 (Track 2, gap-analysis G1): `compressor` is a REAL kind in the
+  // ratified schema (`KHR_audio_graph.compressor.schema.json`, added by
+  // PR #2572's review-fixes refresh, alongside oscillator `periodicWave`
+  // and gain `curve` above) — the gap analysis's "no DynamicsCompressorNode"
+  // finding predates that refresh and no longer holds at the SCHEMA level.
+  // It stays authorable here (schema-conformant), but this project's
+  // vendored `audio-graph-js@0.1.0` runtime has no `'compressor'` case in
+  // its node builder yet (`validators.ts`'s own header comment,
+  // "compressor-runtime-unimplemented") — a genuine implementation gap, not
+  // a spec gap; `AudioGraphJsHost.audition()` degrades gracefully rather
+  // than throwing when a document reaches one.
+  {
+    kind: "compressor",
+    category: "Dynamics & Shaping",
+    label: "Compressor",
+    description: "Dynamics compressor (schema-valid; not yet built by this project's vendored runtime — see the lint warning).",
+    params: [
+      { key: "threshold", label: "Threshold (dB)", type: "number", default: -24.0, min: -100, max: 0, step: 1 },
+      { key: "knee", label: "Knee (dB)", type: "number", default: 30.0, min: 0, max: 40, step: 1 },
+      { key: "ratio", label: "Ratio", type: "number", default: 12.0, min: 1, max: 20, step: 0.5 },
+      { key: "attack", label: "Attack (s)", type: "number", default: 0.003, min: 0, max: 1, step: 0.001 },
+      { key: "release", label: "Release (s)", type: "number", default: 0.25, min: 0, max: 1, step: 0.01 }
     ]
   },
 
@@ -114,7 +188,19 @@ export const AUDIO_NODE_REGISTRY: AudioNodeSpec[] = [
     category: "Channel Routing",
     label: "Channel Splitter",
     description: "Splits a multi-channel signal into separate single-channel outputs.",
-    params: [{ key: "channelInterpretation", label: "Channel interpretation", type: "enum", default: "discrete", options: ["speakers", "discrete"] }]
+    params: [
+      // UX-615 (Track 1 gap closure): NOT part of the ratified
+      // `KHR_audio_graph.splitter.schema.json` (it declares no explicit
+      // channel-count param — see validators.ts's header comment) but the
+      // vendored runtime's `createChannelSplitter` reads it
+      // (`numberOfOutputs ?? 6`), and `channelmerger`'s symmetric
+      // `numberOfInputs` was already an accepted params key before this PR.
+      // `map-audio-graph.ts`'s `defaultPortSlots` reads this to seed that
+      // many rendered output ports EVEN BEFORE any connection uses them —
+      // the fix for "splitter fan-out only reachable at slot 0".
+      { key: "numberOfOutputs", label: "Number of outputs", type: "integer", default: 2, min: 1, max: 32, step: 1 },
+      { key: "channelInterpretation", label: "Channel interpretation", type: "enum", default: "discrete", options: ["speakers", "discrete"] }
+    ]
   },
   {
     kind: "channelmerger",
@@ -122,6 +208,10 @@ export const AUDIO_NODE_REGISTRY: AudioNodeSpec[] = [
     label: "Channel Merger",
     description: "Merges separate single-channel inputs into one multi-channel output.",
     params: [
+      // UX-615: `map-audio-graph.ts`'s `defaultPortSlots` reads this
+      // existing param (already accepted pre-M7 — see `splitter`'s new
+      // `numberOfOutputs` field comment above) to seed that many rendered
+      // input ports even before any connection uses them.
       { key: "numberOfInputs", label: "Number of inputs", type: "integer", default: 2, min: 1, max: 32, step: 1 },
       { key: "channelInterpretation", label: "Channel interpretation", type: "enum", default: "discrete", options: ["speakers", "discrete"] }
     ]
@@ -151,13 +241,22 @@ export function audioNodeSpec(kind: string): AudioNodeSpec | undefined {
   return AUDIO_NODE_REGISTRY.find((spec) => spec.kind === kind);
 }
 
-/** The default `params` object a freshly-created node of `kind` gets (one key per registry field, at its `default`). */
+/** The default `params` object a freshly-created node of `kind` gets (one key per NON-`optional` registry field, at its `default`) — `optional: true` fields (`curve`/`periodic-wave`, this file's header comment) are deliberately left out until the author actually edits them. */
 export function defaultParamsFor(kind: string): Record<string, unknown> {
   const spec = audioNodeSpec(kind);
   if (!spec) return {};
   const params: Record<string, unknown> = {};
   for (const field of spec.params) {
+    if (field.optional) continue;
     params[field.key] = field.default;
   }
   return params;
+}
+
+/** UX-618: whether `field` should currently be rendered/edited, given the REST of the node's current `params` (its own `showIf.key`'s value, falling back to that OTHER field's own registry default when unset). Fields with no `showIf` are always visible. */
+export function isParamFieldVisible(spec: AudioNodeSpec, field: AudioParamField, params: Record<string, unknown>): boolean {
+  if (!field.showIf) return true;
+  const controllingField = spec.params.find((f) => f.key === field.showIf!.key);
+  const currentValue = params[field.showIf.key] ?? controllingField?.default;
+  return currentValue === field.showIf.equals;
 }

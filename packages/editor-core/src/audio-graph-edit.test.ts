@@ -212,6 +212,31 @@ describe("AudioGraphEdit.setNodePosition (DOC-058)", () => {
   });
 });
 
+describe("AudioGraphEdit.setNodeBypass (DOC-063)", () => {
+  it("sets bypass=true on the node and round-trips", () => {
+    const doc = docWithAudioGraph();
+    const before = doc.json;
+    const command = AudioGraphEdit.setNodeBypass(doc, 0, 0, true);
+    expect(command.coalesceKey).toBe("audio-node-bypass:0:0");
+    const after = expectRoundTrip(before, command);
+    expect(audioGraph0(after).nodes[0].bypass).toBe(true);
+  });
+
+  it("un-sets bypass back to false and round-trips", () => {
+    const doc = docWithAudioGraph();
+    const withBypass = applyPatches(doc.json, AudioGraphEdit.setNodeBypass(doc, 0, 0, true).patches);
+    const docWithBypass: EditorDocument = { ...doc, json: withBypass };
+    const command = AudioGraphEdit.setNodeBypass(docWithBypass, 0, 0, false);
+    const after = expectRoundTrip(withBypass, command);
+    expect(audioGraph0(after).nodes[0].bypass).toBe(false);
+  });
+
+  it("throws for a nonexistent node index", () => {
+    const doc = docWithAudioGraph();
+    expect(() => AudioGraphEdit.setNodeBypass(doc, 0, 99, true)).toThrow(/No audio-graph node/);
+  });
+});
+
 describe("AudioGraphEdit property: add/connect/param/remove sequences undo back to the initial document", () => {
   it("any sequence of edits, undone in reverse via each command's own inverse, restores the exact original JSON", () => {
     const kinds = ["gain", "lowpass", "delay", "oscillator"] as const;
@@ -219,7 +244,8 @@ describe("AudioGraphEdit property: add/connect/param/remove sequences undo back 
       fc.record({ tag: fc.constant("add" as const), kind: fc.constantFrom(...kinds), gain: fc.float({ min: 0, max: 2, noNaN: true }) }),
       fc.record({ tag: fc.constant("param" as const), nodeIndex: fc.nat(2), value: fc.float({ min: -10, max: 10, noNaN: true }) }),
       fc.record({ tag: fc.constant("connect" as const), fromIndex: fc.nat(2), toIndex: fc.nat(2) }),
-      fc.record({ tag: fc.constant("position" as const), nodeIndex: fc.nat(2), x: fc.integer({ min: -500, max: 500 }), y: fc.integer({ min: -500, max: 500 }) })
+      fc.record({ tag: fc.constant("position" as const), nodeIndex: fc.nat(2), x: fc.integer({ min: -500, max: 500 }), y: fc.integer({ min: -500, max: 500 }) }),
+      fc.record({ tag: fc.constant("bypass" as const), nodeIndex: fc.nat(2), bypass: fc.boolean() })
     );
 
     fc.assert(
@@ -241,9 +267,12 @@ describe("AudioGraphEdit property: add/connect/param/remove sequences undo back 
             } else if (edit.tag === "connect") {
               if (edit.fromIndex >= graph.nodes.length || edit.toIndex >= graph.nodes.length || edit.fromIndex === edit.toIndex) continue;
               command = AudioGraphEdit.connectAudio(working, 0, { kind: "node", index: edit.fromIndex }, { kind: "node", index: edit.toIndex, input: 0 });
-            } else {
+            } else if (edit.tag === "position") {
               if (edit.nodeIndex >= graph.nodes.length) continue;
               command = AudioGraphEdit.setNodePosition(working, 0, edit.nodeIndex, edit.x, edit.y);
+            } else {
+              if (edit.nodeIndex >= graph.nodes.length) continue;
+              command = AudioGraphEdit.setNodeBypass(working, 0, edit.nodeIndex, edit.bypass);
             }
           } catch {
             continue; // a rejected/invalid edit for this random combination — skip, not a failure of the property

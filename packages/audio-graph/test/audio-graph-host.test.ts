@@ -86,6 +86,38 @@ describe("AudioGraphJsHost", () => {
     expect(results[0].severity).toBe("error");
   });
 
+  it("audition() degrades gracefully (does not throw) for a graph whose output node is a schema-valid but runtime-unimplemented 'compressor' (gap-analysis G1, resolved-in-schema/runtime-not-yet-caught-up — see validators.ts's header comment)", () => {
+    const doc = {
+      asset: { version: "2.0" },
+      extensions: {
+        KHR_audio_emitter: baseEmitterExtension(),
+        KHR_audio_graph: {
+          graphs: [
+            {
+              nodes: [{ kind: "compressor", label: "comp", params: { threshold: -24 } }],
+              connections: [],
+              inputs: [{ source: 0, node: 0 }],
+              outputs: [{ node: 0, emitter: 0 }]
+            }
+          ]
+        }
+      }
+    };
+    const host = new AudioGraphJsHost();
+    host.buildGraph(doc);
+    // lint() still reports the runtime-unimplemented warning (not an error —
+    // the document itself is valid KHR_audio_graph).
+    const compressorWarning = host.lint().find((r) => r.code === "compressor-runtime-unimplemented");
+    expect(compressorWarning).toBeDefined();
+    expect(compressorWarning!.severity).toBe("warning");
+    // The real assertion: auditioning a graph that reaches an unbuildable
+    // node kind must not throw/crash the caller (AudioGraphJsHost.audition's
+    // own doc comment) — it traces the build failure and no-ops instead.
+    expect(() => host.audition("comp")).not.toThrow();
+    expect(host.trace().some((line) => line.includes("build failed"))).toBe(true);
+    host.close();
+  });
+
   it("audition() lazily builds real Web Audio nodes and does not throw for a known node id; no-ops for an unknown one", () => {
     const doc = {
       asset: { version: "2.0" },

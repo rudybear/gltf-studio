@@ -118,7 +118,24 @@ export class AudioGraphJsHost implements AudioGraphHost {
     return this.lintResults;
   }
 
-  /** Lazily builds real Web Audio nodes (gesture-triggered — see the file header) and taps `nodeId`'s output to destination briefly. */
+  /**
+   * Lazily builds real Web Audio nodes (gesture-triggered — see the file
+   * header) and taps `nodeId`'s output to destination briefly.
+   *
+   * `buildWebAudioGraph` can throw for a node kind this vendored
+   * `audio-graph-js@0.1.0` runtime doesn't implement yet even though it is
+   * schema-valid `KHR_audio_graph` — `compressor`, the ratified schema's
+   * PR #2572 review-fixes addition (`validators.ts`'s own header comment;
+   * gap-analysis G1 is resolved upstream, but this runtime hasn't caught up)
+   * is the concrete case today, and any FUTURE schema-legal kind this
+   * runtime doesn't yet build would hit the same path. Per this method's own
+   * documented "no-op if nodeId is not found" fault-tolerant posture
+   * (specs/engine-api.md AGH-audition-signature-tbd), a build failure is
+   * handled the same way — traced, not thrown — rather than letting an
+   * exception escape into whatever React event handler called this and
+   * crash the audio-graph canvas over one unauditionable node in an
+   * otherwise-valid, schema-conformant document.
+   */
   audition(nodeId: string): void {
     const entry = this.parsedGraphs.find((candidate) => candidate.spec.nodes.some((node) => node.id === nodeId));
     if (!entry) {
@@ -129,7 +146,13 @@ export class AudioGraphJsHost implements AudioGraphHost {
     }
     const context = this.context;
     if (!this.builtByNodeId.has(nodeId)) {
-      const built = buildWebAudioGraph(context, entry.spec, this.tracer);
+      let built: ReturnType<typeof buildWebAudioGraph>;
+      try {
+        built = buildWebAudioGraph(context, entry.spec, this.tracer);
+      } catch (error) {
+        this.tracer.log(`audition(${nodeId}): build failed — ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
       for (const [id, node] of built.nodes) {
         this.builtByNodeId.set(id, { output: node });
       }

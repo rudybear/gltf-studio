@@ -346,16 +346,19 @@ export const SceneEdit = {
   },
 
   /**
-   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): sets an
-   * arbitrary property on `extensions.KHR_audio_emitter.sources[sourceIndex]`
-   * — the root-level sources registry an emitter's own `sources: number[]`
-   * array indexes into (e.g. `["gain"]`, `["playbackRate"]`, `["loop"]`,
-   * `["autoplay"]`, `["audio"]` to rebind the clip). A SEPARATE factory from
-   * `setAudioEmitterProperty` because `sources[]` and `emitters[]` are two
-   * distinct root arrays under the same extension, not a parent/child
-   * relationship `setAudioEmitterProperty`'s `propertyPath` could reach into
-   * — an emitter only stores source INDICES (`sources: number[]`), never the
-   * source objects themselves.
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx; also the
+   * source-side sibling `@gltf-studio/audio-canvas`'s audio-graph canvas
+   * uses, DOC-062, to persist a synthetic `audio-buffer-source` terminal
+   * node's canvas position — UX-617): sets an arbitrary property on
+   * `extensions.KHR_audio_emitter.sources[sourceIndex]` — the root-level
+   * sources registry an emitter's own `sources: number[]` array indexes
+   * into (e.g. `["gain"]`, `["playbackRate"]`, `["loop"]`, `["autoplay"]`,
+   * `["audio"]` to rebind the clip, or `["extras","gltfi"]` for a canvas
+   * position). A SEPARATE factory from `setAudioEmitterProperty` because
+   * `sources[]` and `emitters[]` are two distinct root arrays under the
+   * same extension, not a parent/child relationship `setAudioEmitterProperty`'s
+   * `propertyPath` could reach into — an emitter only stores source INDICES
+   * (`sources: number[]`), never the source objects themselves.
    */
   setAudioSourceProperty(document: EditorDocument, sourceIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
     const fragment = setPathFragment(document.json, ["extensions", "KHR_audio_emitter", "sources", sourceIndex, ...propertyPath], value);

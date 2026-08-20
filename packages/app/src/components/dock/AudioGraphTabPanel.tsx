@@ -12,14 +12,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { AudioGraphJsHost } from "@gltf-studio/audio-graph";
 import { AudioGraphCanvas } from "@gltf-studio/audio-canvas";
-import type { AudioEmitter, KHRGraph } from "audio-graph-js";
+import type { AudioEmitter, AudioEmitterSource, KHRGraph } from "audio-graph-js";
 import { useAppStore } from "../../store/app-store";
 import { Placeholder } from "./Placeholder";
 
 interface AudioGraphJsonShape {
   extensions?: {
     KHR_audio_graph?: { graphs?: KHRGraph[] };
-    KHR_audio_emitter?: { emitters?: AudioEmitter[] };
+    KHR_audio_emitter?: { emitters?: AudioEmitter[]; sources?: AudioEmitterSource[] };
   };
 }
 
@@ -96,6 +96,7 @@ export function AudioGraphTabPanel(): JSX.Element {
         document={document}
         dispatchCommand={dispatchCommand}
         emitters={json?.extensions?.KHR_audio_emitter?.emitters}
+        sources={json?.extensions?.KHR_audio_emitter?.sources}
         lintResults={lintResults}
         host={host}
         selectedNodeIndex={selectedNodeIndex}
