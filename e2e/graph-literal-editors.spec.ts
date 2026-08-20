@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * Typed literal editors incl. color pickers (task: "for such cases as input
@@ -36,6 +37,12 @@ async function importFixture(page: Page): Promise<void> {
   await expect
     .poll(() => page.locator(".react-flow__viewport").getAttribute("style"))
     .toContain("translate(60px, 60px) scale(1)");
+  // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+  // comment): every test in this file adds/retargets a node then
+  // immediately clicks something positioned relative to it — this readiness
+  // wait after import (repeated after every add/retarget below) is what
+  // makes that safe.
+  await waitForNodesSettled(page);
 }
 
 async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
@@ -86,6 +93,7 @@ test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
     await page.getByTestId("gcanvas.palette.op.flow/branch").click();
     const nodeIndex = 2; // fixture already has nodes 0/1; this is the 3rd
     await expect(page.getByTestId(`gcanvas.node.${nodeIndex}`)).toBeVisible();
+    await waitForNodesSettled(page); // node 2 was just added — see waitForNodesSettled's own doc comment
 
     const checkbox = page.getByTestId(`gcanvas.literal.${nodeIndex}.condition`);
     await expect(checkbox).toHaveAttribute("type", "checkbox");
@@ -101,12 +109,21 @@ test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
     await page.getByTestId("gcanvas.palette.op.pointer/set").click();
     const nodeIndex = 2;
     await expect(page.getByTestId(`gcanvas.node.${nodeIndex}`)).toBeVisible();
+    await waitForNodesSettled(page); // node 2 was just added — see waitForNodesSettled's own doc comment
 
     await page.getByTestId(`gcanvas.pointer-icon.${nodeIndex}`).click();
     await page.getByTestId("pointer-picker.tree.nodes.0").click(); // Root
     await page.getByTestId("pointer-picker.prop.scale").click();
     await expect(page.getByTestId("pointer-picker.type-chip")).toHaveText("float3");
     await page.getByTestId("pointer-picker.confirm").click();
+    // Bug-fix note (repro'd offline under artificial CPU contention, same
+    // method as task #33): the retarget above swaps this node's value
+    // editor (generic -> grouped x/y/z), resizing its card — without this
+    // wait, the header click below can land on `.gcanvas-root` or a
+    // neighboring row instead, per `locator.click` timing out with
+    // "<div class=\"gcanvas-root\"...> intercepts pointer events" in the
+    // captured trace.
+    await waitForNodesSettled(page);
 
     await selectNode(page, nodeIndex);
     const details = page.getByTestId("gcanvas.details");
@@ -133,6 +150,7 @@ test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
     await page.getByTestId("gcanvas.palette.op.pointer/set").click();
     const nodeIndex = 2;
     await expect(page.getByTestId(`gcanvas.node.${nodeIndex}`)).toBeVisible();
+    await waitForNodesSettled(page); // node 2 was just added — see waitForNodesSettled's own doc comment
 
     await page.getByTestId(`gcanvas.pointer-icon.${nodeIndex}`).click();
     await page.getByTestId("pointer-picker.tree.materials.0").click(); // WidgetMaterial
@@ -140,6 +158,13 @@ test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
     await expect(page.getByTestId("pointer-picker.path")).toHaveText("/materials/0/pbrMetallicRoughness/baseColorFactor");
     await expect(page.getByTestId("pointer-picker.type-chip")).toHaveText("float4");
     await page.getByTestId("pointer-picker.confirm").click();
+    // Bug-fix note (deflake — the color-picker/alpha-field flake this test
+    // reproduced offline under artificial CPU contention, same method as
+    // task #33): the retarget above swaps this node's value editor (generic
+    // -> color swatch + alpha range), resizing its card — the pointer-text/
+    // swatch/alpha reads and the header click below all compute a bounding
+    // box off that new size, so they need to wait for it too.
+    await waitForNodesSettled(page);
 
     // Canvas card: the pointer text/icon row confirms the retarget landed; the value socket now shows a real color swatch, not grouped numeric fields.
     await expect(page.getByTestId(`gcanvas.pointer-text.${nodeIndex}`)).toHaveText("/materials/0/pbrMetallicRoughness/baseColorFactor");

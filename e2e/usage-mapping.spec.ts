@@ -2,6 +2,7 @@ import { PNG } from "pngjs";
 import { test, expect, type Page } from "@playwright/test";
 import { buildUsageMappingFixtureBytes, USAGE_MAPPING_FIXTURE_NAME, USAGE_FIXTURE_NODE, USAGE_FIXTURE_GRAPH_NODE } from "./usage-mapping-fixture.js";
 import { assertRegionsVisuallyDiffer } from "./visual-assert.js";
+import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * specs/ux-usage-mapping.md UX-11xx: the Inspector's "Used in behavior"
@@ -215,7 +216,14 @@ test.describe("usage mapping (specs/ux-usage-mapping.md UX-11xx)", () => {
     // DIFFERENT node than the one still holding the blue selection above,
     // demonstrating the two tiers coexist across different nodes at once.
     await page.getByTestId("dock.tab.graph").click();
-    await page.getByTestId("gcanvas.node.0").click();
+    // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+    // comment): this tab was hidden-mounted (packages/graph-canvas/src/
+    // graph-view.tsx's own "hidden-mount fitView" bug-fix note) — its nodes
+    // only get their first REAL measured size once it becomes visible here,
+    // same node-click/resize race e2e/graph-canvas.spec.ts's own
+    // `waitForNodesSettled` guards against (task #33).
+    await waitForNodesSettled(page);
+    await clickNodeHeader(page, 0);
 
     await expect(page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_02}`)).toHaveClass(/ref-highlighted/);
     await expect(page.getByTestId(`scene-tree.row.${USAGE_FIXTURE_NODE.PROP_01}`)).toHaveClass(/selected/); // unaffected

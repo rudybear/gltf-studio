@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * M4 pointer picker, drag-to-graph, and config editors:
@@ -52,6 +53,14 @@ async function importFixture(page: Page): Promise<void> {
   await expect
     .poll(() => page.locator(".react-flow__viewport").getAttribute("style"))
     .toContain("translate(60px, 60px) scale(1)");
+  // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+  // comment): reproduced offline under artificial CPU contention as
+  // `gcanvas.pointer-icon.N`'s click timing out, `.gcanvas-root` (then a
+  // neighboring row on the same card) intercepting the point Playwright
+  // computed before the node's real size had settled — the same node-
+  // click/resize race e2e/graph-canvas.spec.ts's own `waitForNodesSettled`
+  // guards against, just not previously applied in this file.
+  await waitForNodesSettled(page);
 }
 
 async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
@@ -64,7 +73,10 @@ async function addBlankPointerSetNode(page: Page): Promise<number> {
   await page.getByTestId("gcanvas.palette.search").fill("pointer/set");
   await page.getByTestId("gcanvas.palette.op.pointer/set").click();
   const graph = await getGraphJson(page);
-  return graph.nodes.length - 1;
+  const nodeIndex = graph.nodes.length - 1;
+  await expect(page.getByTestId(`gcanvas.node.${nodeIndex}`)).toBeVisible();
+  await waitForNodesSettled(page); // just added — see importFixture's own doc comment above
+  return nodeIndex;
 }
 
 test.describe("pointer-picker dialog (UX-900..908)", () => {
@@ -99,6 +111,12 @@ test.describe("pointer-picker dialog (UX-900..908)", () => {
 
     await page.getByTestId("pointer-picker.confirm").click();
     await expect(dialog).toBeHidden();
+    // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+    // comment): the confirm above just gave this node a real pointer-text
+    // row (swapping "(no pointer set)" for a real path), resizing its card
+    // — the pointer-icon re-open click further down races that resize
+    // without this wait.
+    await waitForNodesSettled(page);
 
     let graph = await getGraphJson(page);
     let node = graph.nodes[nodeIndex]!;
@@ -124,6 +142,7 @@ test.describe("pointer-picker dialog (UX-900..908)", () => {
     await expect(page.getByTestId("pointer-picker.path")).toHaveText("/nodes/3/rotation/1");
     await expect(page.getByTestId("pointer-picker.type-chip")).toHaveText("float");
     await page.getByTestId("pointer-picker.confirm").click();
+    await waitForNodesSettled(page); // same resize-race rationale as above
 
     graph = await getGraphJson(page);
     node = graph.nodes[nodeIndex]!;
@@ -140,6 +159,7 @@ test.describe("pointer-picker dialog (UX-900..908)", () => {
     // Retarget once more to the WHOLE translation vector (a literal JSON key on Widget_Detail) so the Data-tab jump below has a real line to highlight.
     await page.getByTestId("pointer-picker.prop.translation").click();
     await page.getByTestId("pointer-picker.confirm").click();
+    await waitForNodesSettled(page); // same resize-race rationale as above
 
     // UX-509/UX-806: clicking the pointer-config TEXT (not the icon) force-switches the Data tab to that path, with the property highlighted.
     await expect(page.getByTestId("dock.tab.data")).not.toHaveClass(/active/);
@@ -247,8 +267,15 @@ test.describe("config-field editor: variable selector (node-details.tsx)", () =>
     await page.getByTestId("gcanvas.palette.op.variable/set").click();
     let graph = await getGraphJson(page);
     const firstNodeIndex = graph.nodes.length - 1;
-
-    await page.getByTestId(`gcanvas.node.${firstNodeIndex}`).click();
+    await expect(page.getByTestId(`gcanvas.node.${firstNodeIndex}`)).toBeVisible();
+    // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+    // comment): node just added, size not settled yet — same node-click/
+    // resize race as this file's importFixture/addBlankPointerSetNode.
+    // Clicking the header (not the node's own testid, whose geometric
+    // CENTER can land on a config row once real size settles) closes the
+    // geometry half of the race the wait alone doesn't.
+    await waitForNodesSettled(page);
+    await clickNodeHeader(page, firstNodeIndex);
     const details = page.getByTestId("gcanvas.details");
     await expect(details).toBeVisible();
 
@@ -294,7 +321,9 @@ test.describe("config-field editor: variable selector (node-details.tsx)", () =>
     await page.getByTestId("gcanvas.palette.op.variable/set").click();
     graph = await getGraphJson(page);
     const secondNodeIndex = graph.nodes.length - 1;
-    await page.getByTestId(`gcanvas.node.${secondNodeIndex}`).click();
+    await expect(page.getByTestId(`gcanvas.node.${secondNodeIndex}`)).toBeVisible();
+    await waitForNodesSettled(page); // same resize-race rationale as above
+    await clickNodeHeader(page, secondNodeIndex);
     await page.getByTestId(`gcanvas.details.config.variable-select.${secondNodeIndex}`).selectOption({ label: "speedVar" });
 
     graph = await getGraphJson(page);

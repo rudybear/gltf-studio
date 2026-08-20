@@ -455,6 +455,14 @@ test.describe("behavior-graph canvas", () => {
     await page.getByTestId("gcanvas.palette.search").fill("event/onSelect");
     await page.getByTestId("gcanvas.palette.op.event/onSelect").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
+    // See `waitForNodesSettled`'s doc comment above `importFixture`: node 2
+    // was JUST added, so its (and, per this task's own deflake pass,
+    // possibly a NEIGHBORING node's) bounding box hasn't settled yet —
+    // reproduced offline under artificial CPU contention as the target-chip
+    // click below landing on node 1's header instead (`locator.click`
+    // timing out with node 1's `.gcanvas-op-header` reported as
+    // intercepting the point Playwright computed for node 2's chip).
+    await waitForNodesSettled(page);
 
     const chip = page.getByTestId("gcanvas.target-chip.2");
     // Added blank from the palette: no `configuration.nodeIndex` at all yet — resolves to the registry's own "-1 any node" default.
@@ -466,6 +474,13 @@ test.describe("behavior-graph canvas", () => {
     await expect(chip).toContainText("Widget");
     await expect(chip).toContainText("(#1)");
     await expect(chip).toBeEnabled();
+    // Bug-fix note (deflake — a SECOND repro of this same test's node-click/
+    // resize race, found under the same artificial-CPU-contention method
+    // after the first fix above): the retarget just above changes the
+    // chip's own text ("any node" -> "Widget (#1)"), resizing node 2's
+    // card again — the `chip.click()` below needs its own settle wait, not
+    // just the one after the node was first added.
+    await waitForNodesSettled(page);
 
     // Chip click selects Widget in the scene tree. Scene-tree rows are
     // indexed by DEPTH-FIRST FLATTEN POSITION, not raw node index
