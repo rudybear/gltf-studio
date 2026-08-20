@@ -114,3 +114,172 @@ describe("WebAudioHost extras", () => {
     host.dispose();
   });
 });
+
+/**
+ * Emitter/environment authoring (specs/ux-inspector.md UX-419/UX-423,
+ * specs/engine-api.md's extended AH-pointer-value-tbd note): the five
+ * newly-recognized `positional/*` pointer families apply DIRECTLY onto the
+ * live `PannerNode` with no graph rebuild — asserted here by reaching into
+ * `WebAudioHost`'s own internal `emitterInstances` (a deliberate white-box
+ * check: AH-002 keeps the public `AudioHost` interface minimal on purpose,
+ * so "the panner attribute actually changed to the exact value" can't be
+ * observed any other way short of measuring rendered audio, which the task
+ * this covers explicitly asks tests NOT to do).
+ */
+describe("WebAudioHost applyPointer: positional emitter physics (UX-419/UX-423)", () => {
+  function positionalEmitterDoc() {
+    return {
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Speaker", extensions: { KHR_audio_emitter: { emitter: 0 } } }],
+      extensions: {
+        KHR_audio_emitter: {
+          audio: [],
+          sources: [],
+          emitters: [
+            {
+              type: "positional",
+              gain: 1,
+              sources: [],
+              positional: {
+                shapeType: "cone",
+                distanceModel: "inverse",
+                refDistance: 1,
+                maxDistance: 40,
+                rolloffFactor: 1,
+                coneInnerAngle: 0.5,
+                coneOuterAngle: 1.0,
+                coneOuterGain: 0.1
+              }
+            }
+          ]
+        }
+      }
+    };
+  }
+
+  async function hostWithPanner(): Promise<{ host: WebAudioHost; panner: PannerNode }> {
+    const host = new WebAudioHost();
+    await host.init();
+    await host.loadEmitters(positionalEmitterDoc());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const instance = (host as any).emitterInstances[0];
+    expect(instance.panner).toBeTruthy();
+    return { host, panner: instance.panner as PannerNode };
+  }
+
+  it("refDistance/maxDistance apply directly to the panner, no rebuild (instance identity unchanged)", async () => {
+    const { host, panner } = await hostWithPanner();
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/refDistance", [3]);
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/maxDistance", [80]);
+    expect(panner.refDistance).toBe(3);
+    expect(panner.maxDistance).toBe(80);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((host as any).emitterInstances[0].panner).toBe(panner); // same PannerNode instance -> confirms no graph rebuild happened.
+    host.dispose();
+  });
+
+  it("cone angles convert glTF radians to PannerNode degrees; coneOuterGain applies verbatim", async () => {
+    const { host, panner } = await hostWithPanner();
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/coneInnerAngle", [Math.PI / 2]);
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/coneOuterAngle", [Math.PI]);
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/coneOuterGain", [0.4]);
+    expect(panner.coneInnerAngle).toBeCloseTo(90, 5);
+    expect(panner.coneOuterAngle).toBeCloseTo(180, 5);
+    expect(panner.coneOuterGain).toBeCloseTo(0.4, 5);
+    host.dispose();
+  });
+
+  it("is a no-op (does not throw) for an emitter index with no panner (a global emitter)", async () => {
+    const host = new WebAudioHost();
+    await host.init();
+    await host.loadEmitters({
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "Ambience", extensions: { KHR_audio_emitter: { emitter: 0 } } }],
+      extensions: { KHR_audio_emitter: { audio: [], sources: [], emitters: [{ type: "global", gain: 1, sources: [] }] } }
+    });
+    expect(() => host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/positional/refDistance", [5])).not.toThrow();
+    host.dispose();
+  });
+});
+
+/**
+ * Emitter/environment authoring (specs/ux-inspector.md UX-421/UX-422): the
+ * KHR_audio_environment machinery (environments/listeners/zones/scene
+ * bindings) this pass adds Inspector UI for relies on the pre-existing
+ * `attachAudioHost` reload-on-edit path (specs/ux-inspector.md UX-423), not
+ * a new `WebAudioHost` code path of its own — so this suite confirms
+ * `loadEmitters` builds a correct, inspectable graph topology (reverb
+ * convolver wired, zone/listener bindings resolved) for a document
+ * authored via the NEW `SceneEdit` factories' exact output shape, rather
+ * than re-testing `spatial.ts`'s already-covered math.
+ */
+describe("WebAudioHost: KHR_audio_environment topology from freshly-authored documents (UX-421/UX-422)", () => {
+  it("builds a reverb convolver + gate/return gain chain for an authored environment, gated to zero outside any zone", async () => {
+    const doc = {
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0, 1], extensions: { KHR_audio_environment: { environment: 0, activeListener: 0 } } }],
+      nodes: [
+        {
+          name: "Zone",
+          extensions: { KHR_audio_environment: { environment: 0, shape: { type: "sphere", radius: 5 }, blendDistance: 1, priority: 0 } }
+        },
+        { name: "Listener", camera: 0, extensions: { KHR_audio_environment: { listener: 0 } } }
+      ],
+      cameras: [{ type: "perspective", perspective: { yfov: 0.8, znear: 0.1 } }],
+      extensions: {
+        KHR_audio_emitter: { audio: [], sources: [], emitters: [] },
+        KHR_audio_environment: {
+          listeners: [{ name: "Player", gain: 0.9, spatializationModel: "HRTF" }],
+          environments: [{ name: "Studio", reverb: { preset: "mediumRoom", mix: 0.3 } }]
+        }
+      }
+    };
+    const host = new WebAudioHost();
+    await host.init();
+    await host.loadEmitters(doc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyHost = host as any;
+    const bus = anyHost.environmentBuses.get(0);
+    expect(bus).toBeTruthy();
+    expect(bus.returnGain.gain.value).toBeCloseTo(0.3, 5); // reverb.mix authored via addAudioEnvironment/setAudioEnvironmentProperty.
+    expect(anyHost.listenerBus.gain.value).toBeCloseTo(0.9, 5); // listener.gain, resolved via selectListener's activeListener-pinned path.
+    expect(anyHost.zones.length).toBe(1);
+    expect(anyHost.zones[0].blendDistance).toBe(1);
+
+    // Listener starts far outside the (radius-5) zone -> gate stays closed (0), never throws.
+    expect(() => host.setListenerPose({ position: [100, 0, 0], rotation: [0, 0, 0, 1] })).not.toThrow();
+    expect(bus.gate.gain.value).toBeCloseTo(0, 1);
+    host.dispose();
+  });
+
+  it("reverb.mix changes apply live via applyPointer without rebuilding the environment bus", async () => {
+    const doc = {
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [] }],
+      nodes: [],
+      extensions: {
+        KHR_audio_emitter: { audio: [], sources: [], emitters: [] },
+        KHR_audio_environment: { environments: [{ name: "Hall", reverb: { preset: "concertHall", mix: 0.5 } }] }
+      }
+    };
+    const host = new WebAudioHost();
+    await host.init();
+    await host.loadEmitters(doc);
+    host.applyPointer("/extensions/KHR_audio_environment/environments/0/reverb/mix", [0.75]);
+    // applyPointer schedules this via AudioParam.setTargetAtTime (a smooth
+    // exponential approach against the REAL audio clock, specs/engine-api.md's
+    // applyPointer doc comment), not an instant `.value =` write — so this
+    // waits real wall-clock time (several of the 0.02s time constants used)
+    // before reading `.value` back, rather than asserting an exact figure.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((host as any).environmentBuses.get(0).returnGain.gain.value).toBeCloseTo(0.75, 1);
+    host.dispose();
+  });
+});

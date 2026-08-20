@@ -18,14 +18,38 @@ import { PointerButton } from "./PointerButton";
  * follow-up (noted inline, not silently missing) — see this requirement's
  * own PR description for why v1 stops at "property editing" rather than
  * attempting live preview.
+ *
+ * UX-422 (emitter/environment/listener authoring, audio pass 3/3) adds a
+ * Listener row: when the document has at least one `KHR_audio_environment`
+ * listener, either a "Bind as listener" action (`SceneEdit.
+ * setNodeAudioEnvironmentProperty(…, ["listener"], …)`, offered once a
+ * listener exists — creating the FIRST one is `AudioEnvironmentSection`'s
+ * own "Add environment"/empty-state action, `SceneEdit.addAudioListener`,
+ * kept there since a listener is a document-wide registry entry, not a
+ * camera-specific concept) or, once bound, editable Gain/Spatialization
+ * Model fields against that listener's own root registry entry
+ * (`SceneEdit.setAudioListenerProperty`).
  */
-export function CameraSection({ cameraIndex, json, document }: { cameraIndex: number; json: GltfJsonShape; document: EditorDocument }): JSX.Element {
+export function CameraSection({
+  cameraIndex,
+  nodeIndex,
+  json,
+  document
+}: {
+  cameraIndex: number;
+  nodeIndex: number;
+  json: GltfJsonShape;
+  document: EditorDocument;
+}): JSX.Element {
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const camera = json.cameras?.[cameraIndex];
   const perspective = camera?.perspective;
   const yfov = perspective?.yfov ?? 0.8;
   const znear = perspective?.znear ?? 0.1;
   const zfar = perspective?.zfar;
+  const listeners = json.extensions?.KHR_audio_environment?.listeners ?? [];
+  const listenerIndex = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_environment?.listener;
+  const listener = typeof listenerIndex === "number" ? listeners[listenerIndex] : undefined;
 
   function setYfov(value: number): void {
     dispatchCommand(SceneEdit.setCameraProperty(document, cameraIndex, ["perspective", "yfov"], value));
@@ -35,6 +59,17 @@ export function CameraSection({ cameraIndex, json, document }: { cameraIndex: nu
   }
   function setZfar(value: number): void {
     dispatchCommand(SceneEdit.setCameraProperty(document, cameraIndex, ["perspective", "zfar"], value));
+  }
+  function bindListener(index: number): void {
+    dispatchCommand(SceneEdit.setNodeAudioEnvironmentProperty(document, nodeIndex, ["listener"], index));
+  }
+  function setListenerGain(value: number): void {
+    if (typeof listenerIndex !== "number") return;
+    dispatchCommand(SceneEdit.setAudioListenerProperty(document, listenerIndex, ["gain"], value));
+  }
+  function setListenerSpatializationModel(value: string): void {
+    if (typeof listenerIndex !== "number") return;
+    dispatchCommand(SceneEdit.setAudioListenerProperty(document, listenerIndex, ["spatializationModel"], value));
   }
 
   return (
@@ -74,6 +109,55 @@ export function CameraSection({ cameraIndex, json, document }: { cameraIndex: nu
         <div className="empty-note" data-testid="inspector.camera.note">
           This camera does not yet preview live in the viewport — that's a later iteration. Edits above still apply to the document.
         </div>
+
+        {listeners.length > 0 &&
+          (listener ? (
+            <>
+              <div className="field-row">
+                <label>Listener Gain</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={listener.gain ?? 1}
+                  data-testid="inspector.camera.listener-gain"
+                  onChange={(e) => setListenerGain(Number(e.target.value))}
+                />
+              </div>
+              <div className="field-row">
+                <label>Spatialization Model</label>
+                <select
+                  className="field"
+                  data-testid="inspector.camera.listener-spatialization-model"
+                  value={listener.spatializationModel ?? "HRTF"}
+                  onChange={(e) => setListenerSpatializationModel(e.target.value)}
+                >
+                  <option value="HRTF">HRTF</option>
+                  <option value="equalpower">equalpower</option>
+                </select>
+              </div>
+            </>
+          ) : (
+            <div className="field-row">
+              <label>Listener</label>
+              <select
+                className="field"
+                data-testid="inspector.camera.bind-listener"
+                value=""
+                onChange={(e) => e.target.value !== "" && bindListener(Number(e.target.value))}
+              >
+                <option value="" disabled>
+                  Bind as listener…
+                </option>
+                {listeners.map((candidate, index) => (
+                  <option key={index} value={index}>
+                    {candidate.name ?? `Listener ${index}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
       </div>
     </div>
   );

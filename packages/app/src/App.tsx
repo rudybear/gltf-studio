@@ -52,6 +52,8 @@ declare global {
  */
 export interface GltfStudioAudioTestHook {
   diagnostics(): string;
+  /** specs/ux-inspector.md UX-423: proxies `WebAudioHost.getEmitterPosition` (a diagnostics-only extra, see that class's doc comment) — the e2e placement-confirmation seam for "an editor-driven node move re-derives a positional emitter's world position". */
+  emitterPosition(emitterIndex: number): [number, number, number] | null;
 }
 
 export function App(): JSX.Element {
@@ -95,7 +97,7 @@ export function App(): JSX.Element {
     const host = new WebAudioHost();
     const teardown = attachAudioHost(history, host);
     registerAudioHost(host);
-    window.__gltfStudioAudioTest = { diagnostics: () => host.getDiagnostics() };
+    window.__gltfStudioAudioTest = { diagnostics: () => host.getDiagnostics(), emitterPosition: (index) => host.getEmitterPosition(index) };
     return () => {
       delete window.__gltfStudioAudioTest;
       teardown();

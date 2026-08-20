@@ -346,6 +346,214 @@ export const SceneEdit = {
   },
 
   /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): sets an
+   * arbitrary property on `extensions.KHR_audio_emitter.sources[sourceIndex]`
+   * — the root-level sources registry an emitter's own `sources: number[]`
+   * array indexes into (e.g. `["gain"]`, `["playbackRate"]`, `["loop"]`,
+   * `["autoplay"]`, `["audio"]` to rebind the clip). A SEPARATE factory from
+   * `setAudioEmitterProperty` because `sources[]` and `emitters[]` are two
+   * distinct root arrays under the same extension, not a parent/child
+   * relationship `setAudioEmitterProperty`'s `propertyPath` could reach into
+   * — an emitter only stores source INDICES (`sources: number[]`), never the
+   * source objects themselves.
+   */
+  setAudioSourceProperty(document: EditorDocument, sourceIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["extensions", "KHR_audio_emitter", "sources", sourceIndex, ...propertyPath], value);
+    return {
+      id: makeCommandId("set-audio-source-property"),
+      label: `Set audio source ${sourceIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `audio-source-property:${sourceIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): appends a
+   * `KHR_audio_environment` reverb zone/environment definition to the ROOT
+   * `extensions.KHR_audio_environment.environments[]` registry (`reverb`
+   * seeded from `spatial.ts`'s 13-entry `REVERB_PRESETS` table via
+   * `opts.reverbPreset`, defaulting to `"mediumRoom"`), scaffolding the
+   * extension's `extensionsUsed` entry when it isn't already listed —
+   * mirrors `addLightNode`'s own find-or-scaffold pattern. This ONLY
+   * creates the environment registry entry — it does not bind it to any
+   * node (a zone, `addAudioZone`) or set it as any scene's default
+   * (`setSceneAudioEnvironment`); a caller composes those separately.
+   */
+  addAudioEnvironment(document: EditorDocument, name: string, opts: { reverbPreset?: string } = {}): { command: Command; index: number } {
+    const environmentFragment = appendFragment(document.json, ["extensions", "KHR_audio_environment", "environments"], {
+      name,
+      reverb: { preset: opts.reverbPreset ?? "mediumRoom", mix: 0.35 }
+    });
+    const jsonAfterEnvironment = applyPatches(document.json, environmentFragment.patches);
+    const usedFragment = ensureExtensionUsedFragment(jsonAfterEnvironment, "KHR_audio_environment");
+    const combined = combineCommandParts([environmentFragment, usedFragment]);
+    return {
+      index: environmentFragment.index,
+      command: {
+        id: makeCommandId("add-audio-environment"),
+        label: `Add audio environment "${name}"`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /** Sets an arbitrary property on the ROOT `extensions.KHR_audio_environment.environments[environmentIndex]` entry (e.g. `["reverb","preset"]`, `["reverb","mix"]`, `["doppler","enabled"]`) — mirrors `setAudioEmitterProperty`'s shape. */
+  setAudioEnvironmentProperty(document: EditorDocument, environmentIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["extensions", "KHR_audio_environment", "environments", environmentIndex, ...propertyPath], value);
+    return {
+      id: makeCommandId("set-audio-environment-property"),
+      label: `Set audio environment ${environmentIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `audio-environment-property:${environmentIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): appends a
+   * `KHR_audio_environment` listener to the ROOT
+   * `extensions.KHR_audio_environment.listeners[]` registry, scaffolding
+   * `extensionsUsed` the same way `addAudioEnvironment` does. Not bound to
+   * any node or scene by this call alone — see `setNodeAudioEnvironment`
+   * (a camera node's `listener` binding) and `setSceneAudioActiveListener`
+   * (the scene-pinned default, `WebAudioHost.selectListener`'s fallback
+   * order).
+   */
+  addAudioListener(document: EditorDocument, name: string, opts: { gain?: number; spatializationModel?: string } = {}): { command: Command; index: number } {
+    const listenerFragment = appendFragment(document.json, ["extensions", "KHR_audio_environment", "listeners"], {
+      name,
+      gain: opts.gain ?? 1,
+      spatializationModel: opts.spatializationModel ?? "HRTF"
+    });
+    const jsonAfterListener = applyPatches(document.json, listenerFragment.patches);
+    const usedFragment = ensureExtensionUsedFragment(jsonAfterListener, "KHR_audio_environment");
+    const combined = combineCommandParts([listenerFragment, usedFragment]);
+    return {
+      index: listenerFragment.index,
+      command: {
+        id: makeCommandId("add-audio-listener"),
+        label: `Add audio listener "${name}"`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /** Sets an arbitrary property on the ROOT `extensions.KHR_audio_environment.listeners[listenerIndex]` entry (e.g. `["gain"]`, `["spatializationModel"]`) — mirrors `setAudioEmitterProperty`'s shape. */
+  setAudioListenerProperty(document: EditorDocument, listenerIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["extensions", "KHR_audio_environment", "listeners", listenerIndex, ...propertyPath], value);
+    return {
+      id: makeCommandId("set-audio-listener-property"),
+      label: `Set audio listener ${listenerIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `audio-listener-property:${listenerIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): sets an
+   * arbitrary property on a NODE's own `extensions.KHR_audio_environment`
+   * object — the same per-node object the real extension overloads for TWO
+   * distinct purposes (`WebAudioHost`'s `GltfNodeAudio` type, `spatial.ts`'s
+   * `ZoneBinding`): a reverb ZONE binding (`["environment"]` the zone's
+   * environment index, `["shape","type"|"size"|"radius"]`,
+   * `["blendDistance"]`, `["priority"]`) on any node, OR a LISTENER binding
+   * (`["listener"]`, an index into `extensions.KHR_audio_environment.
+   * listeners[]`) typically on a camera node — both live at the exact same
+   * JSON location, so one generic setter (mirroring `setAudioZoneProperty`'s
+   * sibling factories' shape) covers either. Does NOT scaffold
+   * `extensionsUsed` itself (unlike `addAudioZone`) — callers use this for
+   * incremental edits to an object `addAudioZone`/a prior call already
+   * created.
+   */
+  setNodeAudioEnvironmentProperty(document: EditorDocument, nodeIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(document.json, ["nodes", nodeIndex, "extensions", "KHR_audio_environment", ...propertyPath], value);
+    return {
+      id: makeCommandId("set-node-audio-environment-property"),
+      label: `Set node ${nodeIndex} audio environment ${propertyPath.join(".")}`,
+      coalesceKey: `node-audio-environment-property:${nodeIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): turns
+   * `nodeIndex` into a `KHR_audio_environment` reverb zone in one command —
+   * sets its `extensions.KHR_audio_environment` object wholesale to
+   * `{ environment: environmentIndex, shape, blendDistance, priority }`
+   * (default shape a radius-5 sphere; `WebAudioHost`'s `selectEnvironment`/
+   * `spatial.ts`'s zone-selection algorithm reads all four), scaffolding
+   * `extensionsUsed`. Subsequent field-level edits go through
+   * `setNodeAudioEnvironmentProperty`. Overwrites any PRIOR
+   * `extensions.KHR_audio_environment` value the node had (e.g. a listener
+   * binding) — a node is authored as a zone OR a listener in this UI, not
+   * both; the caller is expected to only offer this action for a node that
+   * isn't already a listener.
+   */
+  addAudioZone(
+    document: EditorDocument,
+    nodeIndex: number,
+    environmentIndex: number,
+    opts: { shape?: Record<string, unknown>; blendDistance?: number; priority?: number } = {}
+  ): Command {
+    const zoneValue = {
+      environment: environmentIndex,
+      shape: opts.shape ?? { type: "sphere", radius: 5 },
+      blendDistance: opts.blendDistance ?? 1,
+      priority: opts.priority ?? 0
+    };
+    const zoneFragment = setPathFragment(document.json, ["nodes", nodeIndex, "extensions", "KHR_audio_environment"], zoneValue);
+    const jsonAfterZone = applyPatches(document.json, zoneFragment.patches);
+    const usedFragment = ensureExtensionUsedFragment(jsonAfterZone, "KHR_audio_environment");
+    const combined = combineCommandParts([zoneFragment, usedFragment]);
+    return {
+      id: makeCommandId("add-audio-zone"),
+      label: `Add environment zone on node ${nodeIndex}`,
+      patches: combined.patches,
+      inverse: combined.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): sets (or,
+   * given `null`, clears) `scenes[sceneIndex].extensions.KHR_audio_environment.
+   * environment` — the scene-wide DEFAULT environment `WebAudioHost.
+   * collectZonesAndDefault` falls back to when the listener isn't currently
+   * inside any zone (`spatial.ts`'s `selectEnvironment`).
+   */
+  setSceneAudioEnvironment(document: EditorDocument, sceneIndex: number, environmentIndex: number | null): Command {
+    const path = ["scenes", sceneIndex, "extensions", "KHR_audio_environment", "environment"];
+    const fragment = environmentIndex === null ? deletePathFragment(document.json, path) : setPathFragment(document.json, path, environmentIndex);
+    return {
+      id: makeCommandId("set-scene-audio-environment"),
+      label: `Set scene ${sceneIndex} default audio environment`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * Emitter/environment authoring (specs/ux-inspector.md UX-4xx): sets (or,
+   * given `null`, clears) `scenes[sceneIndex].extensions.KHR_audio_environment.
+   * activeListener` — the scene-pinned listener index `WebAudioHost.
+   * selectListener` prefers above any node-bound listener when present.
+   */
+  setSceneAudioActiveListener(document: EditorDocument, sceneIndex: number, listenerIndex: number | null): Command {
+    const path = ["scenes", sceneIndex, "extensions", "KHR_audio_environment", "activeListener"];
+    const fragment = listenerIndex === null ? deletePathFragment(document.json, path) : setPathFragment(document.json, path, listenerIndex);
+    return {
+      id: makeCommandId("set-scene-audio-active-listener"),
+      label: `Set scene ${sceneIndex} active audio listener`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * Richer inspector (specs/ux-inspector.md UX-417): sets an arbitrary
    * property on the ROOT `extensions.KHR_lights_punctual.lights[lightIndex]`
    * registry entry (e.g. `["intensity"]`, `["color"]`, `["spot",
@@ -685,32 +893,56 @@ export const SceneEdit = {
   },
 
   /**
-   * DOC-047 (M8-lite, specs/ux-scene-tree.md UX-206): the scene tree's
-   * "+ Add" > Audio Emitter entry. Builds a complete, immediately-
-   * auditionable `KHR_audio_emitter` chain from scratch — a silent WAV
-   * buffer (`primitives.ts`'s `silentWavBuffer`; see its own doc comment
-   * for why a clip is generated at all rather than leaving `sources`
-   * empty) + bufferView + `audio[]` entry + `sources[]` entry + a
-   * positional `emitters[]` entry, scaffolding the extension's
+   * DOC-047 (M8-lite, specs/ux-scene-tree.md UX-206), extended by the
+   * emitter/environment authoring pass (specs/ux-inspector.md UX-4xx) with
+   * `opts.audioIndex`: the scene tree's "+ Add" > Audio Emitter entry.
+   * Builds a complete, immediately-auditionable `KHR_audio_emitter` chain —
+   * a `sources[]` entry + a positional `emitters[]` entry (with an explicit
+   * `positional` object, all four fields `WebAudioHost.buildEmitterChain`
+   * actually reads, so the inspector has real starting values rather than
+   * blanks-that-fall-back-to-defaults), scaffolding the extension's
    * `extensionsUsed` entry when needed — plus a node referencing the new
    * emitter via `node.extensions.KHR_audio_emitter.emitter`, all as ONE
    * combined command. Lands under `opts.parentNodeIndex` when given, else
    * scene root.
+   *
+   * `opts.audioIndex`, when given, REUSES an existing
+   * `extensions.KHR_audio_emitter.audio[audioIndex]` clip already in the
+   * document (e.g. one a previous emitter or an imported asset already
+   * carries) instead of generating a fresh silent-WAV placeholder buffer +
+   * bufferView + `audio[]` entry — the Add menu's "pick an existing clip"
+   * path. Omitted (the default): generates the placeholder exactly as
+   * before (`primitives.ts`'s `silentWavBuffer`; see its own doc comment for
+   * why a clip is generated at all rather than leaving `sources` empty).
    */
-  addAudioEmitterNode(document: EditorDocument, name: string, opts: { parentNodeIndex?: number } = {}): { command: Command; index: number } {
-    const wav = silentWavBuffer();
+  addAudioEmitterNode(
+    document: EditorDocument,
+    name: string,
+    opts: { parentNodeIndex?: number; audioIndex?: number } = {}
+  ): { command: Command; index: number } {
+    let json = document.json;
+    const generationFragments: PatchPair[] = [];
+    let audioIndex = opts.audioIndex;
 
-    const bufferFragment = appendFragment(document.json, ["buffers"], { byteLength: wav.byteLength, uri: wav.uri });
-    let json = applyPatches(document.json, bufferFragment.patches);
+    if (audioIndex === undefined) {
+      const wav = silentWavBuffer();
 
-    const bufferViewFragment = appendFragment(json, ["bufferViews"], { buffer: bufferFragment.index, byteOffset: 0, byteLength: wav.byteLength });
-    json = applyPatches(json, bufferViewFragment.patches);
+      const bufferFragment = appendFragment(json, ["buffers"], { byteLength: wav.byteLength, uri: wav.uri });
+      json = applyPatches(json, bufferFragment.patches);
+      generationFragments.push(bufferFragment);
 
-    const audioFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "audio"], { bufferView: bufferViewFragment.index, mimeType: "audio/wav" });
-    json = applyPatches(json, audioFragment.patches);
+      const bufferViewFragment = appendFragment(json, ["bufferViews"], { buffer: bufferFragment.index, byteOffset: 0, byteLength: wav.byteLength });
+      json = applyPatches(json, bufferViewFragment.patches);
+      generationFragments.push(bufferViewFragment);
+
+      const audioFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "audio"], { bufferView: bufferViewFragment.index, mimeType: "audio/wav" });
+      json = applyPatches(json, audioFragment.patches);
+      generationFragments.push(audioFragment);
+      audioIndex = audioFragment.index;
+    }
 
     const sourceFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "sources"], {
-      audio: audioFragment.index,
+      audio: audioIndex,
       gain: 1,
       loop: false,
       autoplay: false
@@ -720,7 +952,8 @@ export const SceneEdit = {
     const emitterFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "emitters"], {
       type: "positional",
       gain: 1,
-      sources: [sourceFragment.index]
+      sources: [sourceFragment.index],
+      positional: { shapeType: "omnidirectional", distanceModel: "inverse", refDistance: 1, maxDistance: 0, rolloffFactor: 1 }
     });
     json = applyPatches(json, emitterFragment.patches);
 
@@ -728,7 +961,7 @@ export const SceneEdit = {
     json = applyPatches(json, usedFragment.patches);
 
     const nodeFragment = appendNodeFragment(json, { name, extensions: { KHR_audio_emitter: { emitter: emitterFragment.index } } }, opts);
-    const combined = combineCommandParts([bufferFragment, bufferViewFragment, audioFragment, sourceFragment, emitterFragment, usedFragment, nodeFragment]);
+    const combined = combineCommandParts([...generationFragments, sourceFragment, emitterFragment, usedFragment, nodeFragment]);
     return {
       index: nodeFragment.index,
       command: {

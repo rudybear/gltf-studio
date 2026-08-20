@@ -49,13 +49,20 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
   return {
     asset: { version: "2.0", generator: "gltf-studio e2e inspector fixture" },
     scene: 0,
-    // Flat (no hierarchy) — five top-level nodes, indices 0..4, in this order:
+    // Flat (no hierarchy) — indices 0..4 are pinned exactly by
+    // inspector.spec.ts/export.spec.ts's own `scene-tree.row.N` clicks, in
+    // this order:
     //   0 "Widget"  — mesh 0, TWO primitives (materials 0 and 1)
     //   1 "Widget2" — mesh 0 too (shares Widget's mesh -> UX-410's note)
     //   2 "Lamp"    — KHR_lights_punctual (UX-414/UX-417 Light section)
-    //   3 "Cam"     — a camera (UX-414/UX-418 Camera section)
-    //   4 "Speaker" — KHR_audio_emitter (UX-406)
-    scenes: [{ nodes: [0, 1, 2, 3, 4] }],
+    //   3 "Cam"     — a camera (UX-414/UX-418 Camera section); also the
+    //                 KHR_audio_environment listener binding (UX-422) —
+    //                 reusing the existing camera node rather than adding a
+    //                 new one keeps 0..4 stable for those pinned specs.
+    //   4 "Speaker" — KHR_audio_emitter (UX-406/UX-419/UX-420)
+    // Index 5, APPENDED (never renumbers 0..4): "Zone" — a
+    // KHR_audio_environment reverb zone (UX-421), audio pass 3/3.
+    scenes: [{ nodes: [0, 1, 2, 3, 4, 5], extensions: { KHR_audio_environment: { environment: 0, activeListener: 0 } } }],
     nodes: [
       { name: "Widget", mesh: 0 },
       { name: "Widget2", mesh: 0 },
@@ -65,8 +72,13 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
       // exact surface it's lighting would make degenerate (zero-distance
       // falloff).
       { name: "Lamp", translation: [1, 2, 2], extensions: { KHR_lights_punctual: { light: 0 } } },
-      { name: "Cam", camera: 0 },
-      { name: "Speaker", extensions: { KHR_audio_emitter: { emitter: 0 } } }
+      { name: "Cam", camera: 0, extensions: { KHR_audio_environment: { listener: 0 } } },
+      { name: "Speaker", extensions: { KHR_audio_emitter: { emitter: 0 } } },
+      {
+        name: "Zone",
+        translation: [0, 0, 0],
+        extensions: { KHR_audio_environment: { environment: 0, shape: { type: "sphere", radius: 5 }, blendDistance: 1, priority: 0 } }
+      }
     ],
     cameras: [{ type: "perspective", perspective: { yfov: 0.8, znear: 0.1 } }],
     meshes: [
@@ -121,13 +133,36 @@ function buildInspectorFixtureJson(): Record<string, unknown> {
       // M7: real audio (audio[]/sources[]) bound via `sources: [0]` — real
       // enough for e2e/audio.spec.ts's audition -> active-voice assertion
       // (diagnostics()), not just an inert gain/distanceModel-only stub.
+      // Emitter/environment authoring (UX-419): `distanceModel` (plus the
+      // rest of the positional physics fields) lives under `positional`,
+      // matching what `WebAudioHost.buildEmitterChain` actually reads — NOT
+      // top-level, which was this fixture's own pre-UX-419 bug (silently
+      // matched the OLD, also-buggy AudioSection.tsx write path, so the bug
+      // was invisible to e2e coverage until now).
       KHR_audio_emitter: {
         audio: [{ bufferView: 2, mimeType: "audio/wav" }],
         sources: [{ audio: 0, gain: 1, loop: false }],
-        emitters: [{ type: "positional", gain: 0.8, distanceModel: "inverse", sources: [0] }]
+        emitters: [
+          {
+            type: "positional",
+            gain: 0.8,
+            sources: [0],
+            positional: { shapeType: "omnidirectional", distanceModel: "inverse", refDistance: 1, maxDistance: 0, rolloffFactor: 1 }
+          }
+        ]
+      },
+      // Emitter/environment authoring, audio pass 3/3 (UX-421/UX-422): one
+      // environment (a real, non-default reverb preset+mix so e2e coverage
+      // edits a starting value that isn't just this app's own display
+      // default) + one listener, bound to "Cam" (node 3) and "Zone" (node
+      // 5) respectively above, plus pinned as the scene's own defaults
+      // (`scenes[0].extensions.KHR_audio_environment`).
+      KHR_audio_environment: {
+        listeners: [{ name: "Player", gain: 1, spatializationModel: "HRTF" }],
+        environments: [{ name: "Studio", reverb: { preset: "concertHall", mix: 0.4 } }]
       }
     },
-    extensionsUsed: ["KHR_lights_punctual", "KHR_audio_emitter"]
+    extensionsUsed: ["KHR_lights_punctual", "KHR_audio_emitter", "KHR_audio_environment"]
   };
 }
 
