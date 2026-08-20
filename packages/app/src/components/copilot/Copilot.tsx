@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../store/app-store";
 import type { CopilotThreadEntry } from "../../store/app-store";
+import { useSettingsState } from "../../settings/settings-state.js";
 
 /**
  * specs/ux-copilot.md UX-1000..1011: the Copilot tab's real content --
  * context row (UX-1001/1002), thread (UX-1003), proposal cards
  * (UX-1004..1007/1010), history integration is the store's job
- * (UX-1008, `acceptCopilotProposal`), and the composer (UX-1011).
+ * (UX-1008, `acceptCopilotProposal`), and the composer (UX-1011). UX-1012:
+ * a small provider indicator naming the active `AgentService` provider,
+ * with a link into `specs/ux-settings.md`'s settings dialog to change it.
  */
 export function Copilot(): JSX.Element {
   const document = useAppStore((s) => s.document);
+  const activeProvider = useSettingsState((s) => s.provider);
+  const activeModel = useSettingsState((s) => s.model);
+  const activeBaseUrl = useSettingsState((s) => s.baseUrl);
+  const openSettings = useSettingsState((s) => s.open);
   const contextChips = useAppStore((s) => s.copilotContextChips);
   const thread = useAppStore((s) => s.copilotThread);
   const prompt = useAppStore((s) => s.copilotPrompt);
@@ -62,8 +69,17 @@ export function Copilot(): JSX.Element {
   const json = document.json as { extensions?: { KHR_interactivity?: { graphs?: unknown[] } } };
   const graphCount = json.extensions?.KHR_interactivity?.graphs?.length ?? 0;
 
+  const providerLabel =
+    activeProvider === "mock" ? "Mock" : `Local model${activeModel ? ` (${activeModel})` : ` (${activeBaseUrl})`}`;
+
   return (
     <div className="copilot-panel" data-testid="copilot.panel">
+      <div className="copilot-provider-indicator" data-testid="copilot.provider-indicator">
+        Provider: {providerLabel}
+        <button type="button" className="copilot-provider-indicator-link" data-testid="copilot.provider-indicator.settings-link" onClick={openSettings}>
+          Settings
+        </button>
+      </div>
       <div className="copilot-context-row" data-testid="copilot.context">
         {contextChips.map((chip) => (
           <span className="copilot-chip" data-testid={`copilot.context.chip.${chip.id}`} key={chip.id}>

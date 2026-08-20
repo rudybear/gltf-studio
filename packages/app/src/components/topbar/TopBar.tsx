@@ -5,6 +5,7 @@ import { useSystemPrefersDark } from "../../hooks/use-system-theme";
 import { HistoryDropdown } from "./HistoryDropdown";
 import { filesFromDataTransfer } from "../../lib/file-drop.js";
 import { useTourState } from "../../tour/tour-state";
+import { useSettingsState } from "../../settings/settings-state.js";
 
 // `window.showOpenFilePicker` isn't declared in TypeScript's bundled `dom`
 // lib (same reason `packages/app/src/lib/export.ts`'s own
@@ -32,7 +33,8 @@ function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
  * chrome + real play-bar wiring against `PlayController` via the store's
  * `startPlay`/`pausePlay`/`resumePlay`/`stopPlay`/`setPlayEngine` actions),
  * UX-121 (`topbar.tour-start` — a distinct glyph from UX-111's `?`, starts
- * `specs/ux-tour.md`'s tour at step 1 regardless of prior state).
+ * `specs/ux-tour.md`'s tour at step 1 regardless of prior state), UX-129
+ * (`topbar.settings` — opens `specs/ux-settings.md`'s settings dialog).
  * Export is real as of M3.
  */
 const SAVE_STATUS_LABEL: Record<"saved" | "saving" | "unsaved", string> = {
@@ -60,6 +62,7 @@ export function TopBar(): JSX.Element {
   const testIdOverlay = useAppStore((s) => s.testIdOverlay);
   const toggleTestIdOverlay = useAppStore((s) => s.toggleTestIdOverlay);
   const startTour = useTourState((s) => s.start);
+  const openSettings = useSettingsState((s) => s.open);
   const playState = useAppStore((s) => s.playState);
   const playEngine = useAppStore((s) => s.playEngine);
   const startPlay = useAppStore((s) => s.startPlay);
@@ -294,6 +297,9 @@ export function TopBar(): JSX.Element {
           onClick={startTour}
         >
           ◎
+        </button>
+        <button className="btn icon-only" data-testid="topbar.settings" title="Settings" onClick={openSettings}>
+          ⚙
         </button>
       </div>
     </div>

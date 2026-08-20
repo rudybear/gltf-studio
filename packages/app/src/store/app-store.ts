@@ -39,8 +39,10 @@ import {
 import { IndexedDBStorage } from "@gltf-studio/storage";
 import { createPlayController } from "@gltf-studio/play";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
+import { OpenAICompatibleAgentProvider, type LlmProviderConfig } from "@gltf-studio/agent-llm";
 import type {
   AgentContextRef,
+  AgentService,
   AudioHost,
   EngineKind,
   GizmoMode,
@@ -51,6 +53,7 @@ import type {
   RenderHost,
   StorageProvider
 } from "@gltf-studio/engine-api";
+import { useSettingsState } from "../settings/settings-state.js";
 import { triggerBrowserDownload, trySaveFilePicker } from "../lib/export.js";
 import { packMultiFileGltf, type PackFileMap } from "../lib/pack-gltf.js";
 import { extractBinaryChunk } from "../lib/audio-container.js";
@@ -664,20 +667,60 @@ export function getActivePlayController(): PlayController | null {
   return activePlayController;
 }
 
-// specs/agent-service.md AG-010: the mock/offline AgentService, wired up as
-// a module-level singleton (mirrors `activePlayController` above) rather
-// than reactive AppState -- nothing outside this file needs the provider
-// INSTANCE, only its `request()` result. Constructed lazily, on first use,
-// since `MockAgentProvider`'s constructor requires a real `EditorDocument`
-// (none exists before a project is imported); `syncAgentProviderDocument`
-// below is called from every place `document`/`history` already gets
-// updated elsewhere in this store, so the provider never sees a stale
-// document by the time a request is made.
-let agentProvider: MockAgentProvider | null = null;
+// specs/agent-service.md AG-022: the currently-active AgentService provider
+// -- Mock or a local OpenAI-compatible endpoint, per the user's choice in
+// specs/ux-settings.md's settings dialog (`../settings/settings-state.ts`)
+// -- wired up as a module-level singleton (mirrors `activePlayController`
+// above) rather than reactive AppState -- nothing outside this file needs
+// the provider INSTANCE, only its `request()` result. Constructed lazily,
+// on first use, since both providers' constructors require a real
+// `EditorDocument` (none exists before a project is imported);
+// `syncAgentProviderDocument` below is called from every place
+// `document`/`history` already gets updated elsewhere in this store, so the
+// provider never sees a stale document by the time a request is made.
+//
+// This function is ALSO where a provider switch (or a local-provider config
+// change -- base URL/model/API key edited in the settings dialog) takes
+// effect: it re-reads `useSettingsState` on every call and, when the
+// selected provider or its config differs from what's currently
+// constructed, discards the stale instance and builds a fresh one --
+// otherwise it reuses the existing instance and just threads the current
+// document through (the original lazy-construction behavior, unchanged for
+// the mock-only case). Every call site keeps calling
+// `syncAgentProviderDocument(document)` exactly as before; none of them
+// need to know which provider is active.
+let agentProvider: AgentService | null = null;
+let agentProviderKind: "mock" | "local" | null = null;
+let agentProviderConfig: LlmProviderConfig | null = null;
 
-function syncAgentProviderDocument(document: EditorDocument): MockAgentProvider {
-  if (agentProvider) agentProvider.setDocument(document);
-  else agentProvider = new MockAgentProvider(document);
+function configsEqual(a: LlmProviderConfig | null, b: LlmProviderConfig): boolean {
+  return a !== null && a.baseUrl === b.baseUrl && a.model === b.model && a.apiKey === b.apiKey;
+}
+
+function syncAgentProviderDocument(document: EditorDocument): AgentService {
+  const settings = useSettingsState.getState();
+
+  if (settings.provider === "mock") {
+    if (agentProviderKind === "mock" && agentProvider) {
+      (agentProvider as MockAgentProvider).setDocument(document);
+    } else {
+      agentProvider = new MockAgentProvider(document);
+      agentProviderKind = "mock";
+      agentProviderConfig = null;
+    }
+    return agentProvider;
+  }
+
+  const config: LlmProviderConfig = { baseUrl: settings.baseUrl, model: settings.model, apiKey: settings.apiKey || undefined };
+  if (agentProviderKind === "local" && agentProvider) {
+    const provider = agentProvider as OpenAICompatibleAgentProvider;
+    provider.setDocument(document);
+    if (!configsEqual(agentProviderConfig, config)) provider.setConfig(config);
+  } else {
+    agentProvider = new OpenAICompatibleAgentProvider(document, config);
+    agentProviderKind = "local";
+  }
+  agentProviderConfig = config;
   return agentProvider;
 }
 

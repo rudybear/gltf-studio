@@ -15,7 +15,7 @@
 // applied.
 import { SceneEdit, cubeGeometry, encodeCubeBuffer, getIn, type EditorDocument } from "@gltf-studio/editor-core";
 import type { GeneratedAssetRef, Proposal } from "@gltf-studio/engine-api";
-import { CommandChain } from "../command-chain.js";
+import { CommandChain } from "@gltf-studio/agent-shared";
 
 const MAX_CUBES = 8;
 const CUBE_SPACING = 1.5;

@@ -15,6 +15,7 @@
     { "path": "../engine-api" },
     { "path": "../editor-core" },
     { "path": "../agent-mock" },
+    { "path": "../agent-llm" },
     { "path": "../storage" },
     { "path": "../graph-canvas" },
     { "path": "../usage-index" },

@@ -210,6 +210,17 @@ export interface AgentServiceHarness {
   documentJsonSnapshot: unknown;
   buildInvalidProposal: () => Proposal;
   buildBehaviorNeutralProposal: () => Proposal;
+  /**
+   * Set to `false` by a provider whose mechanism IS a network call by
+   * design (e.g. `@gltf-studio/agent-llm`'s `OpenAICompatibleAgentProvider`,
+   * AG-017 — network-backed by design, even when that network call is
+   * stubbed in tests) to skip AG-010's "resolves proposals without making
+   * any network call" obligation, which is definitionally only true of the
+   * v1 mock/offline provider (AG-010). Undefined (the default) means "run
+   * the check" — `@gltf-studio/agent-mock`'s harness omits this field and
+   * must keep exercising the check unchanged.
+   */
+  supportsNetworkFreeCheck?: boolean;
 }
 
 function selectionContext(nodeIndex: number): AgentContextRef[] {
@@ -217,6 +228,15 @@ function selectionContext(nodeIndex: number): AgentContextRef[] {
 }
 
 export function describeAgentServiceContract(makeHarness: () => AgentServiceHarness): void {
+  // Read once, outside any `it`, purely to decide whether AG-010's
+  // network-free obligation applies to this provider — a provider's
+  // networking mechanism is a fixed, static property (it doesn't vary
+  // test-to-test), so one extra harness construction (discarded
+  // immediately) here is a one-time cost per describeAgentServiceContract
+  // call, not a per-test one. See AgentServiceHarness.supportsNetworkFreeCheck's
+  // own doc comment for why this exists.
+  const skipNetworkFreeCheck = makeHarness().supportsNetworkFreeCheck === false;
+
   describe("AgentService contract", () => {
     it("request(prompt, context) resolves to a Proposal (AG-001)", async () => {
       const { service } = makeHarness();
@@ -340,7 +360,7 @@ export function describeAgentServiceContract(makeHarness: () => AgentServiceHarn
       expect(jsonEqual(stack.document, documentJsonSnapshot)).toBe(true);
     });
 
-    it("the v1 mock/offline provider resolves proposals without making any network call (AG-010)", async () => {
+    (skipNetworkFreeCheck ? it.skip : it)("the v1 mock/offline provider resolves proposals without making any network call (AG-010)", async () => {
       const { service, nodeIndex } = makeHarness();
       const originalFetch = globalThis.fetch;
       const fetchSpy = vi.fn();

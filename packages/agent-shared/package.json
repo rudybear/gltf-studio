@@ -1,8 +1,8 @@
 {
-  "name": "@gltf-studio/agent-mock",
+  "name": "@gltf-studio/agent-shared",
   "version": "0.0.1",
   "private": true,
-  "description": "MockAgentProvider: the v1 mock/offline AgentService implementation (specs/agent-service.md AG-010, docs/adr/0004-agentic-authoring-as-command-producer.md). Recognizes a small set of prompt templates (spin/rotate, move, play-sound-on-click, add-cube) and builds Proposals exclusively via editor-core's GraphEdit/SceneEdit command factories, validated via @gltfi/ir + @gltfi/verify before being returned.",
+  "description": "Shared proposal pipeline (CommandChain, validateProposalGraph, refusal-error base classes) both AgentService providers (agent-mock, agent-llm) build on — specs/agent-service.md, docs/adr/0004, docs/adr/0005.",
   "license": "MIT",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -21,14 +21,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gltf-studio/agent-shared": "workspace:*",
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",
     "@gltfi/ir": "0.0.1",
     "@gltfi/verify": "0.0.1"
   },
   "devDependencies": {
-    "@gltf-studio/contract-tests": "workspace:*",
     "@gltfi/gltf": "0.0.1",
     "vitest": "^2.1.8"
   }

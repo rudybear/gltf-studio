@@ -12,7 +12,15 @@
 // empty proposal. A rejected promise is unambiguous and lets the (Phase 2)
 // UI layer render it as a plain assistant message instead of a proposal
 // card.
-export class AgentRequestRefusedError extends Error {}
+//
+// AgentRequestRefusedError and MissingSelectionError now live in
+// @gltf-studio/agent-shared (generic enough for any AgentService provider,
+// not mock-specific) and are re-exported from here so this package's public
+// surface is unchanged. UnrecognizedPromptError's wording IS mock-specific
+// ("No Copilot template recognizes..."), so it stays defined locally,
+// extending the shared base class.
+import { AgentRequestRefusedError, MissingSelectionError } from "@gltf-studio/agent-shared";
+export { AgentRequestRefusedError, MissingSelectionError };
 
 const SUPPORTED_TEMPLATES =
   'spin/rotate a selected node ("spin the cube", "rotate on click"), ' +
@@ -24,12 +32,5 @@ export class UnrecognizedPromptError extends AgentRequestRefusedError {
   constructor(prompt: string) {
     super(`No Copilot template recognizes this request. Supported requests: ${SUPPORTED_TEMPLATES} Prompt was: "${prompt}"`);
     this.name = "UnrecognizedPromptError";
-  }
-}
-
-export class MissingSelectionError extends AgentRequestRefusedError {
-  constructor(action: string) {
-    super(`"${action}" needs a target node, but the request's context included no selection.`);
-    this.name = "MissingSelectionError";
   }
 }
