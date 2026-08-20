@@ -346,6 +346,39 @@ export const SceneEdit = {
   },
 
   /**
+   * DOC-062: sets an arbitrary property on `extensions.KHR_audio_emitter.sources[sourceIndex]`
+   * (the root-level sources registry `KHR_audio_emitter` defines) — the
+   * source-side sibling of `setAudioEmitterProperty` immediately above,
+   * same by-index-into-a-registry shape. Its first caller is
+   * `@gltf-studio/audio-canvas`'s audio-graph canvas: the synthetic
+   * `audio-buffer-source` terminal node `map-audio-graph.ts` projects per
+   * bound `KHR_audio_emitter` source (UX-607's sibling on the input side)
+   * is not a `graph.nodes[]` entry, so `AudioGraphEdit.setNodePosition`
+   * (DOC-058) does not apply to it — persisting ITS canvas position means
+   * writing `extras.gltfi.{x,y}` on the underlying `sources[sourceIndex]`
+   * entry via THIS factory instead, the same `extras.gltfi` convention
+   * (DOC-027) one level down. A source (or emitter, `setAudioEmitterProperty`)
+   * can in principle be read by more than one graph view — this stores ONE
+   * shared position on the entity itself rather than a per-graph position,
+   * an accepted v1 simplification (the common case is one source/emitter
+   * feeding one graph).
+   */
+  setAudioSourceProperty(document: EditorDocument, sourceIndex: number, propertyPath: Array<string | number>, value: unknown): Command {
+    const fragment = setPathFragment(
+      document.json,
+      ["extensions", "KHR_audio_emitter", "sources", sourceIndex, ...propertyPath],
+      value
+    );
+    return {
+      id: makeCommandId("set-audio-source-property"),
+      label: `Set audio source ${sourceIndex} ${propertyPath.join(".")}`,
+      coalesceKey: `audio-source-property:${sourceIndex}:${propertyPath.join(".")}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * Richer inspector (specs/ux-inspector.md UX-417): sets an arbitrary
    * property on the ROOT `extensions.KHR_lights_punctual.lights[lightIndex]`
    * registry entry (e.g. `["intensity"]`, `["color"]`, `["spot",

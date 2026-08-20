@@ -79,6 +79,50 @@ describe("SceneEdit.setAudioEmitterProperty", () => {
   });
 });
 
+// DOC-062: the source-side sibling of setAudioEmitterProperty — first used
+// by @gltf-studio/audio-canvas to persist a synthetic audio-buffer-source
+// terminal node's canvas position (extras.gltfi) on the underlying
+// KHR_audio_emitter source entry, since that node is not a graph.nodes[]
+// entry AudioGraphEdit.setNodePosition (DOC-058) can address.
+describe("SceneEdit.setAudioSourceProperty (DOC-062)", () => {
+  function sourceFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as object),
+        KHR_audio_emitter: { sources: [{ audio: 0, gain: 1 }], emitters: [{ type: "positional", gain: 1 }] }
+      }
+    });
+  }
+
+  it("sets a source property and round-trips", () => {
+    const doc = sourceFixtureDocument();
+    const command = SceneEdit.setAudioSourceProperty(doc, 0, ["gain"], 0.75);
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_emitter: { sources: Array<{ gain: number }> } };
+    };
+    expect(after.extensions.KHR_audio_emitter.sources[0].gain).toBe(0.75);
+  });
+
+  it("sets extras.gltfi.{x,y} (the canvas-position use) and round-trips", () => {
+    const doc = sourceFixtureDocument();
+    const command = SceneEdit.setAudioSourceProperty(doc, 0, ["extras", "gltfi"], { x: 12, y: 34 });
+    const after = expectRoundTrip(doc.json, command) as {
+      extensions: { KHR_audio_emitter: { sources: Array<{ extras?: { gltfi?: { x: number; y: number } } }> } };
+    };
+    expect(after.extensions.KHR_audio_emitter.sources[0].extras).toEqual({ gltfi: { x: 12, y: 34 } });
+  });
+
+  it("coalesces per source index and property path", () => {
+    const doc = sourceFixtureDocument();
+    const a = SceneEdit.setAudioSourceProperty(doc, 0, ["extras", "gltfi"], { x: 1, y: 1 });
+    const b = SceneEdit.setAudioSourceProperty(doc, 0, ["extras", "gltfi"], { x: 2, y: 2 });
+    const c = SceneEdit.setAudioSourceProperty(doc, 0, ["gain"], 0.5);
+    expect(a.coalesceKey).toBe(b.coalesceKey);
+    expect(a.coalesceKey).not.toBe(c.coalesceKey);
+  });
+});
+
 // Richer inspector (specs/ux-inspector.md UX-417): SceneEdit.setLightProperty
 // against the root extensions.KHR_lights_punctual.lights[] registry.
 describe("SceneEdit.setLightProperty (DOC-060)", () => {

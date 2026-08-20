@@ -332,7 +332,7 @@ export const AudioGraphEdit = {
     };
   },
 
-  /** DOC-058: sets the canvas position of a REAL audio-graph node, stored at `graph.nodes[nodeIndex].extras.gltfi.{x,y}` (DOC-027's convention, one level down — see this file's header comment). Not applicable to the synthetic source/emitter terminal nodes; callers must not call this for those. */
+  /** DOC-058: sets the canvas position of a REAL audio-graph node, stored at `graph.nodes[nodeIndex].extras.gltfi.{x,y}` (DOC-027's convention, one level down — see this file's header comment). Synthetic source/emitter terminal node positions are NOT stored here (they are not `graph.nodes[]` entries) — see `SceneEdit.setAudioSourceProperty`/`setAudioEmitterProperty` (DOC-062) for those. */
   setNodePosition(document: EditorDocument, graphIndex: number, nodeIndex: number, x: number, y: number): Command {
     const graph = getAudioGraph(document.json, graphIndex);
     if (graph.nodes[nodeIndex] === undefined) {
@@ -344,6 +344,36 @@ export const AudioGraphEdit = {
       id: makeCommandId("set-audio-node-position"),
       label: `Move audio node ${nodeIndex}`,
       coalesceKey: `audio-node-position:${graphIndex}:${nodeIndex}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
+   * DOC-063: sets `graph.nodes[nodeIndex].bypass` — the top-level boolean
+   * `KHR_audio_graph.node.schema.json` declares on EVERY node kind
+   * (distinct from the node's `params` bag, which is why this is its own
+   * factory rather than a `setNodeParam` call — `audio-param-panel.tsx`
+   * only ever edits `params`). Resolves `specs/ux-audio-graph.md`'s
+   * `OPEN(UX-audiograph-bypass-tbd)`. `AudioGraphJS`'s vendored runtime
+   * (`parse-layered.ts`'s `parseGraph`, `runtime/preprocess.ts`'s
+   * `applyBypass`) already reads this exact field end-to-end — a
+   * bypassed node is fully excised from the built Web Audio graph and its
+   * upstream/downstream connections rewired directly around it — so no
+   * runtime change was needed for a toggle here to take effect the next
+   * time `AudioGraphHost.audition()` (re)builds the graph.
+   */
+  setNodeBypass(document: EditorDocument, graphIndex: number, nodeIndex: number, bypass: boolean): Command {
+    const graph = getAudioGraph(document.json, graphIndex);
+    if (graph.nodes[nodeIndex] === undefined) {
+      throw new Error(`No audio-graph node at index ${nodeIndex} in graph ${graphIndex}.`);
+    }
+    const path = [...graphPath(graphIndex), "nodes", nodeIndex, "bypass"];
+    const fragment = setPathFragment(document.json, path, bypass);
+    return {
+      id: makeCommandId("set-audio-node-bypass"),
+      label: `${bypass ? "Bypass" : "Un-bypass"} audio node ${nodeIndex}`,
+      coalesceKey: `audio-node-bypass:${graphIndex}:${nodeIndex}`,
       patches: fragment.patches,
       inverse: fragment.inverse
     };

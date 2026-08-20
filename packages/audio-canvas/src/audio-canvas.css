@@ -180,3 +180,37 @@
   color: var(--text-dim);
   font-size: 11px;
 }
+.acanvas-param-row-bypass {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 3px;
+}
+.acanvas-param-curve {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-family: monospace;
+  width: 140px;
+  resize: vertical;
+}
+.acanvas-param-periodic-wave {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.acanvas-param-periodic-wave textarea {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-family: monospace;
+  width: 140px;
+  resize: vertical;
+}

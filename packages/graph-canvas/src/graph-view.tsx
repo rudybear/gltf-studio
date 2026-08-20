@@ -65,6 +65,24 @@ export interface GraphCanvasTestHook {
    */
   simulateConnect(connection: { source: string; sourceHandle: string; target: string; targetHandle: string }): void;
   /**
+   * Invokes the SAME `onMoveNode` handler a real node-header drag-and-drop
+   * triggers (`handleNodeDragStop`), bypassing raw pixel mouse choreography
+   * — same rationale/precedent as `simulateConnect` immediately above, found
+   * while building `e2e/audio-graph-gaps.spec.ts`'s terminal-node position-
+   * persistence coverage: `<ReactFlow fitView minZoom={0.05}>` can zoom a
+   * small, widely-ELK-spaced graph out far enough (observed ~0.1x for a
+   * 3-node audio graph) that a node card collapses to a few CSS pixels tall
+   * on screen, making pixel-precise drag targeting flaky regardless of how
+   * carefully a spec zooms back in first (react-flow's own internal
+   * zoom/pan-settled bookkeeping has its own debounce, independent of when
+   * the rendered bounding box visibly stops moving). Every bit of REAL
+   * application logic downstream of a move (`AudioGraphEdit.setNodePosition`/
+   * `SceneEdit.setAudioSourceProperty`/`setAudioEmitterProperty`,
+   * `dispatchCommand`) still runs; only the physical pointer input and
+   * React Flow's own drag-gesture recognition are bypassed.
+   */
+  simulateMoveNode(nodeId: string, x: number, y: number): void;
+  /**
    * specs/ux-graph-canvas.md UX-508: opens the SAME drop-menu a real HTML5
    * drag-drop of a scene-tree row / Animations-tab clip triggers, at a fixed
    * canvas position — same rationale as `simulateConnect` above: raw
@@ -172,6 +190,12 @@ function GraphViewInner(props: GraphViewProps) {
   // Always-current handler ref so the test-hook effect below (installed
   // once) never closes over a stale `handleConnect` from an earlier render.
   const handleConnectRef = useRef<OnConnect>(() => {});
+  // Same always-current rationale for `simulateMoveNode` — `onMoveNode` is a
+  // plain prop (a fresh closure every render in every caller, never
+  // memoized), so the test-hook effect below needs the same ref indirection
+  // `handleConnectRef` already established, not a direct closure over it.
+  const onMoveNodeRef = useRef(onMoveNode);
+  onMoveNodeRef.current = onMoveNode;
   // Bug-fix note (node-click/resize race, found stabilizing
   // e2e/graph-canvas.spec.ts under artificial CI-like CPU contention): a
   // freshly-rendered node is first laid out at ELK's ESTIMATED width/height
@@ -473,6 +497,7 @@ function GraphViewInner(props: GraphViewProps) {
     hookWindow[testHookKey] = {
       setViewport: (v) => reactFlow.setViewport(v),
       simulateConnect: (connection) => handleConnectRef.current(connection),
+      simulateMoveNode: (nodeId, x, y) => onMoveNodeRef.current(Number(nodeId), x, y),
       simulateExternalDrop: (kind, refId, flowPosition) => {
         const screen = reactFlow.flowToScreenPosition(flowPosition);
         setPendingDrop({ kind, refId, flowPosition, screenPosition: screen });

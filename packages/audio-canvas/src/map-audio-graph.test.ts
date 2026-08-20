@@ -90,4 +90,59 @@ describe("mapAudioGraph", () => {
     const mapped = mapAudioGraph(graph, 0, [], []);
     expect(mapped.edges.every((e) => !e.invalid)).toBe(true);
   });
+
+  describe("UX-615: splitter/channelmerger fan ports seeded from their declared channel-count param", () => {
+    it("a fresh, unconnected splitter with numberOfOutputs=4 renders 4 output ports (not just slot 0)", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split", params: { numberOfOutputs: 4 } }], connections: [] };
+      const mapped = mapAudioGraph(graph, 0);
+      const node = mapped.nodes[0];
+      expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(1);
+      expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(4);
+      expect(node.ports.filter((p) => p.kind === "value-out").map((p) => p.name).sort()).toEqual(["out0", "out1", "out2", "out3"]);
+    });
+
+    it("a fresh, unconnected channelmerger with numberOfInputs=3 renders 3 input ports", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "channelmerger", label: "merge", params: { numberOfInputs: 3 } }], connections: [] };
+      const mapped = mapAudioGraph(graph, 0);
+      const node = mapped.nodes[0];
+      expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(3);
+      expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
+    });
+
+    it("falls back to 2 fan ports when numberOfOutputs/numberOfInputs is absent (matching the registry's own field default)", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split" }], connections: [] };
+      const mapped = mapAudioGraph(graph, 0);
+      expect(mapped.nodes[0].ports.filter((p) => p.kind === "value-out")).toHaveLength(2);
+    });
+
+    it("real connections[] usage beyond the declared count still shows up (union, never a hard cap)", () => {
+      const graph: KHRGraph = {
+        nodes: [
+          { kind: "splitter", label: "split", params: { numberOfOutputs: 2 } },
+          { kind: "gain", label: "g" }
+        ],
+        connections: [{ from: { node: 0, output: 5 }, to: { node: 1, input: 0 } }]
+      };
+      const mapped = mapAudioGraph(graph, 0);
+      const splitNode = mapped.nodes.find((n) => n.op === "splitter")!;
+      // Declared 0,1 plus the actually-wired index 5 — 3 distinct output ports.
+      expect(splitNode.ports.filter((p) => p.kind === "value-out")).toHaveLength(3);
+    });
+  });
+
+  describe("UX-617: synthetic source/emitter terminal nodes carry the underlying entity's extras through", () => {
+    it("a source terminal's raw.extras reflects sources[N].extras", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g" }], connections: [], inputs: [{ source: 0, node: 0 }] };
+      const mapped = mapAudioGraph(graph, 0, [], [], [{ audio: 0, extras: { gltfi: { x: 10, y: 20 } } }]);
+      const sourceNode = mapped.nodes.find((n) => n.op === "audio-buffer-source")!;
+      expect((sourceNode.raw as { extras?: { gltfi?: { x: number; y: number } } }).extras).toEqual({ gltfi: { x: 10, y: 20 } });
+    });
+
+    it("an emitter terminal's raw.extras reflects emitters[N].extras", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g" }], connections: [], outputs: [{ node: 0, emitter: 0 }] };
+      const mapped = mapAudioGraph(graph, 0, [{ type: "global", extras: { gltfi: { x: 5, y: 6 } } }]);
+      const emitterNode = mapped.nodes.find((n) => n.op === "emitter")!;
+      expect((emitterNode.raw as { extras?: { gltfi?: { x: number; y: number } } }).extras).toEqual({ gltfi: { x: 5, y: 6 } });
+    });
+  });
 });

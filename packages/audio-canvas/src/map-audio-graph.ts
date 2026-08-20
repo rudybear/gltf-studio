@@ -19,7 +19,7 @@
 // processing nodes `graph.nodes[]` itself enumerates.
 import type { MappedEdge, MappedGraph, MappedNode, MappedPort } from "@gltf-studio/graph-canvas";
 import type { AudioGraphLintResult } from "@gltf-studio/engine-api";
-import type { AudioEmitter, KHRGraph } from "audio-graph-js";
+import type { AudioEmitter, AudioEmitterSource, KHRGraph } from "audio-graph-js";
 
 /** UX-605: every audio-graph port is this one type — no `flow` ports appear on this canvas. */
 export const AUDIO_PORT_TYPE = "audio";
@@ -47,23 +47,41 @@ function portName(indices: Set<number>, index: number): string {
  * a chicken-and-egg dead end for a brand new node. Every node kind's single
  * ALWAYS-present side gets its "slot 0" seeded by default: 1 input + 1
  * output for the common case (gain/delay/waveshaper/the 8 filter kinds),
- * 0 input + 1 output for the pure-source `oscillator`. `splitter` (always
- * exactly one input) and `channelmerger` (always exactly one output) get
- * their one guaranteed side defaulted too, but NOT their fan side — a
- * splitter's output COUNT and a merger's input count are genuinely
- * usage-derived (`KHR_audio_graph.splitter.schema.json`/
- * `.channelmerger.schema.json` declare no explicit count param), so a
- * SECOND fan port only appears once an already-authored document's
- * `connections[]` actually uses that index — not reachable by drag from
- * this canvas alone yet (known v1 gap, see specs/ux-audio-graph.md's M7
- * implementation notes). `audiomixer`'s "many inputs summed" Web Audio
- * semantics also collapses to one input slot 0 here — `AudioGraphEdit
- * .connectAudio`'s "last write wins" per-input-slot overwrite policy
- * (DOC-059) means only ONE producer is representable per slot regardless,
- * a deliberate v1 simplification (see that factory's own doc comment).
+ * 0 input + 1 output for the pure-source `oscillator`.
+ *
+ * UX-615 (Track 1 gap closure, supersedes this comment's earlier "known v1
+ * gap" note): `splitter`'s output count and `channelmerger`'s input count
+ * are NOT declared by the ratified schema (`KHR_audio_graph.splitter
+ * .schema.json`/`.channelmerger.schema.json` have no explicit count param —
+ * see `@gltf-studio/audio-graph`'s `validators.ts` header comment), but
+ * `audio-node-registry.ts` now carries an implementation-defined
+ * `numberOfOutputs`/`numberOfInputs` params key each (the vendored runtime
+ * already reads exactly these — `createChannelSplitter`/`createChannelMerger`
+ * in `audio-graph-js`), so THIS is read as the declared fan-port count —
+ * seeding that many ports EVEN BEFORE any connection uses them, the fix for
+ * "fan-out only reachable/addressable at slot 0". A document authored
+ * before this PR (no `numberOfOutputs`/`numberOfInputs` param set) falls
+ * back to 2, matching `audio-node-registry.ts`'s own field default; real
+ * `connections[]` usage (below, in the caller) can still grow the rendered
+ * port set past the declared count for an already-authored document using
+ * more (the union of "declared" and "used" always wins, never a hard cap).
+ * `audiomixer`'s "many inputs summed" Web Audio semantics still collapses
+ * to one input slot 0 here — `AudioGraphEdit.connectAudio`'s "last write
+ * wins" per-input-slot overwrite policy (DOC-059) means only ONE producer
+ * is representable per slot regardless, a deliberate v1 simplification (see
+ * that factory's own doc comment) unrelated to the splitter/channelmerger
+ * fan-port fix above.
  */
-function defaultPortSlots(kind: string): { inputs: number[]; outputs: number[] } {
+function defaultPortSlots(kind: string, params: Record<string, unknown> | undefined): { inputs: number[]; outputs: number[] } {
   if (kind === "oscillator") return { inputs: [], outputs: [0] };
+  if (kind === "splitter") {
+    const count = Math.max(1, Number(params?.numberOfOutputs ?? 2));
+    return { inputs: [0], outputs: Array.from({ length: count }, (_, i) => i) };
+  }
+  if (kind === "channelmerger") {
+    const count = Math.max(1, Number(params?.numberOfInputs ?? 2));
+    return { inputs: Array.from({ length: count }, (_, i) => i), outputs: [0] };
+  }
   return { inputs: [0], outputs: [0] };
 }
 
@@ -82,7 +100,8 @@ export function mapAudioGraph(
   graph: KHRGraph,
   graphIndex: number,
   emitters: AudioEmitter[] = [],
-  lintResults: AudioGraphLintResult[] = []
+  lintResults: AudioGraphLintResult[] = [],
+  sources: AudioEmitterSource[] = []
 ): MappedGraph {
   const byId = new Map<string, LogicalNode>();
   const order: string[] = [];
@@ -102,7 +121,7 @@ export function mapAudioGraph(
   graph.nodes.forEach((node, i) => {
     const label = node.label ?? `node_${i}`;
     labelOfRawIndex.set(i, label);
-    const defaults = defaultPortSlots(node.kind);
+    const defaults = defaultPortSlots(node.kind, node.params);
     ensure(`node:${i}`, () => ({
       id: `node:${i}`,
       kind: node.kind,
@@ -124,7 +143,13 @@ export function mapAudioGraph(
       id: sourceId,
       kind: "audio-buffer-source",
       subtitle: `KHR_audio_emitter source #${input.source}`,
-      raw: { source: input.source },
+      // UX-617 (Track 1 gap closure): carries the SOURCE entity's own
+      // `extras` through so `graph-view.tsx`'s generic `node.raw.extras
+      // ?.gltfi` position convention (DOC-058's doc comment) picks up a
+      // persisted position for this synthetic terminal too — written by
+      // `SceneEdit.setAudioSourceProperty` (DOC-062), not by any
+      // `AudioGraphEdit` factory (this is not a `graph.nodes[]` entry).
+      raw: { source: input.source, extras: sources[input.source]?.extras },
       inputs: new Set(),
       outputs: new Set([0])
     }));
@@ -138,7 +163,8 @@ export function mapAudioGraph(
       kind: "emitter",
       // UX-607: the terminal node's "config names the scene audio emitter it feeds".
       subtitle: emitters[output.emitter]?.name ?? `emitter #${output.emitter}`,
-      raw: { emitter: output.emitter },
+      // UX-617: see the source terminal's identical `extras` note above — written by `SceneEdit.setAudioEmitterProperty`.
+      raw: { emitter: output.emitter, extras: emitters[output.emitter]?.extras },
       inputs: new Set([0]),
       outputs: new Set() // UX-607: "it has no outputs"
     }));
