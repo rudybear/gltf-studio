@@ -222,7 +222,14 @@ describe("WebAudioHost: KHR_audio_environment topology from freshly-authored doc
     const doc = {
       asset: { version: "2.0" },
       scene: 0,
-      scenes: [{ nodes: [0, 1], extensions: { KHR_audio_environment: { environment: 0, activeListener: 0 } } }],
+      // Deliberately NO scene-wide default `environment` here (only
+      // `activeListener`) — this test's own "outside the zone -> gate
+      // closed" assertion below needs "outside" to mean NO active
+      // environment at all (selectEnvironment falls back to
+      // `defaultEnvironmentIndex`, which must stay `undefined`); a scene
+      // default pointing at the SAME one environment the zone also targets
+      // would keep it selected (at full weight) everywhere, zone or not.
+      scenes: [{ nodes: [0, 1], extensions: { KHR_audio_environment: { activeListener: 0 } } }],
       nodes: [
         {
           name: "Zone",
