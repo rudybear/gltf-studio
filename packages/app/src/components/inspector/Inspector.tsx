@@ -6,6 +6,7 @@ import { TransformSection } from "./TransformSection";
 import { MeshSection } from "./MeshSection";
 import { MaterialSections } from "./MaterialSection";
 import { AudioSection } from "./AudioSection";
+import { AudioEnvironmentSection } from "./AudioEnvironmentSection";
 import { LightSection } from "./LightSection";
 import { CameraSection } from "./CameraSection";
 import { UsageSection } from "./UsageSection";
@@ -178,7 +179,11 @@ export function Inspector(): JSX.Element {
       )}
 
       {lightIndex !== undefined && json && <LightSection lightIndex={lightIndex} json={json} document={editorDocument} />}
-      {cameraIndex !== undefined && json && <CameraSection cameraIndex={cameraIndex} json={json} document={editorDocument} />}
+      {cameraIndex !== undefined && json && (
+        <CameraSection cameraIndex={cameraIndex} nodeIndex={selectedNodeIndex} json={json} document={editorDocument} />
+      )}
+
+      {json && <AudioEnvironmentSection nodeIndex={selectedNodeIndex} json={json} document={editorDocument} />}
 
       {json && (
         <div ref={usageSectionRef} className={usageFlashed ? "flash-highlight" : undefined}>

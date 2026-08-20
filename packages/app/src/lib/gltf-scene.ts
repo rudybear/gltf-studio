@@ -20,6 +20,21 @@ export interface GltfNodeJson {
   extensions?: {
     KHR_audio_emitter?: { emitter: number };
     KHR_lights_punctual?: { light: number };
+    /**
+     * Emitter/environment authoring (specs/ux-inspector.md UX-421/UX-422):
+     * the ONE JSON location the real extension overloads for two purposes
+     * on a node — a reverb ZONE binding (`environment`/`shape`/
+     * `blendDistance`/`priority`) or a LISTENER binding (`listener`,
+     * typically on a camera node) — see `SceneEdit.
+     * setNodeAudioEnvironmentProperty`'s own doc comment.
+     */
+    KHR_audio_environment?: {
+      listener?: number;
+      environment?: number;
+      shape?: { type: "sphere" | "box" | string; size?: [number, number, number]; radius?: number };
+      blendDistance?: number;
+      priority?: number;
+    };
     [key: string]: unknown;
   };
 }
@@ -88,10 +103,59 @@ export interface GltfImageJson {
   mimeType?: string;
 }
 
-export interface GltfAudioEmitterJson {
-  type?: string;
+/** `extensions.KHR_audio_emitter.sources[N]` — a playable clip binding (specs/ux-inspector.md UX-420), addressed by SOURCE index (an emitter only stores `sources: number[]` indices into this array, never the objects themselves). */
+export interface GltfAudioSourceJson {
+  name?: string;
+  audio?: number;
   gain?: number;
+  playbackRate?: number;
+  loop?: boolean;
+  autoplay?: boolean;
+}
+
+/** `extensions.KHR_audio_emitter.audio[N]` — a raw clip reference (bufferView-embedded or `data:`/external URI), read-only in this Inspector (specs/ux-inspector.md UX-420's "no clip replacement/upload" scope, mirroring UX-416's texture-slot precedent). */
+export interface GltfAudioDataJson {
+  name?: string;
+  uri?: string;
+  mimeType?: string;
+  bufferView?: number;
+}
+
+/** `extensions.KHR_audio_emitter.emitters[N]`'s own `positional` sub-object (specs/ux-inspector.md UX-419) — present only when `type === "positional"`. */
+export interface GltfAudioPositionalJson {
+  shapeType?: "omnidirectional" | "cone" | string;
+  distanceModel?: "linear" | "inverse" | "exponential" | "custom" | string;
+  refDistance?: number;
+  maxDistance?: number;
+  rolloffFactor?: number;
+  coneInnerAngle?: number;
+  coneOuterAngle?: number;
+  coneOuterGain?: number;
+}
+
+export interface GltfAudioEmitterJson {
+  name?: string;
+  type?: "global" | "positional" | string;
+  gain?: number;
+  sources?: number[];
+  positional?: GltfAudioPositionalJson;
+  /** @deprecated top-level `distanceModel` is never read by `WebAudioHost` (only `positional.distanceModel` is) — kept typed here only so an IMPORTED asset that mistakenly carries one (or one authored by this app before UX-419's bugfix) still round-trips; the Inspector never writes here anymore. */
   distanceModel?: string;
+  extensions?: { KHR_audio_environment?: { directLevel?: number; reverbLevel?: number; environment?: number } };
+}
+
+/** `extensions.KHR_audio_environment.environments[N]` (specs/ux-inspector.md UX-421) — a reverb zone definition, addressed by ENVIRONMENT index. */
+export interface GltfAudioEnvironmentJson {
+  name?: string;
+  reverb?: { preset?: string; mix?: number };
+  doppler?: { enabled?: boolean; scale?: number; speedOfSound?: number };
+}
+
+/** `extensions.KHR_audio_environment.listeners[N]` (specs/ux-inspector.md UX-422), addressed by LISTENER index. */
+export interface GltfAudioListenerJson {
+  name?: string;
+  gain?: number;
+  spatializationModel?: "HRTF" | "equalpower" | string;
 }
 
 /** A `KHR_lights_punctual` root registry entry (specs/ux-inspector.md UX-417) — `extensions.KHR_lights_punctual.lights[N]`, addressed by LIGHT index, not node index (a node references one via `node.extensions.KHR_lights_punctual.light`). */
@@ -113,7 +177,11 @@ export interface GltfCameraJson {
 
 export interface GltfJsonShape {
   scene?: number;
-  scenes?: Array<{ nodes?: number[]; name?: string }>;
+  scenes?: Array<{
+    nodes?: number[];
+    name?: string;
+    extensions?: { KHR_audio_environment?: { environment?: number; activeListener?: number } };
+  }>;
   nodes?: GltfNodeJson[];
   meshes?: GltfMeshJson[];
   materials?: GltfMaterialJson[];
@@ -123,7 +191,8 @@ export interface GltfJsonShape {
   accessors?: GltfAccessorJson[];
   animations?: Array<{ name?: string }>;
   extensions?: {
-    KHR_audio_emitter?: { emitters?: GltfAudioEmitterJson[] };
+    KHR_audio_emitter?: { emitters?: GltfAudioEmitterJson[]; sources?: GltfAudioSourceJson[]; audio?: GltfAudioDataJson[] };
+    KHR_audio_environment?: { environments?: GltfAudioEnvironmentJson[]; listeners?: GltfAudioListenerJson[] };
     KHR_lights_punctual?: { lights?: GltfLightJson[] };
     [key: string]: unknown;
   };

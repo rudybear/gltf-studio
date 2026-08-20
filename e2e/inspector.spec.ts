@@ -248,9 +248,14 @@ test.describe("inspector (specs/ux-inspector.md UX-4xx)", () => {
 
     await page.getByTestId("inspector.audio.distance-model").selectOption("linear");
     const json = (await documentJson(page)) as {
-      extensions: { KHR_audio_emitter: { emitters: Array<{ distanceModel: string }> } };
+      extensions: { KHR_audio_emitter: { emitters: Array<{ positional?: { distanceModel: string } }> } };
     };
-    expect(json.extensions.KHR_audio_emitter.emitters[0].distanceModel).toBe("linear");
+    // UX-419 bugfix: this now writes/reads `positional.distanceModel`, not a
+    // top-level `emitters[i].distanceModel` — the latter is what
+    // `WebAudioHost.buildEmitterChain` actually never read, a real
+    // write-only-field bug this pass fixed (see AudioSection.tsx's own doc
+    // comment).
+    expect(json.extensions.KHR_audio_emitter.emitters[0].positional?.distanceModel).toBe("linear");
   });
 
   test("Light and camera nodes show Transform plus their own real Light/Camera sections, never a silently missing section (UX-414/UX-417/UX-418)", async ({
