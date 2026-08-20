@@ -14,6 +14,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@gltf-studio/agent-llm": "workspace:*",
     "@gltf-studio/agent-mock": "workspace:*",
     "@gltf-studio/audio-canvas": "workspace:*",
     "@gltf-studio/audio-graph": "workspace:*",

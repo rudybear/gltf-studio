@@ -1,8 +1,8 @@
 {
-  "name": "@gltf-studio/agent-mock",
+  "name": "@gltf-studio/agent-llm",
   "version": "0.0.1",
   "private": true,
-  "description": "MockAgentProvider: the v1 mock/offline AgentService implementation (specs/agent-service.md AG-010, docs/adr/0004-agentic-authoring-as-command-producer.md). Recognizes a small set of prompt templates (spin/rotate, move, play-sound-on-click, add-cube) and builds Proposals exclusively via editor-core's GraphEdit/SceneEdit command factories, validated via @gltfi/ir + @gltfi/verify before being returned.",
+  "description": "OpenAICompatibleAgentProvider: an AgentService implementation against a local OpenAI-compatible /v1/chat/completions tool-calling endpoint (Ollama, LM Studio) — specs/agent-service.md AG-017..AG-022, docs/adr/0005-local-openai-compatible-llm-provider.md. Resolves the response's tool_calls (never text) into Commands via the shared @gltf-studio/agent-shared pipeline (CommandChain, validateProposalGraph) built on editor-core's GraphEdit/SceneEdit factories.",
   "license": "MIT",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -23,9 +23,7 @@
   "dependencies": {
     "@gltf-studio/agent-shared": "workspace:*",
     "@gltf-studio/editor-core": "workspace:*",
-    "@gltf-studio/engine-api": "workspace:*",
-    "@gltfi/ir": "0.0.1",
-    "@gltfi/verify": "0.0.1"
+    "@gltf-studio/engine-api": "workspace:*"
   },
   "devDependencies": {
     "@gltf-studio/contract-tests": "workspace:*",

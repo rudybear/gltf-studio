@@ -15,6 +15,7 @@ import { MissingFilesDialog } from "./components/import/MissingFilesDialog";
 import { ProjectManager } from "./components/project-manager/ProjectManager";
 import { RecoveryPrompt } from "./components/project-manager/RecoveryPrompt";
 import { ShareDialog } from "./components/project-manager/ShareDialog";
+import { SettingsDialog } from "./settings/SettingsDialog.js";
 import { filesFromDataTransfer } from "./lib/file-drop.js";
 import { TourBanner } from "./tour/TourBanner";
 import { TourOverlay } from "./tour/TourOverlay";
@@ -233,6 +234,7 @@ export function App(): JSX.Element {
       <MissingFilesDialog />
       <ProjectManager />
       <ShareDialog />
+      <SettingsDialog />
       <RecoveryPrompt />
       <TourOverlay />
     </div>

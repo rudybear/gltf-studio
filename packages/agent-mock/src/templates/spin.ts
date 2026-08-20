@@ -21,8 +21,7 @@
 // control over them, using a linear ease (p1=[0,0], p2=[1,1]).
 import { GraphEdit, getIn, type EditorDocument } from "@gltf-studio/editor-core";
 import type { Proposal } from "@gltf-studio/engine-api";
-import { CommandChain } from "../command-chain.js";
-import { validateProposalGraph } from "../validate.js";
+import { CommandChain, validateProposalGraph } from "@gltf-studio/agent-shared";
 import { GRAPH_INDEX, graphNodeCount } from "./shared.js";
 
 /** A visible-but-modest 120-degree turn around Y, played over 1.5s with a linear ease. */

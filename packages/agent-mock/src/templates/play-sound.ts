@@ -16,8 +16,7 @@
 // brief describes, not a hard error.
 import { GraphEdit, getIn, type EditorDocument } from "@gltf-studio/editor-core";
 import type { Proposal } from "@gltf-studio/engine-api";
-import { CommandChain } from "../command-chain.js";
-import { validateProposalGraph } from "../validate.js";
+import { CommandChain, validateProposalGraph } from "@gltf-studio/agent-shared";
 import { GRAPH_INDEX, graphNodeCount } from "./shared.js";
 
 export function matchesPlaySoundTemplate(prompt: string): boolean {

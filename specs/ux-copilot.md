@@ -51,6 +51,10 @@ Prefix: `UX`. This file owns the `UX-10xx` block.
 
 - [UX-1011] (active) The composer is a multi-line prompt field plus a Send action; `Cmd/Ctrl+Enter` also sends; sending immediately appends the user's message to the thread and clears the field before any response arrives.
 
+### Provider indicator
+
+- [UX-1012] (active) The Copilot tab shows which `AgentService` provider is currently active (Mock or Local model, per `specs/ux-settings.md`) and links to the settings dialog to change it, so a creator getting an unexpected refusal or a network-error message can tell at a glance whether they are talking to the offline mock or a local endpoint that may be misconfigured.
+
 ## Open questions
 
 - OPEN(AG-preview-render-tbd, carried from `specs/agent-service.md`): "Try in play" (`UX-1007`)

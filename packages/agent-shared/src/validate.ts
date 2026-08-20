@@ -7,8 +7,8 @@
 // `index.ts` pulls in React/`@xyflow/react`/`elkjs` as real (non-peer)
 // runtime imports for its canvas component, even though React itself is
 // only a peerDependency — importing anything from that package's public
-// surface drags that whole dependency graph in. `@gltf-studio/agent-mock`
-// must stay usable in a plain Node context (no DOM, no bundler) since it is
+// surface drags that whole dependency graph in. This shared pipeline must
+// stay usable in a plain Node context (no DOM, no bundler) since it is
 // exercised by contract tests today and, if a headless/CLI Copilot path is
 // ever added, could run outside a browser entirely. Duplicating this one
 // small pipeline is an accepted, deliberate tradeoff for that boundary.

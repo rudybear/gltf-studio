@@ -11,8 +11,7 @@ import { GraphEdit, getIn, type EditorDocument } from "@gltf-studio/editor-core"
 import type { Proposal } from "@gltf-studio/engine-api";
 import type { Graph } from "@gltfi/ir";
 import { equivalentGraphs, type VGraph } from "@gltfi/verify";
-import { CommandChain } from "../command-chain.js";
-import { validateProposalGraph } from "../validate.js";
+import { CommandChain, validateProposalGraph } from "@gltf-studio/agent-shared";
 import { GRAPH_INDEX } from "./shared.js";
 
 export function buildBehaviorNeutralProposalForTests(document: EditorDocument): Proposal {

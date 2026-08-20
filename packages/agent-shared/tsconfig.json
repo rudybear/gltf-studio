@@ -5,6 +5,6 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../agent-shared" }, { "path": "../editor-core" }, { "path": "../engine-api" }],
+  "references": [{ "path": "../editor-core" }, { "path": "../engine-api" }],
   "include": ["src/**/*.ts"]
 }

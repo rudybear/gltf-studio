@@ -1190,6 +1190,26 @@ input.field {
   min-height: 0;
   flex: 1 1 auto;
 }
+.copilot-provider-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.copilot-provider-indicator-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.copilot-provider-indicator-link:hover {
+  text-decoration: underline;
+}
 .copilot-context-row {
   display: flex;
   flex-wrap: wrap;
@@ -1746,6 +1766,23 @@ body.testid-mode [data-testid] {
 }
 .mf-hint {
   color: var(--text-dim);
+}
+
+/* ---------- settings dialog (specs/ux-settings.md UX-13xx) ---------- */
+.settings-test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.settings-test-result--ok {
+  color: var(--ok);
+}
+.settings-test-result--connection-refused {
+  color: var(--danger);
+}
+.settings-test-result--cors-blocked,
+.settings-test-result--model-not-found {
+  color: var(--warn);
 }
 
 /* ---------- tour (specs/ux-tour.md UX-12xx) ---------- */

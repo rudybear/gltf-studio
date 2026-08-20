@@ -14,8 +14,7 @@
 // repo's `packages/verify/src/index.ts`.
 import { GraphEdit, type EditorDocument } from "@gltf-studio/editor-core";
 import type { Proposal } from "@gltf-studio/engine-api";
-import { CommandChain } from "../command-chain.js";
-import { validateProposalGraph } from "../validate.js";
+import { CommandChain, validateProposalGraph } from "@gltf-studio/agent-shared";
 import { GRAPH_INDEX, graphNodeCount } from "./shared.js";
 
 export function buildDeliberatelyBrokenProposalForTests(document: EditorDocument): Proposal {
