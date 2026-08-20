@@ -90,6 +90,14 @@ export function SettingsDialog(): JSX.Element | null {
                 <input className="field" type="text" data-testid="settings.base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
               </div>
 
+              <p className="mf-hint" data-testid="settings.model-recommendation">
+                Recommended if you're not sure: <code>gemma4:26b</code> (or a similarly-sized tool-calling model) —
+                validated to reliably call the right tool with well-formed arguments while responding in well under a
+                second once warm. Any tool-calling-capable OpenAI-compatible model works here; this is a suggestion,
+                not a requirement. Reasoning-only models without native tool-calling support (e.g. some DeepSeek-R1
+                builds) will be rejected by the endpoint itself.
+              </p>
+
               <div className="field-row">
                 <label>Model</label>
                 {models !== null ? (
@@ -138,6 +146,10 @@ export function SettingsDialog(): JSX.Element | null {
             endpoint&rsquo;s CORS setting — most local servers (Ollama, LM Studio, …) block cross-origin requests by default. A page served
             over https:// fetching http://localhost is allowed by the browser&rsquo;s &ldquo;localhost is a secure context&rdquo; exception,
             so if a connection test above reports CORS-blocked, the fix is a CORS setting on the endpoint, not a mixed-content problem.
+            For Ollama, set <code>OLLAMA_ORIGINS</code> to include every origin you&rsquo;ll use before restarting it, e.g.{" "}
+            <code>OLLAMA_ORIGINS=&quot;{window.location.origin},https://rudybear.github.io&quot; ollama serve</code>.
+            For LM Studio, enable CORS in the server settings (Developer tab → Server Settings → &ldquo;Enable CORS&rdquo;). Some Ollama
+            installs already default to a permissive origin policy — Test connection above tells you definitively whether yours does.
           </p>
         </div>
       </div>

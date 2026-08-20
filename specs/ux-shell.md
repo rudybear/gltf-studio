@@ -156,7 +156,7 @@ process.
 
 ### Settings entry point (docs/adr/0005)
 
-- [UX-129] (active) The top bar exposes a settings entry point (`topbar.settings`) — a gear icon, own `topbar-group` placement alongside `topbar.theme-toggle`/`topbar.testid-toggle`/`topbar.tour-start` — that opens the settings dialog specified in full by `specs/ux-settings.md`'s `UX-13xx` block; this file only pins down that the control exists in the top bar, following the same "entry point here, content in the owning file" split `UX-121` uses for the tour.
+- [UX-129] (active) The top bar exposes a settings entry point (`topbar.settings`) — a gear icon, own `topbar-group` placement alongside `topbar.theme-toggle`/`topbar.testid-toggle`/`topbar.tour-start` — that opens the settings dialog specified in full by `specs/ux-settings.md`'s `UX-13xx` block; this file only pins down that the control exists in the top bar, following the same "entry point here, content in the owning file" split `UX-121` uses for the tour. The dialog's content itself (including its model-recommendation hint, `UX-1306`, and its CORS help text's concrete `OLLAMA_ORIGINS` example, `UX-1305`) is `specs/ux-settings.md`'s to own, per that same split — this entry only notes that a real-model validation pass (see `specs/agent-service.md` `AG-023`'s implementation note) is what informed that content.
 
 ## Implementation notes
 
