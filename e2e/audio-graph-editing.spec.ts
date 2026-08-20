@@ -1,5 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH, FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL } from "./global-setup.js";
+import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+
+/** This canvas's own instance of the shared test hook — see `GraphViewProps.testHookKey`'s doc comment (packages/graph-canvas/src/graph-view.tsx) for why audio-graph gets a separate key from the behavior graph. */
+const AUDIO_HOOK_KEY = "__gltfStudioAudioGraphCanvasTest";
 
 /**
  * M7 audio-graph EDITING (specs/ux-audio-graph.md UX-608..614,
@@ -38,6 +42,13 @@ async function importFixture(page: Page): Promise<void> {
   await expect(page.getByTestId("acanvas.root")).toBeVisible();
   const audioCanvas = page.getByTestId("acanvas.root");
   await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(3);
+  // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+  // comment): this canvas shares `GraphView`/`op-node.tsx` with the
+  // behavior graph, so it shares the same node-click/resize race
+  // e2e/graph-canvas.spec.ts's own `waitForNodesSettled` guards against
+  // (task #33) — not previously applied in this file. Repeated after every
+  // palette-add below, same as that file's own convention.
+  await waitForNodesSettled(page, AUDIO_HOOK_KEY);
 }
 
 async function getAudioGraphJson(page: Page): Promise<RawAudioGraph> {
@@ -70,7 +81,15 @@ test.describe("audio-graph editing: palette, connect, param edit, undo (UX-608/6
     await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.type).toBe("square");
 
     // --- typed param edit: number (the fixture's existing gain node, UX-610) ---
-    await audioCanvas.getByTestId("gcanvas.node.0").click();
+    // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+    // comment): the oscillator add above re-lays-out every node's card via
+    // `GraphView`'s `elkPositions` effect (packages/graph-canvas/src/graph-
+    // view.tsx), not just the new node's — waiting AND clicking node 0's
+    // header (not its own testid, whose geometric CENTER can land on this
+    // audio node's own param row) rather than assuming node 0's box is
+    // still where it was closes both halves of the node-click/resize race.
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+    await clickNodeHeader(audioCanvas, 0);
     await expect(audioCanvas.getByTestId("gcanvas.node.0")).toHaveClass(/gcanvas-op-node-selected/);
     const gainField = page.getByTestId("acanvas.param.gain.gain");
     await expect(gainField).toBeVisible();
@@ -173,7 +192,15 @@ test.describe("audio-graph editing: lint-on-edit cycle policy (UX-609/612/614)",
     await expect(page.getByTestId("acanvas.audition")).toBeDisabled();
 
     // Remove the cycle by deleting the filter node (UX-613) — its fixup (DOC-057) drops both connections that touched it.
-    await audioCanvas.getByTestId("gcanvas.node.1").click();
+    // Bug-fix note (deflake — the "cycle badge" flake this test reproduced
+    // offline under artificial CPU contention, same method as task #33):
+    // node 1 just grew an error badge (the assertions above), resizing its
+    // card — a stale geometric-center click here can silently miss
+    // selecting it, so the Delete keypress has nothing to act on and the
+    // cycle survives. Wait for the resize to settle and click the header
+    // (content-independent, unlike the node's own testid) instead.
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+    await clickNodeHeader(audioCanvas, 1);
     await page.keyboard.press("Delete");
 
     await expect(page.getByTestId("acanvas.lint-banner")).toHaveCount(0);

@@ -335,6 +335,28 @@ function GraphViewInner(props: GraphViewProps) {
   }, [graph]);
 
   useEffect(() => {
+    // Bug-fix note (deflake, systemic e2e CI stability pass — a THIRD
+    // mechanism behind the node-click/resize race `nodesDimensionsSettled`
+    // exists to guard against, found stabilizing e2e/graph-canvas.spec.ts's
+    // ALREADY-`waitForNodesSettled`-guarded "deleting a node" test under
+    // artificial CPU contention): this effect's own `setNodes(rfNodes)`
+    // call below — not just React Flow's internal ResizeObserver, which is
+    // all `onNodesChange`'s "dimensions"-change tracking (above) sees — can
+    // itself move a node whenever `elkPositions` resolves, since EVERY
+    // node's position/size is recomputed here (`nodePosition`'s ELK
+    // fallback), not just a newly-added node's own. ELK's layout worker is
+    // asynchronous; under heavy contention its result can arrive well AFTER
+    // `nodesDimensionsSettled()` already reported true from the initial
+    // paint settling, silently moving a node out from under a Playwright
+    // bounding box computed in between — no ResizeObserver fires for a
+    // pure position change (only a size change does), so the existing
+    // debounce alone never saw this update. Comparing this effect's own
+    // OUTPUT against the previous render's committed nodes (`nodesRef`) and
+    // bumping the SAME debounce timestamp whenever this effect itself
+    // changes any node's geometry closes that gap without a second,
+    // separate readiness signal for callers to juggle.
+    const previousById = new Map(nodesRef.current.map((n) => [n.id, n]));
+    let geometryChangedByThisEffect = false;
     const rfNodes: OpNodeType[] = graph.nodes.map((node) => {
       const pos = nodePosition(node, elkPositions);
       const data: OpNodeData = {
@@ -347,8 +369,13 @@ function GraphViewInner(props: GraphViewProps) {
         docNames,
         onTargetChipClick
       };
+      const id = String(node.index);
+      const previous = previousById.get(id);
+      if (!previous || previous.position.x !== pos.x || previous.position.y !== pos.y || previous.style?.width !== pos.width || previous.style?.minHeight !== pos.height) {
+        geometryChangedByThisEffect = true;
+      }
       return {
-        id: String(node.index),
+        id,
         type: "op",
         position: { x: pos.x, y: pos.y },
         style: { width: pos.width, minHeight: pos.height },
@@ -358,6 +385,9 @@ function GraphViewInner(props: GraphViewProps) {
         connectable: true
       };
     });
+    if (geometryChangedByThisEffect) {
+      lastDimensionsChangeAtRef.current = performance.now();
+    }
 
     const rfEdges: Edge[] = graph.edges.map((edge) => ({
       id: edge.id,

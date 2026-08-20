@@ -278,6 +278,33 @@ asserts the CSS contract directly (computed `pointer-events`, no timing dependen
 to reproduce this (0 failures across 100 repeats post-fix, vs. reproducible failures pre-fix at the
 same contention level) is the behavioral proof the specific repro case stays fixed.
 
+Follow-up (systemic e2e CI stability pass): the node-click/resize race task #33 (above) named and fixed
+in `e2e/graph-canvas.spec.ts` itself turned out to be UNGUARDED in several other specs that also drive
+`GraphView` — `e2e/graph-literal-editors.spec.ts`, `e2e/pointer-picker-dnd.spec.ts`,
+`e2e/graph-variables.spec.ts`, `e2e/usage-mapping.spec.ts`, and (a different `GraphView` instance,
+`specs/ux-audio-graph.md`'s canvas) `e2e/audio-graph-editing.spec.ts` — none of which called
+`nodesDimensionsSettled()` before a bounding-box-dependent click. Reproduced two of these offline under
+the same artificial-CPU-contention method task #33 used (multiple suspect spec files run together,
+`--repeat-each` under a `taskset`-pinned Playwright run sharing 4 cores with real concurrent ELK-layout/
+GPU work — the cross-file contention `playwright.config.ts`'s own `workers` comment documents CI
+hitting): `e2e/graph-literal-editors.spec.ts`'s float3/color-picker tests failed with
+`.gcanvas-root`/a neighboring row intercepting a `pointer-icon`/header click right after a
+`pointer-picker.confirm` retarget resized the node's card; `e2e/pointer-picker-dnd.spec.ts`'s search-filter
+test failed the same way right after a palette-add. A THIRD, previously-unknown mechanism also
+reproduced in `e2e/graph-canvas.spec.ts` itself despite already having the guard: its "event/onSelect
+target chip" test clicks a chip on node 2 immediately after adding it, but never called
+`waitForNodesSettled` there — the failure was node 1's HEADER (an existing, unrelated node) intercepting
+the click, not node 2's own geometry. Root cause: `GraphView`'s `elkPositions`-driven node-recompute
+effect (`graph-view.tsx`, the `useEffect` that calls `setNodes(rfNodes)` on every `graph`/`elkPositions`
+change) touches EVERY currently-rendered node's position/size on ANY graph-shape change, not just a
+newly-added node's own — so a still-settling EXISTING node can shift too. Fixed by adding the same
+`waitForNodesSettled` (and, where the click was on a node's own testid, switching to its header) call
+to every one of the above call sites, factored into a new shared `e2e/graph-canvas-test-helpers.ts`
+(`waitForNodesSettled`, parametrized by test-hook key for the audio canvas; `clickNodeHeader`) rather
+than each file re-implementing its own local copy, and documented as the standing e2e convention (see
+this repo's e2e testing note) so future canvas specs pick it up by default instead of rediscovering
+task #33's finding piecemeal, file by file.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

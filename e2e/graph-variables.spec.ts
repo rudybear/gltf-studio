@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * Variables panel (task: "in the node graph there is no way to edit
@@ -50,6 +51,12 @@ async function importFixtureAndOpenVariables(page: Page): Promise<void> {
   await expect
     .poll(() => page.locator(".react-flow__viewport").getAttribute("style"))
     .toContain("translate(60px, 60px) scale(1)");
+  // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
+  // comment): reproduced offline under artificial CPU contention as the
+  // same node-click/resize race e2e/graph-canvas.spec.ts's own
+  // `waitForNodesSettled` guards against (task #33) — not previously
+  // applied in this file. Repeated after every palette-add below.
+  await waitForNodesSettled(page);
 }
 
 async function getGraphJson(page: Page): Promise<RawInteractivityGraph> {
@@ -136,7 +143,8 @@ test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)",
     // Make "counter" (index 0) in-use: add a variable/get node and assign it via the config editor's existing "variable" selector.
     await page.getByTestId("gcanvas.palette.op.variable/get").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
-    await page.getByTestId("gcanvas.node.2").click();
+    await waitForNodesSettled(page); // node 2 was just added — see importFixtureAndOpenVariables's own doc comment
+    await clickNodeHeader(page, 2);
     await expect(page.getByTestId("gcanvas.node.2")).toHaveClass(/gcanvas-op-node-selected/);
     await page.getByTestId("gcanvas.details.config.variable-select.2").selectOption("0");
 
@@ -169,7 +177,8 @@ test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)",
     // Reference event #1 from an event/send node, then confirm #1's delete is blocked while #0 stays deletable.
     await page.getByTestId("gcanvas.palette.op.event/send").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
-    await page.getByTestId("gcanvas.node.2").click();
+    await waitForNodesSettled(page); // node 2 was just added — see importFixtureAndOpenVariables's own doc comment
+    await clickNodeHeader(page, 2);
     await page.getByTestId("gcanvas.details.config.event-select.2").selectOption("1");
     await expect.poll(async () => (await getGraphJson(page)).nodes[2]?.configuration?.event?.value?.[0]).toBe(1);
 

@@ -131,6 +131,18 @@ an optional `testHookKey` prop (default: that same key, so `e2e/graph-canvas.spe
 changes) so `AudioGraphCanvas` can install its own hook under a SEPARATE key
 (`__gltfStudioAudioGraphCanvasTest`) without the two instances fighting over one global.
 
+**Deflake follow-up (systemic e2e CI stability pass, test infrastructure, no UX-### of its own)**:
+`e2e/audio-graph-editing.spec.ts` shares `GraphView`/`op-node.tsx` with the behavior graph (above), so
+it shares that canvas's node-click/resize race (`specs/ux-graph-canvas.md`'s task #33 follow-up) — a
+freshly-added or just-rebadged node's card can still be mid-resize when a bounding-box click fires,
+landing on the wrong element. This file never called `nodesDimensionsSettled()` (under its own
+`__gltfStudioAudioGraphCanvasTest` key) before either of its two node-body clicks: the gain-node param
+edit (right after adding an oscillator, which re-lays-out every node via `GraphView`'s
+`elkPositions`-driven recompute effect, not just the new one) and the cycle-badge test's node deletion
+(right after that same node grows an error badge). Fixed by awaiting the readiness check (via the new
+shared `e2e/graph-canvas-test-helpers.ts`) and clicking the node header instead of its own testid at
+both sites, same convention `specs/ux-graph-canvas.md`'s task #33 follow-up established.
+
 ## Open questions
 
 - OPEN(UX-audiograph-banner-dismiss-tbd): the approved mockup's lint banner has no dismiss

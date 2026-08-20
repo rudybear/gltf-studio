@@ -2,6 +2,7 @@ import { PNG } from "pngjs";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { assertRegionRendersContent, assertRegionSpansMultipleLines, assertRegionsVisuallyDiffer } from "./visual-assert.js";
+import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * R4 Racer (specs/ux-shell.md UX-120's second starter-gallery card,
@@ -195,6 +196,15 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     // therefore a genuinely generous (~50x local measurement) but still
     // honestly-bounded budget, not a guess scaled from an unrelated number.
     await expect(page.locator('[data-testid^="gcanvas.node."]')).toHaveCount(366, { timeout: 30_000 });
+    // Bug-fix note (deflake, see e2e/graph-canvas-test-helpers.ts's own doc
+    // comment): reaching a count of 366 rendered node ELEMENTS doesn't mean
+    // their bounding boxes are at final, measured size yet — same node-
+    // click/resize race e2e/graph-canvas.spec.ts's own `waitForNodesSettled`
+    // guards against (task #33), just with a much longer settle tail here
+    // given the scale — same 30s budget as the count-poll just above, for
+    // the same "worker-contention, not raw compute time" reason that
+    // comment gives. The later target-chip click below depends on this.
+    await waitForNodesSettled(page, "__gltfStudioGraphCanvasTest", 30_000);
     const layoutMs = Date.now() - start;
     console.log(`[racer.spec] 366-node ELK layout resolved in ${layoutMs}ms`);
     // Liveness check independent of the count-poll above: a truly hung main
