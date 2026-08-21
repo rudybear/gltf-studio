@@ -1,0 +1,42 @@
+{
+  "name": "@gltf-studio/audio-script-panel",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Audio Script tab (specs/ux-audio-script.md UX-14xx): Monaco-based audio-script editor over the current KHR_audio_graph graph — read-only Emit view by default, real-syntax editable buffer, off-thread @gltf-audiograph/parse-ts diagnostics, @gltf-audiograph/verify EQUIV/DIVERGED detection, and Apply -> Audio graph via editor-core's AudioGraphEdit.replaceAudioGraph.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./audio-script-panel.css": "./src/audio-script-panel.css"
+  },
+  "files": [
+    "dist",
+    "src/audio-script-panel.css"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gltf-studio/editor-core": "workspace:*",
+    "@gltf-audiograph/emit-ts": "0.0.1",
+    "@gltf-audiograph/ir": "0.0.1",
+    "@gltf-audiograph/parse-ts": "0.0.1",
+    "@gltf-audiograph/verify": "0.0.1",
+    "monaco-editor": "^0.50.0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "vitest": "^2.1.8"
+  }
+}

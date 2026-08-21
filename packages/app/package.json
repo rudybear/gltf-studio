@@ -18,6 +18,7 @@
     "@gltf-studio/agent-mock": "workspace:*",
     "@gltf-studio/audio-canvas": "workspace:*",
     "@gltf-studio/audio-graph": "workspace:*",
+    "@gltf-studio/audio-script-panel": "workspace:*",
     "@gltf-studio/audio-webaudio": "workspace:*",
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",

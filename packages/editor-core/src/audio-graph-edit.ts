@@ -350,6 +350,35 @@ export const AudioGraphEdit = {
   },
 
   /**
+   * DOC-064: wholesale-replaces `graph.nodes[graphIndex]` with `newGraph` —
+   * the Audio Script tab's Apply mechanism, mirroring `GraphEdit
+   * .replaceGraph` exactly (read-before-write via `getAudioGraph` so a
+   * missing graph fails fast with this file's usual "No KHR_audio_graph
+   * graph at index N" message, then one `setPathFragment` over the WHOLE
+   * graph object rather than this file's usual per-array whole-replace
+   * strategy — `exportAudioGraph`'s output already IS a complete
+   * `AudioGraphSpec`, so there is no per-field diffing to do). One
+   * `Command` = one undo/redo step ("Apply audio script"), same as
+   * `replaceGraph`'s "Apply script". Node-position note (same accepted
+   * behavior as `replaceGraph`, `specs/ux-audio-script.md` UX-1400):
+   * `newGraph.nodes[].extras.gltfi` positions are whatever the parsed
+   * script produced (usually none, since @gltf-audiograph's `parse-ts`
+   * has no concept of canvas layout) — `audio-canvas` re-lays-out via ELK
+   * on the next render for any node missing a position, so reshaped nodes
+   * simply lose their prior spot rather than erroring.
+   */
+  replaceAudioGraph(document: EditorDocument, graphIndex: number, newGraph: AudioGraphSpec): Command {
+    getAudioGraph(document.json, graphIndex);
+    const fragment = setPathFragment(document.json, graphPath(graphIndex), newGraph);
+    return {
+      id: makeCommandId("replace-audio-graph"),
+      label: "Apply audio script",
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * DOC-063: sets `graph.nodes[nodeIndex].bypass` — the top-level boolean
    * `KHR_audio_graph.node.schema.json` declares on EVERY node kind
    * (distinct from the node's `params` bag, which is why this is its own

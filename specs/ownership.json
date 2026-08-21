@@ -32,5 +32,7 @@
   "packages/app/**": "specs/ux-shell.md",
   "packages/graph-canvas/**": "specs/ux-graph-canvas.md",
   "packages/audio-canvas/**": "specs/ux-audio-graph.md",
-  "packages/script-panel/**": "specs/ux-script.md"
+  "packages/script-panel/**": "specs/ux-script.md",
+  "packages/audio-script-panel/**": "specs/ux-audio-script.md",
+  "packages/app/src/components/dock/AudioScriptTabPanel.tsx": "specs/ux-audio-script.md"
 }

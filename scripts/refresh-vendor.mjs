@@ -2,13 +2,22 @@
 // Regenerates vendor/gltfi-{kernel,ir,gltf,emit-ts,parse-ts,verify,runtime,
 // runtime-lib}-0.0.1.tgz from the sibling gltf-interactivity monorepo,
 // vendor/gltfi-three-adapter-0.0.1.tgz from the sibling
-// gltf-interactivity-three repo's packages/adapter, and (M7)
+// gltf-interactivity-three repo's packages/adapter, (M7)
 // vendor/audio-graph-js-0.1.0.tgz from the sibling glTF-audio/AudioGraphJS
+// repo, and (Audio Script tab) vendor/gltf-audiograph-{kernel,ir,emit-ts,
+// parse-ts,verify,runtime-lib}-0.0.1.tgz from the sibling gltf-audiograph
 // repo — all assumed checked out next to this repo (the same convention
 // gltf-interactivity-three and gltf-interactivity-vscode's own
 // refresh-vendor.mjs scripts use). Vendoring instead of `npm install`ing
 // published packages because none of these are published to npm yet — see
-// docs/adr/0003-vendored-gltfi-tarballs.md.
+// docs/adr/0003-vendored-gltfi-tarballs.md. gltf-audiograph's own
+// packages/{kernel,ir,emit-ts,parse-ts,verify,runtime-lib}/package.json
+// already declare proper "main"/"types"/"exports" (parse-ts additionally
+// exports a "./runtime-lib-dts" subpath) and "files", so — like the
+// @gltfi/* packages above and unlike audio-graph-js below — these pack
+// cleanly with a plain `pnpm pack`, no package.json overlay needed.
+// `cli`/`conformance` are not vendored: nothing in this repo needs the CLI
+// binary, and `conformance` is `"private": true` (never meant to be packed).
 //
 // Usage: node scripts/refresh-vendor.mjs
 import { spawnSync } from "node:child_process";
@@ -21,6 +30,7 @@ const repoRoot = resolve(here, "..");
 const monorepoRoot = resolve(repoRoot, "..", "gltf-interactivity");
 const threeRepoRoot = resolve(repoRoot, "..", "gltf-interactivity-three");
 const audioGraphJsRoot = resolve(repoRoot, "..", "glTF-audio", "AudioGraphJS");
+const audiographRoot = resolve(repoRoot, "..", "gltf-audiograph");
 const vendorDir = join(repoRoot, "vendor");
 
 const GLTFI_PACKAGES = [
@@ -31,6 +41,15 @@ const GLTFI_PACKAGES = [
   "parse-ts",
   "verify",
   "runtime",
+  "runtime-lib"
+];
+
+const AUDIOGRAPH_PACKAGES = [
+  "kernel",
+  "ir",
+  "emit-ts",
+  "parse-ts",
+  "verify",
   "runtime-lib"
 ];
 
@@ -84,6 +103,10 @@ if (!existsSync(threeRepoRoot)) {
   console.error(`refresh-vendor: expected sibling repo at ${threeRepoRoot} — not found.`);
   process.exit(1);
 }
+if (!existsSync(audiographRoot)) {
+  console.error(`refresh-vendor: expected sibling repo at ${audiographRoot} — not found.`);
+  process.exit(1);
+}
 
 mkdirSync(vendorDir, { recursive: true });
 
@@ -127,6 +150,17 @@ if (!existsSync(join(audioGraphJsRoot, "dist"))) {
   console.log(`refresh-vendor: ${audioGraphJsRoot} dist/ already present, skipping build.`);
 }
 packAudioGraphJs(audioGraphJsRoot, vendorDir);
+
+if (distMissing(audiographRoot, AUDIOGRAPH_PACKAGES)) {
+  console.log(`refresh-vendor: building ${audiographRoot} (dist missing for at least one package) ...`);
+  run("pnpm", ["build"], audiographRoot);
+} else {
+  console.log(`refresh-vendor: ${audiographRoot} dist/ already present for all packages, skipping build.`);
+}
+
+for (const pkg of AUDIOGRAPH_PACKAGES) {
+  packOne(join(audiographRoot, "packages", pkg), `gltf-audiograph-${pkg}-`, vendorDir);
+}
 
 console.log("refresh-vendor: done. Run `pnpm install` to pick up any version changes.");
 

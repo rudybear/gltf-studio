@@ -4,12 +4,14 @@
 // and mounts @gltf-studio/audio-canvas's editable <AudioGraphCanvas> with
 // the result — wiring the app store's `dispatchCommand`/undo history the
 // same way BehaviorGraphPanel.tsx wires the behavior graph's `GraphCanvas`.
-// Node selection here is local (not the store's `selectedGraphNodeIndex`,
-// which is the BEHAVIOR graph canvas's own field, per BehaviorGraphPanel.tsx
-// — a second, independent canvas must not fight over the same selection
-// slot) — matching this project's ephemeral-UI-state convention (DOC-030)
-// without widening the shared store for a value nothing else needs to read.
-import { useEffect, useMemo, useState } from "react";
+// Node selection lives in the store's OWN `selectedAudioGraphNodeIndex` slot
+// (not `selectedGraphNodeIndex`, the BEHAVIOR graph canvas's own field — a
+// second, independent canvas must not fight over the same selection slot),
+// matching this project's ephemeral-UI-state convention (DOC-030) — lifted
+// out of local component state (specs/ux-audio-script.md UX-1400) so the
+// Audio Script tab, a separate mounted component, can read the same
+// selection for its own → identifier cross-highlight.
+import { useEffect, useMemo } from "react";
 import { AudioGraphJsHost } from "@gltf-studio/audio-graph";
 import { AudioGraphCanvas } from "@gltf-studio/audio-canvas";
 import type { AudioEmitter, AudioEmitterSource, KHRGraph } from "audio-graph-js";
@@ -47,21 +49,23 @@ export function AudioGraphTabPanel(): JSX.Element {
   const document = useAppStore((s) => s.document);
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const pushToast = useAppStore((s) => s.pushToast);
-  const [selectedNodeIndex, setSelectedNodeIndex] = useState<number | null>(null);
+  const selectedNodeIndex = useAppStore((s) => s.selectedAudioGraphNodeIndex);
+  const setSelectedNodeIndex = useAppStore((s) => s.selectAudioGraphNode);
 
   const host = useMemo(() => new AudioGraphJsHost(), []);
   useEffect(() => () => host.close(), [host]);
 
-  // M7 audio-graph editing: reset selection when a genuinely NEW project
-  // loads, not on every in-place edit — `document.container` ("the pristine
-  // parse of the last successful save", document.ts's own doc comment)
-  // stays referentially stable across `dispatchCommand`-driven edits within
-  // one project, unlike `document` itself (a fresh object every edit), so
-  // keying on it here is what lets a just-added/just-selected node's
-  // selection SURVIVE the very AudioGraphEdit command that created it.
-  useEffect(() => {
-    setSelectedNodeIndex(null);
-  }, [document?.container]);
+  // M7 audio-graph editing: selection resets on a genuinely NEW project load
+  // via the STORE's own `installProject` (`selectedAudioGraphNodeIndex: null`
+  // alongside `selectedGraphNodeIndex`/etc there), not a per-mount effect
+  // here — now that selection lives in the shared store (specs/ux-audio-
+  // script.md UX-1400, lifted out of local component state so the Audio
+  // Script tab can read it too), THIS component itself mounts/unmounts on
+  // every dock-tab switch (it is plain conditionally-mounted, this file's
+  // own header comment), so a `document.container`-keyed reset effect here
+  // would fire on every tab-switch-back-to-Audio-graph — including one
+  // driven BY a just-set cross-tab selection (e.g. the Audio Script tab's
+  // "→ Audio graph" jump) — silently clobbering it moments after it was set.
 
   useEffect(() => {
     window.__gltfStudioAudioGraphTest = { getDocumentJson: () => document?.json };

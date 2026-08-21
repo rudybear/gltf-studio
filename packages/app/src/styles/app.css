@@ -744,6 +744,26 @@ input.field {
   min-height: 0;
 }
 
+/* ---------- audio script dock tab ----------
+   Same fix as `.script-tab-wrap` above, applied to `.audio-script-tab-wrap`
+   (AudioScriptTabPanel.tsx's own root) for the identical reason: an
+   unstyled wrapper defaults to `height: auto`, which `.audio-script-panel`'s
+   `height: 100%` cannot resolve against, collapsing Monaco's measured
+   container to a sliver regardless of the dock's actual height. Applied
+   proactively here (found via this file's own audit precedent, not a
+   separate bug report) rather than waiting to rediscover the same class of
+   bug a second time. */
+.audio-script-tab-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.audio-script-tab-wrap > .audio-script-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* ---------- console ---------- */
 .console-panel {
   padding: 6px 0;

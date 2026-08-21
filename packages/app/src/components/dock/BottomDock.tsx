@@ -6,16 +6,18 @@ import { DataTab } from "./DataTab";
 import { BehaviorGraphPanel } from "./BehaviorGraphPanel";
 import { AudioGraphTabPanel } from "./AudioGraphTabPanel";
 import { ScriptTabPanel } from "./ScriptTabPanel";
+import { AudioScriptTabPanel } from "./AudioScriptTabPanel";
 
 const TABS: Array<{ key: DockTab; label: string; testid: string }> = [
   { key: "graph", label: "Behavior graph", testid: "dock.tab.graph" },
   { key: "audio-graph", label: "Audio graph", testid: "dock.tab.audio-graph" },
   { key: "script", label: "Script", testid: "dock.tab.script" },
+  { key: "audio-script", label: "Audio script", testid: "dock.tab.audio-script" },
   { key: "console", label: "Console", testid: "dock.tab.console" },
   { key: "data", label: "Data (glTF)", testid: "dock.tab.data" }
 ];
 
-/** UX-103: exactly five dock tabs, one visible at a time; Behavior graph (M4), Script (M5), Console, Data, and (M7) Audio graph are all real. */
+/** UX-103: exactly six dock tabs, one visible at a time; Behavior graph (M4), Script (M5), Console, Data, Audio graph (M7), and Audio Script (specs/ux-audio-script.md UX-1400) are all real. */
 export function BottomDock(): JSX.Element {
   const height = useAppStore((s) => s.panelSizes.dockHeight);
   const active = useAppStore((s) => s.activeDockTab);
@@ -35,6 +37,11 @@ export function BottomDock(): JSX.Element {
   const [scriptEverOpened, setScriptEverOpened] = useState(active === "script");
   useEffect(() => {
     if (active === "script") setScriptEverOpened(true);
+  }, [active]);
+  /** specs/ux-audio-script.md UX-1400: same lazy-mount-once/keep-mounted-hidden treatment as the Script tab above — the Audio Script tab's Monaco buffer/edit-mode state must equally survive a tab-away-and-back. */
+  const [audioScriptEverOpened, setAudioScriptEverOpened] = useState(active === "audio-script");
+  useEffect(() => {
+    if (active === "audio-script") setAudioScriptEverOpened(true);
   }, [active]);
 
   return (
@@ -63,6 +70,11 @@ export function BottomDock(): JSX.Element {
         {scriptEverOpened && (
           <div style={{ display: active === "script" ? "contents" : "none" }}>
             <ScriptTabPanel />
+          </div>
+        )}
+        {audioScriptEverOpened && (
+          <div style={{ display: active === "audio-script" ? "contents" : "none" }}>
+            <AudioScriptTabPanel />
           </div>
         )}
         {active === "console" && <ConsolePanel />}

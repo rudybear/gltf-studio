@@ -15,6 +15,12 @@ overrides:
   '@gltfi/runtime-lib': file:vendor/gltfi-runtime-lib-0.0.1.tgz
   '@gltfi/three-adapter': file:vendor/gltfi-three-adapter-0.0.1.tgz
   audio-graph-js: file:vendor/audio-graph-js-0.1.0.tgz
+  '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
+  '@gltf-audiograph/ir': file:vendor/gltf-audiograph-ir-0.0.1.tgz
+  '@gltf-audiograph/emit-ts': file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz
+  '@gltf-audiograph/parse-ts': file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz
+  '@gltf-audiograph/verify': file:vendor/gltf-audiograph-verify-0.0.1.tgz
+  '@gltf-audiograph/runtime-lib': file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz
 
 importers:
 
@@ -146,6 +152,9 @@ importers:
       '@gltf-studio/audio-graph':
         specifier: workspace:*
         version: link:../audio-graph
+      '@gltf-studio/audio-script-panel':
+        specifier: workspace:*
+        version: link:../audio-script-panel
       '@gltf-studio/audio-webaudio':
         specifier: workspace:*
         version: link:../audio-webaudio
@@ -263,6 +272,43 @@ importers:
       playwright:
         specifier: ^1.55.0
         version: 1.62.1
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)
+
+  packages/audio-script-panel:
+    dependencies:
+      '@gltf-audiograph/emit-ts':
+        specifier: file:../../vendor/gltf-audiograph-emit-ts-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz
+      '@gltf-audiograph/ir':
+        specifier: file:../../vendor/gltf-audiograph-ir-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-ir-0.0.1.tgz
+      '@gltf-audiograph/parse-ts':
+        specifier: file:../../vendor/gltf-audiograph-parse-ts-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz
+      '@gltf-audiograph/verify':
+        specifier: file:../../vendor/gltf-audiograph-verify-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-verify-0.0.1.tgz
+      '@gltf-studio/editor-core':
+        specifier: workspace:*
+        version: link:../editor-core
+      monaco-editor:
+        specifier: ^0.50.0
+        version: 0.50.0
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.31
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.7
+        version: 18.3.7(@types/react@18.3.31)
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)(@vitest/browser@2.1.9)(lightningcss@1.33.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))(supports-color@7.2.0)
@@ -692,6 +738,26 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@gltf-audiograph/emit-ts@file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz':
+    resolution: {integrity: sha512-IVFF2tBR53OjIR6SNKXkKKlz2BaoydcqQJmLKM5cjl7ogXPB/doDp/nbrsxkyH4avN7z2kab0fJVWeakZyU0Ug==, tarball: file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltf-audiograph/ir@file:vendor/gltf-audiograph-ir-0.0.1.tgz':
+    resolution: {integrity: sha512-fC3Lr9T/fWtFfAptdTOZU/mKmvh8vcztyB8sShRKqWdlmJgx1eeL0wszS+uEe2lhigF+p1L28YcqbAudZk8otA==, tarball: file:vendor/gltf-audiograph-ir-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltf-audiograph/kernel@file:vendor/gltf-audiograph-kernel-0.0.1.tgz':
+    resolution: {integrity: sha512-0iSwSudKHYs8WM03ls1KXhX9bs+d31OG8UxbysxMd0zNI6oCTQAnOKxutjilhmRVApNWA0xouvgvkipuRO937w==, tarball: file:vendor/gltf-audiograph-kernel-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltf-audiograph/parse-ts@file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz':
+    resolution: {integrity: sha512-AgjOoluqzohpNafIQw0P1Sirru5k1VaRZVQ5Luqxk/RTRPPpX6EjTCwN2FPR1JK1nSoyiRcNNVUTu4UQjUSkGQ==, tarball: file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltf-audiograph/verify@file:vendor/gltf-audiograph-verify-0.0.1.tgz':
+    resolution: {integrity: sha512-dldQ0OS4HEr7x6ICiDHgW5OxY2pz9GKMgI76/ZM/NbnIr8l7xkTYTBvYs77K2nz6L+BYhhjYMVDx6gYOmeIXMA==, tarball: file:vendor/gltf-audiograph-verify-0.0.1.tgz}
+    version: 0.0.1
 
   '@gltfi/emit-ts@file:vendor/gltfi-emit-ts-0.0.1.tgz':
     resolution: {integrity: sha512-8rfs301zkk5Lm8gOY8EGMPPZTJYskpspNn+g6+prSYEpcw7KK0KLB8Lzw5GKF/DXf6wTxBxYC1n/zwURKPWUIQ==, tarball: file:vendor/gltfi-emit-ts-0.0.1.tgz}
@@ -1507,6 +1573,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -2466,6 +2533,28 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
+
+  '@gltf-audiograph/emit-ts@file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz':
+    dependencies:
+      '@gltf-audiograph/ir': file:vendor/gltf-audiograph-ir-0.0.1.tgz
+      '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
+
+  '@gltf-audiograph/ir@file:vendor/gltf-audiograph-ir-0.0.1.tgz':
+    dependencies:
+      '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
+
+  '@gltf-audiograph/kernel@file:vendor/gltf-audiograph-kernel-0.0.1.tgz': {}
+
+  '@gltf-audiograph/parse-ts@file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz':
+    dependencies:
+      '@gltf-audiograph/ir': file:vendor/gltf-audiograph-ir-0.0.1.tgz
+      '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
+      ts-morph: 23.0.0
+
+  '@gltf-audiograph/verify@file:vendor/gltf-audiograph-verify-0.0.1.tgz':
+    dependencies:
+      '@gltf-audiograph/ir': file:vendor/gltf-audiograph-ir-0.0.1.tgz
+      '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
 
   '@gltfi/emit-ts@file:vendor/gltfi-emit-ts-0.0.1.tgz':
     dependencies:

@@ -14,10 +14,10 @@ test.describe("shell", () => {
     await expect(page.getByTestId("right-panel.panel")).toBeVisible();
   });
 
-  test("bottom dock has exactly five tabs, one active at a time (UX-103)", async ({ page }) => {
+  test("bottom dock has exactly six tabs, one active at a time (UX-103)", async ({ page }) => {
     await page.goto("./");
     const tabs = page.getByTestId("dock.tabs").locator("button");
-    await expect(tabs).toHaveCount(5);
+    await expect(tabs).toHaveCount(6);
     await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
 
     await page.getByTestId("dock.tab.console").click();

@@ -1,0 +1,105 @@
+/* Audio Script tab styles (specs/ux-audio-script.md UX-1400) — a self-
+   contained sibling of @gltf-studio/script-panel's script-panel.css (own
+   class names, not shared, so this package doesn't depend on that one
+   staying loaded — see audio-script-panel.tsx's own "shared vs copied"
+   notes for the same call made elsewhere in this package). */
+.audio-script-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.audio-script-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #333);
+  background: var(--bg-2, #1e1e1e);
+}
+
+.audio-script-btn {
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #444);
+  background: var(--bg-3, #2a2a2a);
+  color: inherit;
+  cursor: pointer;
+}
+
+.audio-script-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.audio-script-btn-primary {
+  border-color: var(--accent, #4fc1e9);
+}
+
+.audio-script-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.audio-script-badge.equiv {
+  background: rgba(86, 182, 96, 0.18);
+  color: #56b660;
+}
+
+.audio-script-badge.diverged {
+  background: rgba(217, 164, 65, 0.18);
+  color: #d9a441;
+}
+
+.audio-script-parse-status {
+  font-size: 11px;
+  color: var(--text-dim, #999);
+}
+
+.audio-script-editor-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.audio-script-empty-state {
+  padding: 12px;
+  color: var(--text-dim, #999);
+}
+
+.audio-script-diagnostics {
+  flex: 0 0 auto;
+  max-height: 96px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px 10px;
+  list-style: none;
+  border-top: 1px solid var(--border, #333);
+  background: var(--bg-2, #1e1e1e);
+  color: #d9736b;
+  font-size: 12px;
+}
+
+.audio-script-jump-btn {
+  margin-left: 8px;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #444);
+  background: var(--bg-3, #2a2a2a);
+  color: inherit;
+  cursor: pointer;
+}
+
+/* UX-1400 cross-highlight: a plain identifier-range highlight (see this
+   package's own documented fidelity reduction vs. script-panel's
+   persistent-decoration/fade-timer treatment). */
+.audio-script-jump-highlight {
+  background: rgba(217, 164, 65, 0.35);
+}
