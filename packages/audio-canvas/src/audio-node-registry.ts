@@ -88,12 +88,22 @@ export interface AudioNodeSpec {
   params: AudioParamField[];
 }
 
+/** Per-param UI overlay entry — see `KindUiMeta`'s own doc comment. `max`/`min` are this file's OWN addition for a UI-only bound the kernel's schema-derived spec doesn't declare (currently only `channelmixer.outputChannels`'s `max: 32` — Web Audio's real `channelCount` ceiling, not a `KHR_audio_graph` schema constraint) — when present, OVERRIDES `toField`'s otherwise-kernel-sourced bound (see `toField`'s own `?? ` fallback) rather than being merged/intersected with it. */
+interface ParamUiEntry {
+  label: string;
+  step?: number;
+  creationDefault?: AudioParamValue;
+  min?: number;
+  max?: number;
+  showIf?: { key: string; equals: unknown };
+}
+
 /** Presentation-only metadata this file overlays onto `@gltf-audiograph/kernel`'s data-only registry: which palette category a kind sits in, its display label/description, and per-param UI hints (a friendlier label, a slider `step`, `showIf` gating). `creationDefault` is this file's OWN addition for a kernel param that has no schema `default` (required or not) — a sensible starting value so a freshly `addNode`-ed node isn't immediately schema-invalid or visually blank; it is never used to override an already-authored value. */
 interface KindUiMeta {
   category: AudioNodeCategory;
   label: string;
   description: string;
-  params: Record<string, { label: string; step?: number; creationDefault?: AudioParamValue; showIf?: { key: string; equals: unknown } }>;
+  params: Record<string, ParamUiEntry>;
 }
 
 const FILTER_PARAM_UI = {
@@ -164,7 +174,16 @@ const KIND_UI: Record<AudioKind, KindUiMeta> = {
     label: "Channel Mixer",
     description: "Remixes to a target channel count.",
     params: {
-      outputChannels: { label: "Output channels", creationDefault: 2 },
+      // Bug fix (code review): the pre-kernel-derived registry declared
+      // `max: 32` here — Web Audio's own `channelCount` ceiling
+      // (`createChannelMerger`/direct `channelCount` assignment throws
+      // above it; the vendored runtime's `channelMixer.js` sets it inside a
+      // silently-swallowing `try`/`catch`, so an out-of-range value fails
+      // with no visible error at audition time). `@gltf-audiograph/kernel`'s
+      // schema-derived spec has no `max` for this param at all (the glTF
+      // schema itself doesn't declare one), so this UI-only bound would
+      // otherwise be lost entirely on a kernel-sourced field — restored here.
+      outputChannels: { label: "Output channels", creationDefault: 2, max: 32 },
       channelInterpretation: { label: "Channel interpretation" }
     }
   },
@@ -208,14 +227,17 @@ const KIND_ORDER: AudioKind[] = [
   "audiomixer"
 ];
 
-function toField(spec: AudioParamSpec, ui: { label: string; step?: number; creationDefault?: AudioParamValue; showIf?: { key: string; equals: unknown } }): AudioParamField {
+function toField(spec: AudioParamSpec, ui: ParamUiEntry): AudioParamField {
   return {
     key: spec.key,
     label: ui.label,
     type: spec.type,
     default: spec.optional ? spec.default : (spec.default ?? ui.creationDefault),
-    min: spec.min,
-    max: spec.max,
+    // ui.min/ui.max (this file's own UI-only bound overlay, e.g. channelmixer's
+    // outputChannels max: 32) take precedence over the kernel's schema-derived
+    // bound when present — see ParamUiEntry's own doc comment.
+    min: ui.min ?? spec.min,
+    max: ui.max ?? spec.max,
     step: ui.step,
     options: spec.options ? [...spec.options] : undefined,
     optional: spec.optional,
@@ -244,24 +266,51 @@ export function audioNodeSpec(kind: string): AudioNodeSpec | undefined {
   return AUDIO_NODE_REGISTRY.find((spec) => spec.kind === kind);
 }
 
-/** The default `params` object a freshly-created node of `kind` gets (one key per NON-`optional` registry field, at its `default`) — `optional: true` fields (`curve`/`periodic-wave`, this file's header comment) are deliberately left out until the author actually edits them. */
-export function defaultParamsFor(kind: string): Record<string, unknown> {
-  const spec = audioNodeSpec(kind);
-  if (!spec) return {};
+/**
+ * The default params object for any `AudioParamField[]` list (one key per
+ * NON-`optional` field, at its `default`) — `optional: true` fields
+ * (`curve`/`periodic-wave`, this file's header comment) are deliberately
+ * left out until the author actually edits them. Shared by `defaultParamsFor`
+ * (a node kind's `params`) and `defaultOscillatorSourceParams` (a source's
+ * `oscillator` payload, below) — refactored out of two near-identical
+ * copies (code review) so a future change to the skip rule only needs to
+ * happen once.
+ */
+function defaultParamsForFields(fields: readonly AudioParamField[]): Record<string, unknown> {
   const params: Record<string, unknown> = {};
-  for (const field of spec.params) {
+  for (const field of fields) {
     if (field.optional) continue;
     params[field.key] = field.default;
   }
   return params;
 }
 
-/** UX-618: whether `field` should currently be rendered/edited, given the REST of the node's current `params` (its own `showIf.key`'s value, falling back to that OTHER field's own registry default when unset). Fields with no `showIf` are always visible. */
-export function isParamFieldVisible(spec: AudioNodeSpec, field: AudioParamField, params: Record<string, unknown>): boolean {
+/** The default `params` object a freshly-created node of `kind` gets — see `defaultParamsForFields`. */
+export function defaultParamsFor(kind: string): Record<string, unknown> {
+  const spec = audioNodeSpec(kind);
+  return spec ? defaultParamsForFields(spec.params) : {};
+}
+
+/**
+ * UX-618: whether `field` should currently be rendered/edited, given the
+ * REST of the current `params` bag (its own `showIf.key`'s value, falling
+ * back to that OTHER field's own registry default when unset). Fields with
+ * no `showIf` are always visible. Shared by `isParamFieldVisible` (a node's
+ * `params`) and `isOscillatorSourceFieldVisible` (a source's `oscillator`
+ * payload, below) — refactored out of two near-identical copies (code
+ * review) so a future change to the showIf fallback semantics only needs
+ * to happen once.
+ */
+function isFieldVisibleIn(fields: readonly AudioParamField[], field: AudioParamField, params: Record<string, unknown>): boolean {
   if (!field.showIf) return true;
-  const controllingField = spec.params.find((f) => f.key === field.showIf!.key);
+  const controllingField = fields.find((f) => f.key === field.showIf!.key);
   const currentValue = params[field.showIf.key] ?? controllingField?.default;
   return currentValue === field.showIf.equals;
+}
+
+/** Whether `field` (one of `spec`'s own `params`) should currently be rendered/edited — see `isFieldVisibleIn`. */
+export function isParamFieldVisible(spec: AudioNodeSpec, field: AudioParamField, params: Record<string, unknown>): boolean {
+  return isFieldVisibleIn(spec.params, field, params);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +322,7 @@ export function isParamFieldVisible(spec: AudioNodeSpec, field: AudioParamField,
 // audio-graph canvas palette.
 // ---------------------------------------------------------------------------
 
-const OSCILLATOR_SOURCE_UI: Record<string, { label: string; step?: number; creationDefault?: AudioParamValue; showIf?: { key: string; equals: unknown } }> = {
+const OSCILLATOR_SOURCE_UI: Record<string, ParamUiEntry> = {
   type: { label: "Waveform", creationDefault: "sine" },
   frequency: { label: "Frequency (Hz)", step: 1 },
   detune: { label: "Detune (cents)", step: 1 },
@@ -284,20 +333,12 @@ const OSCILLATOR_SOURCE_UI: Record<string, { label: string; step?: number; creat
 /** The oscillator source's editable field list, in the same `AudioParamField` shape `audio-param-panel.tsx` already knows how to render a node's `params` with — an oscillator source's `extensions.KHR_audio_graph.oscillator` bag is edited the identical way. */
 export const OSCILLATOR_SOURCE_FIELDS: AudioParamField[] = OSCILLATOR_SOURCE_SPEC.params.map((spec) => toField(spec, OSCILLATOR_SOURCE_UI[spec.key] ?? { label: spec.key }));
 
-/** The default `extensions.KHR_audio_graph.oscillator` payload for a freshly-authored oscillator source (one key per non-`optional` field, at its default) — mirrors `defaultParamsFor`'s exclusion of `optional` (`periodicWave`) fields. */
+/** The default `extensions.KHR_audio_graph.oscillator` payload for a freshly-authored oscillator source — see `defaultParamsForFields`. */
 export function defaultOscillatorSourceParams(): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  for (const field of OSCILLATOR_SOURCE_FIELDS) {
-    if (field.optional) continue;
-    params[field.key] = field.default;
-  }
-  return params;
+  return defaultParamsForFields(OSCILLATOR_SOURCE_FIELDS);
 }
 
-/** UX-618-style visibility helper for `OSCILLATOR_SOURCE_FIELDS` (`periodicWave` only when `type === "custom"`), mirroring `isParamFieldVisible`'s node-side logic one level down for a source's oscillator bag. */
+/** UX-618-style visibility helper for `OSCILLATOR_SOURCE_FIELDS` (`periodicWave` only when `type === "custom"`) — see `isFieldVisibleIn`. */
 export function isOscillatorSourceFieldVisible(field: AudioParamField, oscillatorParams: Record<string, unknown>): boolean {
-  if (!field.showIf) return true;
-  const controllingField = OSCILLATOR_SOURCE_FIELDS.find((f) => f.key === field.showIf!.key);
-  const currentValue = oscillatorParams[field.showIf.key] ?? controllingField?.default;
-  return currentValue === field.showIf.equals;
+  return isFieldVisibleIn(OSCILLATOR_SOURCE_FIELDS, field, oscillatorParams);
 }

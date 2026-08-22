@@ -199,6 +199,33 @@ only recomputes `lint()` on a document change, not on an `audition()` call, so r
 lint-refresh path was out of scope for what this fix needs to guarantee: audition never crashes
 the canvas).
 
+## Implementation notes (r2 migration code-review follow-up)
+
+An independent review of the r2 migration pass found four real issues in `packages/audio-canvas`,
+fixed in the same follow-up as the `specs/engine-api.md`/`specs/ux-shell.md` notes for the
+`audio-graph`/`app` packages' own share of the same review:
+
+- `audio-node-registry.ts`'s `channelmixer.outputChannels` field silently lost its `max: 32` bound
+  when the registry was rebased onto `@gltf-audiograph/kernel` — the kernel's schema-derived spec
+  has no `max` for this param at all (the glTF schema itself doesn't declare one; `max: 32` was
+  always a UI-only bound, Web Audio's own real `channelCount` ceiling). A new `ParamUiEntry.max`/
+  `.min` overlay field restores it (and generalizes to any future kernel field needing a UI-only
+  bound this file's presentation layer adds on top of the schema).
+- `defaultParamsFor`/`isParamFieldVisible` (node `params`) and `defaultOscillatorSourceParams`/
+  `isOscillatorSourceFieldVisible` (a source's `oscillator` payload) were near-identical duplicated
+  logic — both pairs now share one `AudioParamField[]`-driven implementation
+  (`defaultParamsForFields`/`isFieldVisibleIn`).
+- `map-audio-graph.ts`'s oscillator-source discriminator (`oscillator !== undefined && typeof
+  source.audio !== "number"`) is duplicated in `@gltf-studio/audio-graph`'s `validators.ts` and
+  `packages/app`'s `AudioSection.tsx` rather than unified into one shared export (the three
+  packages don't otherwise share a dependency edge that could host it without a layering change) —
+  `validators.ts`'s copy was missing the `audio` guard, a real bug (see `specs/engine-api.md`'s
+  matching note); all three are now identical and cross-reference each other in their doc comments
+  to stay that way.
+- `audio-param-panel.tsx`'s `parseNumberList`/`formatNumberList` (curve/periodic-wave textarea
+  parse/format) are now exported and reused by `AudioSection.tsx`'s `OscillatorPeriodicWaveFields`,
+  which previously reimplemented them verbatim for the oscillator source's own real/imag pair.
+
 ## Open questions
 
 - OPEN(UX-audiograph-banner-dismiss-tbd): the approved mockup's lint banner has no dismiss

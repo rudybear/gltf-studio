@@ -168,6 +168,12 @@ process.
   `specs/ux-inspector.md`'s `UX-424` and `specs/ux-audio-graph.md`'s r2 updates, not a shell-level
   change; noted here only to satisfy this repo's ownership-drift check for the `packages/app/**`
   path, per `OPEN(P0-nospec-label-tbd)`'s documented workaround.
+- r2 code-review follow-up: `AudioSection.tsx`'s Clip/Oscillator toggle helpers (`toOscillatorSource`/
+  `toClipSource`) were rewritten to preserve `extras`/other un-modeled source fields across the
+  toggle (a from-scratch object literal was silently dropping the canvas's synthetic source-terminal
+  position, `specs/ux-audio-graph.md`'s `UX-617`) and to not fabricate an invalid clip binding when
+  switching to Clip mode on a document with zero audio clips; a new `AudioSection.test.ts` covers both
+  regressions directly. Same `packages/app/**` ownership-drift note as above, no shell-level change.
 - M4 (`packages/graph-canvas`'s dock-tab wiring, `packages/app/src/components/dock/BottomDock.tsx`):
   the Behavior graph tab surfaced a real instance of `UX-103`'s own worked example ("switching tabs
   does not reset the state of the tab being left (e.g. graph canvas scroll position...)") — the

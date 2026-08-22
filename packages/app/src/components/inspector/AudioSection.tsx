@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { SceneEdit, type EditorDocument } from "@gltf-studio/editor-core";
-import { OSCILLATOR_SOURCE_FIELDS, defaultOscillatorSourceParams, isOscillatorSourceFieldVisible } from "@gltf-studio/audio-canvas";
+import {
+  OSCILLATOR_SOURCE_FIELDS,
+  defaultOscillatorSourceParams,
+  isOscillatorSourceFieldVisible,
+  formatNumberList,
+  parseNumberList
+} from "@gltf-studio/audio-canvas";
 import { useAppStore } from "../../store/app-store";
 import type { GltfAudioSourceJson, GltfJsonShape } from "../../lib/gltf-scene";
 import { PointerButton } from "./PointerButton";
@@ -8,17 +14,59 @@ import { PointerButton } from "./PointerButton";
 const DISTANCE_MODELS = ["linear", "inverse", "exponential"] as const;
 const SHAPE_TYPES = ["omnidirectional", "cone"] as const;
 
-/** r2: a source is an oscillator when it declares the payload AND has no `audio` index — the same discriminator `@gltf-audiograph`'s `importAudioGraph`/`audio-canvas`'s `map-audio-graph.ts` use (a source can't be both a clip and an oscillator, `AudioGraphJsHost`'s upstream `lintLayeredGraph` flags that as `audio-and-oscillator` if it ever happens). */
-function isOscillatorSource(source: GltfAudioSourceJson): boolean {
+/**
+ * r2: a source is an oscillator when it declares the payload AND has no
+ * `audio` index — the same discriminator `@gltf-audiograph`'s
+ * `importAudioGraph`/`audio-canvas`'s `map-audio-graph.ts` use (a source
+ * can't be both a clip and an oscillator, `AudioGraphJsHost`'s upstream
+ * `lintLayeredGraph` flags that as `audio-and-oscillator` if it ever
+ * happens). Kept in sync with two other independent copies of this exact
+ * discriminator — `@gltf-studio/audio-graph`'s `validators.ts`
+ * (`findCustomOscillatorSourceIssues`) and `@gltf-studio/audio-canvas`'s
+ * `map-audio-graph.ts` — see `validators.ts`'s doc comment for why these
+ * three aren't unified into one shared export.
+ */
+export function isOscillatorSource(source: GltfAudioSourceJson): boolean {
   return source.extensions?.KHR_audio_graph?.oscillator !== undefined && typeof source.audio !== "number";
 }
 
-/** Whole-source replacement for the Clip <-> Oscillator toggle (UX-420): preserves the playback-scheduling fields both shapes share (`gain`/`autoplay`, r2's `SOURCE_SCHEDULE_KEYS`), drops whichever shape-specific fields don't apply to the new mode. Switching to Clip picks audio clip 0 when one exists (this section has no clip-picker UI yet — same "no clip replacement/upload" scope as UX-420's original read-only clip display). */
-function toOscillatorSource(source: GltfAudioSourceJson): GltfAudioSourceJson {
-  return { name: source.name, gain: source.gain, autoplay: source.autoplay, extensions: { KHR_audio_graph: { oscillator: defaultOscillatorSourceParams() } } };
+/**
+ * Whole-source replacement for the Clip <-> Oscillator toggle (UX-420):
+ * spreads the EXISTING source first (bug fix, code review — a from-scratch
+ * object literal here silently dropped every field this type doesn't name,
+ * concretely `extras.gltfi` — the audio-graph canvas's synthetic source
+ * terminal position, `map-audio-graph.ts`'s UX-617 note — and any other
+ * un-modeled extension data), then overrides only the fields that actually
+ * change shape, deleting the ones that don't apply to the new mode.
+ * Preserves the playback-scheduling fields both shapes share (`gain`/
+ * `autoplay`, r2's `SOURCE_SCHEDULE_KEYS`). Switching to Clip picks audio
+ * clip 0 when one exists (this section has no clip-picker UI yet — same
+ * "no clip replacement/upload" scope as UX-420's original read-only clip
+ * display).
+ */
+export function toOscillatorSource(source: GltfAudioSourceJson): GltfAudioSourceJson {
+  const next: GltfAudioSourceJson = { ...source };
+  delete next.audio;
+  delete next.loop;
+  delete next.playbackRate;
+  next.extensions = { KHR_audio_graph: { oscillator: defaultOscillatorSourceParams() } };
+  return next;
 }
-function toClipSource(source: GltfAudioSourceJson, audioClipCount: number): GltfAudioSourceJson {
-  return { name: source.name, gain: source.gain, autoplay: source.autoplay, loop: false, playbackRate: 1, ...(audioClipCount > 0 ? { audio: 0 } : {}) };
+/**
+ * Bug fix (code review): the caller only offers this via a "Clip" `<option>`
+ * that is now `disabled` whenever the document has zero audio clips (see
+ * this function's call site) — `audioClipCount` staying 0 here would
+ * otherwise produce a source with neither `audio` nor an oscillator
+ * payload, a shape `isOscillatorSource` reports as "clip" but that binds no
+ * real clip at all (silently broken, no diagnostic anywhere flags it).
+ */
+export function toClipSource(source: GltfAudioSourceJson, audioClipCount: number): GltfAudioSourceJson {
+  const next: GltfAudioSourceJson = { ...source };
+  delete next.extensions;
+  next.loop = false;
+  next.playbackRate = 1;
+  next.audio = audioClipCount > 0 ? 0 : source.audio;
+  return next;
 }
 
 /**
@@ -289,7 +337,12 @@ export function AudioSection({
                         )
                       }
                     >
-                      <option value="clip">Clip</option>
+                      {/* Bug fix (code review): disabled when the document has zero audio clips — otherwise
+                          switching to Clip mode here would produce a source with neither `audio` nor an
+                          oscillator payload, silently broken with no diagnostic (toClipSource's own doc comment). */}
+                      <option value="clip" disabled={audioClips.length === 0}>
+                        Clip
+                      </option>
                       <option value="oscillator">Oscillator</option>
                     </select>
                   </div>
@@ -386,7 +439,15 @@ export function AudioSection({
                             max={field.max}
                             value={typeof value === "number" ? value : Number(value) || 0}
                             data-testid={testId}
-                            onChange={(e) => setOscillatorProp(field.key, e.target.valueAsNumber)}
+                            // Bug fix (code review): `e.target.valueAsNumber` is `NaN` for a
+                            // momentarily-cleared input (backspaced to empty while retyping) —
+                            // `setOscillatorProp` would write that straight through
+                            // `SceneEdit.setAudioSourceProperty`, and `JSON.stringify(NaN)`
+                            // serializes as `null`, producing a schema-invalid
+                            // `oscillator.frequency: null`. `Number(e.target.value)` matches
+                            // every OTHER numeric field in this section (Playback Rate, Gain)
+                            // and coerces an empty string to `0` instead.
+                            onChange={(e) => setOscillatorProp(field.key, Number(e.target.value))}
                           />
                         </div>
                       );
@@ -411,7 +472,7 @@ export function AudioSection({
   );
 }
 
-/** `periodicWave`'s `{real: number[], imag: number[]}` Fourier-coefficient pair — two comma/whitespace-separated-number textareas committed together on blur, mirroring `audio-canvas`'s `audio-param-panel.tsx` `PeriodicWaveField` (not reused directly: that component is driven by `audioNodeSpec`'s NODE-kind lookup, which an oscillator SOURCE has no entry in — see audio-node-registry.ts's header comment). */
+/** `periodicWave`'s `{real: number[], imag: number[]}` Fourier-coefficient pair — two comma/whitespace-separated-number textareas committed together on blur, mirroring `audio-canvas`'s `audio-param-panel.tsx` `PeriodicWaveField` (not the SAME component: that one is driven by `audioNodeSpec`'s NODE-kind lookup, which an oscillator SOURCE has no entry in — see audio-node-registry.ts's header comment) but sharing its `parseNumberList`/`formatNumberList` parse/format primitives (code review — this used to reimplement them verbatim). */
 function OscillatorPeriodicWaveFields({
   testId,
   real,
@@ -423,18 +484,10 @@ function OscillatorPeriodicWaveFields({
   imag: number[];
   onCommit: (real: number[], imag: number[]) => void;
 }): JSX.Element {
-  const format = (values: number[]): string => values.join(", ");
-  const parse = (text: string): number[] =>
-    text
-      .split(/[,\s]+/)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0)
-      .map(Number)
-      .filter((n) => Number.isFinite(n));
-  const [realText, setRealText] = useState(() => format(real));
-  const [imagText, setImagText] = useState(() => format(imag));
+  const [realText, setRealText] = useState(() => formatNumberList(real));
+  const [imagText, setImagText] = useState(() => formatNumberList(imag));
   function commit(nextRealText: string, nextImagText: string): void {
-    onCommit(parse(nextRealText), parse(nextImagText));
+    onCommit(parseNumberList(nextRealText), parseNumberList(nextImagText));
   }
   return (
     <div className="field-row">
