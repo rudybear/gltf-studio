@@ -160,6 +160,14 @@ process.
 
 ## Implementation notes
 
+- r2 audio-graph migration: `packages/app/src/components/inspector/AudioSection.tsx` (the Audio
+  Emitter inspector section, `specs/ux-inspector.md` `UX-406`/`UX-419`/`UX-420`) gained a Source Type
+  (Clip/Oscillator) toggle per Sources sub-list row and `packages/app/src/lib/gltf-scene.ts` gained
+  the corresponding `GltfAudioSourceOscillatorJson` type — both under this file's `packages/app/**`
+  catch-all ownership, but the substance (r2's oscillator-as-source-data shape) is
+  `specs/ux-inspector.md`'s `UX-424` and `specs/ux-audio-graph.md`'s r2 updates, not a shell-level
+  change; noted here only to satisfy this repo's ownership-drift check for the `packages/app/**`
+  path, per `OPEN(P0-nospec-label-tbd)`'s documented workaround.
 - M4 (`packages/graph-canvas`'s dock-tab wiring, `packages/app/src/components/dock/BottomDock.tsx`):
   the Behavior graph tab surfaced a real instance of `UX-103`'s own worked example ("switching tabs
   does not reset the state of the tab being left (e.g. graph canvas scroll position...)") — the
