@@ -218,6 +218,24 @@
   background: var(--warn);
 }
 
+/* D2 (specs/ux-debugger.md UX-1506): the breakpoint badge — top-LEFT corner
+   (the diagnostics `!` badge above stays top-right) so both can render at
+   once without overlapping. A plain filled dot, not a letter — this badge
+   has exactly one meaning, unlike the diagnostics badge's error/warning
+   split. */
+.gcanvas-breakpoint-badge {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--bg-0, #1e1e1e);
+  z-index: 2;
+  cursor: default;
+}
+
 .gcanvas-op-header {
   display: flex;
   align-items: center;

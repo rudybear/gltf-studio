@@ -44,6 +44,22 @@ export type AudioScriptPanelProps = {
   onToast?: (text: string) => void;
   /** specs/ux-audio-script.md UX-1400: the "→ Audio graph" jump from a diagnostic naming a `graph.nodes[]` index (only `importAudioGraph`'s own diagnostics carry one — a hand-edited buffer's parse diagnostics are script-position-only, not graph-index-only, so this never fires for those). */
   onJumpToAudioGraphNode?: (nodeIndex: number) => void;
+  /** D3 (specs/ux-debugger.md UX-1509): 1-based line numbers, for THIS `graphIndex`, currently holding a "Debug audition" breakpoint — mirrors `@gltf-studio/script-panel`'s identical `breakpoints` prop. */
+  breakpoints?: readonly number[];
+  /** D3: the glyph margin was clicked at `line` — mirrors `@gltf-studio/script-panel`'s identical `onToggleBreakpoint` prop. */
+  onToggleBreakpoint?: (line: number) => void;
+  /**
+   * D3 (specs/ux-debugger.md UX-1508/UX-1509): "Debug audition" was clicked
+   * — the CURRENT buffer text (whichever mode is active; the same text
+   * Monaco shows) plus this graph's breakpoint lines, handed to the caller
+   * to actually transform/execute (this package takes no dependency on
+   * `@gltf-studio/play`/`@gltf-audiograph/runtime-lib` — same "editing
+   * package doesn't import the execution package" posture
+   * `@gltf-studio/script-panel` keeps toward `@gltf-studio/play`, just
+   * mirrored in the opposite direction here). Omitted -> button hidden
+   * entirely (same optional-callback convention as `onJumpToAudioGraphNode`).
+   */
+  onDebugAudition?: (code: string, breakpointLines: readonly number[]) => void;
 };
 
 type Mode = "view" | "edit";
@@ -55,6 +71,10 @@ export interface GltfStudioAudioScriptTestHook {
   getCode(): string;
   getSelectedText(): string | null;
   getMarkerLines(): number[];
+  /** e2e-only (D3, specs/ux-debugger.md UX-1509): mirrors script-panel's identical hook — invokes `onToggleBreakpoint` for `line` exactly as a real glyph-margin click does. */
+  toggleBreakpointAtLine(line: number): void;
+  /** e2e-only (D3): the CURRENT `breakpoints` prop, sorted ascending. */
+  getBreakpointLines(): number[];
   /**
    * e2e-only: reads the CURRENT document's raw JSON. Unlike
    * `AudioGraphTabPanel.tsx`'s own `window.__gltfStudioAudioGraphTest`
@@ -90,7 +110,10 @@ export function AudioScriptPanel({
   selectedSourceIndex,
   onLog,
   onToast,
-  onJumpToAudioGraphNode
+  onJumpToAudioGraphNode,
+  breakpoints,
+  onToggleBreakpoint,
+  onDebugAudition
 }: AudioScriptPanelProps): JSX.Element {
   const graphs = getIn(document.json, ["extensions", "KHR_audio_graph", "graphs"]) as unknown[] | undefined;
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
@@ -140,6 +163,12 @@ export function AudioScriptPanel({
   const isProgrammaticContentSetRef = useRef(false);
   const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   const loggedErrorKeyRef = useRef<string>("");
+  /** D3 (specs/ux-debugger.md UX-1509): mirrors script-panel's identical refs — see that file's own doc comment. */
+  const breakpointDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  const breakpointsRef = useRef<readonly number[]>(breakpoints ?? []);
+  breakpointsRef.current = breakpoints ?? [];
+  const onToggleBreakpointRef = useRef(onToggleBreakpoint);
+  onToggleBreakpointRef.current = onToggleBreakpoint;
 
   useEffect(() => {
     codeRef.current = code;
@@ -266,6 +295,7 @@ export function AudioScriptPanel({
   useEffect(() => {
     let cancelled = false;
     let contentSub: Monaco.IDisposable | undefined;
+    let breakpointMouseSub: Monaco.IDisposable | undefined;
     (async () => {
       try {
         const { loadMonacoAudio } = await import("./monaco-setup.js");
@@ -280,9 +310,16 @@ export function AudioScriptPanel({
           automaticLayout: true,
           minimap: { enabled: false },
           fontSize: 12,
-          scrollBeyondLastLine: false
+          scrollBeyondLastLine: false,
+          // D3 (specs/ux-debugger.md UX-1509): mirrors script-panel's identical `glyphMargin` addition — see that file's own doc comment.
+          glyphMargin: true
         });
         editorRef.current = editor;
+        breakpointMouseSub = editor.onMouseDown((event) => {
+          if (event.target.type !== monacoApi.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const line = event.target.position?.lineNumber;
+          if (line !== undefined) onToggleBreakpointRef.current?.(line);
+        });
         contentSub = editor.onDidChangeModelContent(() => {
           const value = editor.getValue();
           codeRef.current = value;
@@ -311,6 +348,9 @@ export function AudioScriptPanel({
     return () => {
       cancelled = true;
       contentSub?.dispose();
+      breakpointMouseSub?.dispose();
+      breakpointDecorationsRef.current?.clear();
+      breakpointDecorationsRef.current = null;
       editorRef.current?.getModel()?.dispose();
       editorRef.current?.dispose();
       editorRef.current = null;
@@ -320,6 +360,28 @@ export function AudioScriptPanel({
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly: mode !== "edit" });
   }, [mode, monacoReady]);
+
+  // D3 (specs/ux-debugger.md UX-1509): mirrors script-panel's identical breakpoint-decoration-sync effect.
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi) return;
+    const lines = breakpoints ?? [];
+    breakpointDecorationsRef.current?.clear();
+    breakpointDecorationsRef.current =
+      lines.length > 0
+        ? editor.createDecorationsCollection(
+            lines.map((line) => ({
+              range: new monacoApi.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: "gi-breakpoint-glyph",
+                glyphMarginHoverMessage: { value: "Breakpoint (debug audition)" },
+                stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+              }
+            }))
+          )
+        : null;
+  }, [breakpoints, monacoReady]);
 
   // Keep the Monaco buffer's text in sync with externally-driven `code` changes.
   useEffect(() => {
@@ -378,7 +440,9 @@ export function AudioScriptPanel({
           .map((m) => m.startLineNumber)
           .sort((a, b) => a - b);
       },
-      getDocumentJson: () => documentRef.current.json
+      getDocumentJson: () => documentRef.current.json,
+      toggleBreakpointAtLine: (line: number) => onToggleBreakpointRef.current?.(line),
+      getBreakpointLines: () => [...breakpointsRef.current].sort((a, b) => a - b)
     };
     return () => {
       delete window.__gltfStudioAudioScriptTest;
@@ -437,6 +501,17 @@ export function AudioScriptPanel({
           <button className="audio-script-btn audio-script-btn-primary" data-testid="audio-script.apply" disabled={!canApply} onClick={handleApply}>
             Apply → Audio graph
           </button>
+          {onDebugAudition ? (
+            <button
+              type="button"
+              className="audio-script-btn"
+              data-testid="audio-script.debug-audition"
+              title="Executes this script against a real graph-building recorder — construction-time breakpoints pause here (D3, specs/ux-debugger.md UX-1508). Audio scripts do not run at Play time; this is the only way to debug one."
+              onClick={() => onDebugAudition(codeRef.current, breakpointsRef.current)}
+            >
+              🐞 Debug audition
+            </button>
+          ) : null}
           <span
             className={`audio-script-badge ${badgeDiverged ? "diverged" : "equiv"}`}
             data-testid="audio-script.equiv-badge"

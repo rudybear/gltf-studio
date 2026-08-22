@@ -22,6 +22,7 @@ import { emitModule } from "@gltfi/emit-ts";
 import { buildEmitView } from "@gltf-studio/script-panel/emit-view";
 import { computeCompiledCode, PLAY_GRAPH_INDEX } from "./engine-host.js";
 import { appendDebugSourceUrl, debugVirtualSourceUrl } from "./debug-source.js";
+import { injectBreakpoints } from "./debug-breakpoints.js";
 import { transformTsToDebugJs } from "./esbuild-transform.js";
 import { tickCounterGltfJson } from "./test-fixtures.js";
 
@@ -82,6 +83,24 @@ describe("PC-009 compiled-debug pipeline (docs/adr/0006, specs/ux-debugger.md UX
   it("debugVirtualSourceUrl is stable and index-parameterized (UX-1502)", () => {
     expect(debugVirtualSourceUrl(0)).toBe("gltf-studio:///behavior/graph0.ts");
     expect(debugVirtualSourceUrl(2)).toBe("gltf-studio:///behavior/graph2.ts");
+  });
+
+  it("D2 (specs/ux-debugger.md UX-1505): a breakpoint injected BEFORE esbuild's transform survives it — the transformed JS's decoded sourcesContent[0] still opens with the SAME injected `debugger;` line the pre-transform text had, at the same line number, with every other line otherwise byte-identical to the plain (no-breakpoint) build", async () => {
+    const graph = tickCounterGraph();
+    const sourceUrl = debugVirtualSourceUrl(PLAY_GRAPH_INDEX);
+    const scriptTabText = buildEmitView(graph, PLAY_GRAPH_INDEX).code;
+    const targetLine = scriptTabText.split("\n").findIndex((l) => l.includes("V.counter = ")) + 1;
+    expect(targetLine).toBeGreaterThan(0);
+
+    const withBreakpoint = injectBreakpoints(scriptTabText, [targetLine]);
+    const debugCode = await transformTsToDebugJs(withBreakpoint, sourceUrl);
+    const map = decodeInlineSourceMap(debugCode);
+
+    expect(map.sourcesContent[0]).toBe(withBreakpoint);
+    expect(map.sourcesContent[0]!.split("\n")[targetLine - 1]).toBe("debugger;");
+    // Removing the injected line reproduces the UN-injected build's own source-mapped text exactly (UX-1503's text-identity guarantee still holds for the underlying script — the injection is additive, not a rewrite).
+    const withoutInjected = map.sourcesContent[0]!.split("\n").filter((_, i) => i !== targetLine - 1).join("\n");
+    expect(withoutInjected).toBe(scriptTabText);
   });
 
   it.todo(

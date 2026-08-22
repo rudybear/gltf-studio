@@ -90,6 +90,17 @@ export type ScriptPanelProps = {
    * knowledge to do that resolution on its own (it only knows emitted TEXT).
    */
   onPointerLinkClick?: (pointerPath: string) => void;
+  /**
+   * D2 (specs/ux-debugger.md UX-1505): 1-based line numbers, for THIS
+   * `graphIndex`, currently holding a session breakpoint (app-store's
+   * `scriptBreakpoints[graphIndex]`) — rendered as a red glyph-margin dot.
+   * Session-only, cleared on reload; honored at the NEXT debug-play `start()`
+   * (packages/play's `injectBreakpoints`), never live-applied to an
+   * in-progress session.
+   */
+  breakpoints?: readonly number[];
+  /** D2: the user clicked the glyph margin on `line` (either directly, via the gutter, or through the e2e test hook's `toggleBreakpointAtLine`) — the caller owns add/remove (toggle) semantics. */
+  onToggleBreakpoint?: (line: number) => void;
 };
 
 type Mode = "view" | "edit";
@@ -159,6 +170,17 @@ export interface GltfStudioScriptTestHook {
    * exists somewhere.
    */
   getMarkerLines(): number[];
+  /**
+   * e2e-only (D2, specs/ux-debugger.md UX-1505): invokes `onToggleBreakpoint`
+   * for `line` exactly as a real glyph-margin click does (the mouse-down
+   * handler below calls the SAME callback ref this seam calls directly) —
+   * same "avoid a flaky pixel-perfect interaction, exercise the real
+   * result-producing code path instead" precedent `clickPointerLink` above
+   * already establishes for this file.
+   */
+  toggleBreakpointAtLine(line: number): void;
+  /** e2e-only (D2): the CURRENT `breakpoints` prop, sorted ascending — lets a test assert which lines are marked without depending on Monaco's own glyph-decoration DOM. */
+  getBreakpointLines(): number[];
 }
 
 declare global {
@@ -199,7 +221,18 @@ function diagnosticLine(d: Diagnostic): number {
   return d.line ?? extractDiagnosticLine(d.message) ?? 1;
 }
 
-export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selectedNodeIndex, focusRequest, onLog, onToast, onPointerLinkClick }: ScriptPanelProps): JSX.Element {
+export function ScriptPanel({
+  document,
+  graphIndex = 0,
+  dispatchCommand,
+  selectedNodeIndex,
+  focusRequest,
+  onLog,
+  onToast,
+  onPointerLinkClick,
+  breakpoints,
+  onToggleBreakpoint
+}: ScriptPanelProps): JSX.Element {
   const graphs = getIn(document.json, ["extensions", "KHR_interactivity", "graphs"]) as Graph[] | undefined;
   const hasGraph = graphs !== undefined && graphs.length > graphIndex;
   const rawGraph = hasGraph ? graphs![graphIndex] : undefined;
@@ -274,6 +307,24 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
    * instead (moving/keeping the decoration, not discarding it).
    */
   const isProgrammaticContentSetRef = useRef(false);
+  /**
+   * D2 (specs/ux-debugger.md UX-1505): the glyph-margin breakpoint
+   * decorations — a SEPARATE `IEditorDecorationsCollection` from
+   * `decorationsRef`'s jump-highlight above (independent lifecycles: a
+   * breakpoint stays until explicitly toggled off, regardless of any
+   * cross-highlight jump landing on/leaving the same line).
+   */
+  const breakpointDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  /**
+   * Always-current refs (assigned every render, not via an effect — the
+   * Monaco mount effect below installs its mouse-down listener and e2e test
+   * hook exactly ONCE, so both need a way to see the LATEST `breakpoints`/
+   * `onToggleBreakpoint` prop rather than whichever was current at mount).
+   */
+  const breakpointsRef = useRef<readonly number[]>(breakpoints ?? []);
+  breakpointsRef.current = breakpoints ?? [];
+  const onToggleBreakpointRef = useRef(onToggleBreakpoint);
+  onToggleBreakpointRef.current = onToggleBreakpoint;
 
   /**
    * specs/ux-script.md UX-712/UX-1108: clears the persistent jump-highlight
@@ -518,6 +569,7 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
     let cancelled = false;
     let contentSub: Monaco.IDisposable | undefined;
     let cursorSub: Monaco.IDisposable | undefined;
+    let breakpointMouseSub: Monaco.IDisposable | undefined;
     (async () => {
       try {
         const { loadMonaco } = await import("./monaco-setup.js");
@@ -559,9 +611,25 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
           automaticLayout: true,
           minimap: { enabled: false },
           fontSize: 12,
-          scrollBeyondLastLine: false
+          scrollBeyondLastLine: false,
+          // D2 (specs/ux-debugger.md UX-1505): the glyph margin is what a
+          // gutter breakpoint click/decoration needs — Monaco's own
+          // `readOnly` flag (toggled by mode below) governs TEXT editing
+          // only, not this margin, so breakpoints stay toggleable in
+          // view mode too (the common case: most users never enter Edit
+          // mode at all).
+          glyphMargin: true
         });
         editorRef.current = editor;
+        // D2: clicking the glyph margin toggles a breakpoint at that line —
+        // Monaco has no built-in "breakpoint" concept of its own (this is the
+        // same raw `onMouseDown` + `MouseTargetType` approach VS Code's own
+        // breakpoint gutter is built on top of).
+        breakpointMouseSub = editor.onMouseDown((event) => {
+          if (event.target.type !== monacoApi.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const line = event.target.position?.lineNumber;
+          if (line !== undefined) onToggleBreakpointRef.current?.(line);
+        });
         contentSub = editor.onDidChangeModelContent(() => {
           const value = editor.getValue();
           codeRef.current = value;
@@ -636,6 +704,9 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
       }
       contentSub?.dispose();
       cursorSub?.dispose();
+      breakpointMouseSub?.dispose();
+      breakpointDecorationsRef.current?.clear();
+      breakpointDecorationsRef.current = null;
       editorRef.current?.getModel()?.dispose();
       editorRef.current?.dispose();
       editorRef.current = null;
@@ -646,6 +717,32 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly: mode !== "edit" });
   }, [mode, monacoReady]);
+
+  // D2 (specs/ux-debugger.md UX-1505): keeps the glyph-margin breakpoint
+  // decorations in sync with the `breakpoints` prop — re-derives the WHOLE
+  // set on every change rather than diffing (a Script tab's breakpoint count
+  // is small; the same "just rebuild it" simplicity `applyMarkers` above
+  // already uses for diagnostics).
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi) return;
+    const lines = breakpoints ?? [];
+    breakpointDecorationsRef.current?.clear();
+    breakpointDecorationsRef.current =
+      lines.length > 0
+        ? editor.createDecorationsCollection(
+            lines.map((line) => ({
+              range: new monacoApi.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: "gi-breakpoint-glyph",
+                glyphMarginHoverMessage: { value: "Breakpoint (debug play)" },
+                stickiness: monacoApi.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+              }
+            }))
+          )
+        : null;
+  }, [breakpoints, monacoReady]);
 
   // Keep the Monaco buffer's text in sync with externally-driven `code`
   // changes (view-mode regeneration, mode toggles) — a no-op when `code`
@@ -831,7 +928,9 @@ export function ScriptPanel({ document, graphIndex = 0, dispatchCommand, selecte
           .getModelMarkers({ owner: MARKER_OWNER, resource: model.uri })
           .map((m) => m.startLineNumber)
           .sort((a, b) => a - b);
-      }
+      },
+      toggleBreakpointAtLine: (line: number) => onToggleBreakpointRef.current?.(line),
+      getBreakpointLines: () => [...breakpointsRef.current].sort((a, b) => a - b)
     };
     return () => {
       delete window.__gltfStudioScriptTest;

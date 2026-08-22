@@ -15,6 +15,18 @@ export function debugVirtualSourceUrl(graphIndex: number): string {
 }
 
 /**
+ * D3 (specs/ux-debugger.md UX-1509): the audio-script "Debug audition"
+ * pipeline's own virtual name, sibling to `debugVirtualSourceUrl` above —
+ * same stable-name/DevTools-grouping role, under `/audio/` rather than
+ * `/behavior/` so the two never collide in DevTools' Sources tree for a
+ * document that has both an interactivity graph and an audio graph open for
+ * debugging.
+ */
+export function audioDebugVirtualSourceUrl(graphIndex: number): string {
+  return `gltf-studio:///audio/graph${graphIndex}.ts`;
+}
+
+/**
  * The pure, Worker-free half of `engine-host.ts`'s `buildDebugModule`
  * (factored out purely for Node-unit-testability — compiled-debug.test.ts
  * exercises this directly, since `buildDebugModule` itself needs a real

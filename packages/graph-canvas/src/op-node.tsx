@@ -72,6 +72,15 @@ export type OpNodeData = {
   docNames?: DocNames;
   /** Target chip click (handler nodes only, and only once resolved to a real, non-dangling scene node — see `resolveHandlerTarget` below): selects that scene node, same store action a scene-tree row click makes. */
   onTargetChipClick?: (sceneNodeIndex: number) => void;
+  /**
+   * D2 (specs/ux-debugger.md UX-1506): true when this node's resolved
+   * emitted-script line (the SAME `packages/app`-layer cross-highlight
+   * resolution `onBreakHere`/canBreakHere below use) currently holds a
+   * session breakpoint (app-store's `scriptBreakpoints`). Renders a small
+   * red badge, distinct from the diagnostics `!` badge above it (both can be
+   * present at once).
+   */
+  hasBreakpoint?: boolean;
 };
 export type OpNodeType = Node<OpNodeData, "op">;
 
@@ -172,7 +181,7 @@ function PortRow({
 }
 
 export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
-  const { node, connectedValueInPorts, diagnostics, onLiteralCommit, onPointerTextClick, onPointerIconClick, docNames, onTargetChipClick } = data;
+  const { node, connectedValueInPorts, diagnostics, onLiteralCommit, onPointerTextClick, onPointerIconClick, docNames, onTargetChipClick, hasBreakpoint } = data;
   const color = categoryColor(node.category);
   const west = westPorts(node);
   const east = eastPorts(node);
@@ -221,6 +230,15 @@ export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
         >
           !
         </span>
+      ) : null}
+      {hasBreakpoint ? (
+        <span
+          className="gcanvas-breakpoint-badge"
+          tabIndex={0}
+          role="status"
+          title="Breakpoint (debug play)"
+          data-testid={`gcanvas.breakpoint-badge.${node.index}`}
+        />
       ) : null}
       <div className="gcanvas-op-header" style={{ height: NODE_METRICS.headerHeight }}>
         <span className="gcanvas-op-badge" style={{ background: color }}>

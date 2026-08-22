@@ -103,6 +103,12 @@ export type GraphCanvasProps = {
    * `onRevealInViewport` above.
    */
   onSelectSceneNode?: (sceneNodeIndex: number) => void;
+  /** D2 (specs/ux-debugger.md UX-1506): forwarded straight to GraphView — see its own doc comment. */
+  breakpointNodeIndices?: ReadonlySet<number>;
+  /** D2 (specs/ux-debugger.md UX-1507): whether the CURRENTLY SELECTED node can "Break here" — resolved one layer up (`packages/app`'s BehaviorGraphPanel.tsx) since that resolution needs `@gltf-studio/script-panel`'s emit/cross-highlight machinery, which this package deliberately does not depend on (same "canvas package doesn't import the editing package" posture the docNames/onJumpToData props above already establish). Omitted (button hidden) when the host has no script-breakpoint concept. */
+  canBreakHere?: boolean;
+  /** D2: forwarded to NodeDetails — see its own doc comment. */
+  onBreakHere?: (nodeIndex: number) => void;
 };
 
 export function GraphCanvas({
@@ -118,7 +124,10 @@ export function GraphCanvas({
   onOpenPointerPicker,
   focusRequest,
   onRevealInViewport,
-  onSelectSceneNode
+  onSelectSceneNode,
+  breakpointNodeIndices,
+  canBreakHere,
+  onBreakHere
 }: GraphCanvasProps): JSX.Element {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   // Task ("in the node graph there is no way to edit variables"): defaults
@@ -538,6 +547,7 @@ export function GraphCanvas({
           focusRequest={focusRequest}
           docNames={docNames}
           onTargetChipClick={onSelectSceneNode}
+          breakpointNodeIndices={breakpointNodeIndices}
         />
       ) : (
         <div className="gcanvas-empty-state" data-testid="gcanvas.empty">
@@ -565,6 +575,8 @@ export function GraphCanvas({
           onOpenPointerPicker={onOpenPointerPicker ? (nodeIndex) => handlePointerIconClick(nodeIndex) : undefined}
           sceneRef={selectedNodeSceneRef}
           onRevealInViewport={onRevealInViewport}
+          canBreakHere={canBreakHere}
+          onBreakHere={onBreakHere}
         />
       ) : null}
     </div>

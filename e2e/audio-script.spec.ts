@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type CDPSession } from "@playwright/test";
 import { FIXTURE_GLB_PATH, FIXTURE_NO_GRAPH_GLB_PATH, FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL } from "./global-setup.js";
 import {
   buildAudioGraphLegacyOscillatorFixtureBytes,
@@ -68,7 +68,7 @@ test.describe("Audio Script tab", () => {
     await openAudioScriptTab(page);
   });
 
-  test("Emit view shows the fixture audio graph's real generated code, read-only, EQUIV by default; toolbar is exactly Edit/Apply/badge (UX-1400/UX-1401/UX-1403)", async ({ page }) => {
+  test("Emit view shows the fixture audio graph's real generated code, read-only, EQUIV by default; toolbar is exactly Edit/Apply/Debug audition/badge (UX-1400/UX-1401/UX-1403, D3 UX-1509)", async ({ page }) => {
     const code = await page.evaluate(() => window.__gltfStudioAudioScriptTest!.getCode());
     expect(code.startsWith("// Audio script — generated from audio graph 0")).toBe(true);
     expect(code).toContain(`const ${FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL} = a.gain(`);
@@ -76,7 +76,8 @@ test.describe("Audio Script tab", () => {
     await expect(page.getByTestId("audio-script.equiv-badge")).toHaveText("EQUIV ✓");
     await expect(page.getByTestId("audio-script.edit-toggle")).toHaveText("Edit");
     await expect(page.getByTestId("audio-script.apply")).toBeDisabled();
-    await expect(page.getByTestId("audio-script.toolbar").locator("button")).toHaveCount(2);
+    // D3: "Debug audition" is the one new button this task adds to this toolbar (UX-1509).
+    await expect(page.getByTestId("audio-script.toolbar").locator("button")).toHaveCount(3);
   });
 
   test("editing a gain value diverges the script from the audio graph; Apply -> Audio graph replaces the graph as ONE undoable command, and the Audio graph canvas reflects it (UX-1403/UX-1404, DOC-064)", async ({ page }) => {
@@ -265,6 +266,54 @@ test.describe("Audio Script tab", () => {
     await page.getByTestId("dock.tab.graph").click();
     await page.getByTestId("dock.tab.audio-script").click();
     await assertRegionSpansMultipleLines(codeRegion);
+  });
+});
+
+/**
+ * D3 script debugging (specs/ux-debugger.md UX-1508/UX-1509): "Debug
+ * audition" — audio scripts never execute at Play time (there is no Play
+ * for them to run under at all), so this is the ONLY way to exercise/debug
+ * one. Proves the real executor found for this decision (`@gltf-audiograph
+ * /runtime-lib`'s `createAudioScriptRecorder()`) actually runs the script
+ * and that a gutter breakpoint pauses a real, externally-attached DevTools
+ * session — the same CDP-based honesty standard e2e/debugger.spec.ts's D1/D2
+ * suite already holds the interactivity side to.
+ */
+test.describe("Audio Script tab — Debug audition (D3, specs/ux-debugger.md UX-1508/UX-1509)", () => {
+  test.beforeEach(async ({ page }) => {
+    await importFixture(page);
+    await openAudioScriptTab(page);
+  });
+
+  test("Debug audition executes the script against a real graph-building recorder and reports what it constructed", async ({ page }) => {
+    await page.getByTestId("audio-script.debug-audition").click();
+    await expect(page.getByTestId("toast")).toContainText("Debug audition: constructed");
+  });
+
+  test("a gutter breakpoint in the Audio Script tab pauses a real DevTools session during Debug audition, without Debugger.setBreakpointByUrl (UX-1509)", async ({ page, context }) => {
+    test.slow();
+
+    const code = await page.evaluate(() => window.__gltfStudioAudioScriptTest!.getCode());
+    const gainLine = code.split("\n").findIndex((l) => l.includes("a.gain(")) + 1;
+    expect(gainLine).toBeGreaterThan(0);
+    await page.evaluate((line) => window.__gltfStudioAudioScriptTest!.toggleBreakpointAtLine(line), gainLine);
+    await expect.poll(() => page.evaluate(() => window.__gltfStudioAudioScriptTest!.getBreakpointLines())).toEqual([gainLine]);
+
+    const cdp: CDPSession = await context.newCDPSession(page);
+    await cdp.send("Debugger.enable");
+    const scriptParsedEvents: Array<{ scriptId: string; url: string }> = [];
+    cdp.on("Debugger.scriptParsed", (event) => scriptParsedEvents.push(event as { scriptId: string; url: string }));
+    const pausedEvents: unknown[] = [];
+    cdp.on("Debugger.paused", (event) => pausedEvents.push(event));
+
+    await page.getByTestId("audio-script.debug-audition").click();
+
+    const virtualUrl = "gltf-studio:///audio/graph0.ts";
+    await expect.poll(() => scriptParsedEvents.some((e) => e.url === virtualUrl), { timeout: 10000 }).toBe(true);
+    await expect.poll(() => pausedEvents.length, { timeout: 10000 }).toBeGreaterThan(0);
+    await cdp.send("Debugger.resume");
+
+    await expect(page.getByTestId("toast")).toContainText("Debug audition: constructed");
   });
 });
 

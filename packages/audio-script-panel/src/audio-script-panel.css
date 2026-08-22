@@ -103,3 +103,18 @@
 .audio-script-jump-highlight {
   background: rgba(217, 164, 65, 0.35);
 }
+
+/* D3 (specs/ux-debugger.md UX-1509): mirrors @gltf-studio/script-panel's
+   identical `.gi-breakpoint-glyph` rule byte-for-byte — kept as its own copy
+   here (not a shared stylesheet) for the same "two small independent panels,
+   not a premature shared package" reasoning specs/ux-audio-script.md's
+   Implementation notes already document for monaco-setup.ts/request-sequencer.ts. */
+.gi-breakpoint-glyph::before {
+  content: "";
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: 3px auto 0;
+  border-radius: 50%;
+  background: var(--danger, #e5484d);
+}

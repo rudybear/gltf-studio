@@ -17,6 +17,7 @@ import { useMemo, lazy, Suspense } from "react";
 import { mapAudioGraph, identifyMappedNode, findMappedNode } from "@gltf-studio/audio-canvas";
 import type { AudioEmitter, AudioEmitterSource, KHRGraph } from "audio-graph-js";
 import { useAppStore } from "../../store/app-store";
+import { runAudioDebugAudition } from "../../lib/audio-debug-audition.js";
 import { Placeholder } from "./Placeholder";
 
 const LazyAudioScriptPanel = lazy(() => import("@gltf-studio/audio-script-panel").then((m) => ({ default: m.AudioScriptPanel })));
@@ -28,6 +29,15 @@ interface AudioGraphJsonShape {
   };
 }
 
+/**
+ * D3 (specs/ux-debugger.md UX-1508/UX-1509): "Debug audition" always
+ * addresses `KHR_audio_graph.graphs[0]` — same "always graph 0" scope
+ * `AudioScriptTabPanel`'s own `graphIndex={0}` prop below already documents
+ * (`ux-audio-script.md`'s `OPEN(UX-audio-script-multigraph-tbd)`), so
+ * breakpoints for this tab need no per-graph indirection.
+ */
+const AUDIO_DEBUG_GRAPH_INDEX = 0;
+
 export function AudioScriptTabPanel(): JSX.Element {
   const document = useAppStore((s) => s.document);
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
@@ -35,6 +45,8 @@ export function AudioScriptTabPanel(): JSX.Element {
   const jumpAudioScriptNodeToGraph = useAppStore((s) => s.jumpAudioScriptNodeToGraph);
   const log = useAppStore((s) => s.log);
   const pushToast = useAppStore((s) => s.pushToast);
+  const audioScriptBreakpoints = useAppStore((s) => s.audioScriptBreakpoints);
+  const toggleAudioScriptBreakpoint = useAppStore((s) => s.toggleAudioScriptBreakpoint);
 
   const json = document?.json as AudioGraphJsonShape | undefined;
   const graph = json?.extensions?.KHR_audio_graph?.graphs?.[0];
@@ -62,6 +74,27 @@ export function AudioScriptTabPanel(): JSX.Element {
           onLog={log}
           onToast={pushToast}
           onJumpToAudioGraphNode={jumpAudioScriptNodeToGraph}
+          breakpoints={audioScriptBreakpoints[AUDIO_DEBUG_GRAPH_INDEX]}
+          onToggleBreakpoint={(line) => toggleAudioScriptBreakpoint(AUDIO_DEBUG_GRAPH_INDEX, line)}
+          onDebugAudition={(code, breakpointLines) => {
+            // D3: fire-and-forget from this component's perspective —
+            // success/failure both surface via the SAME toast+console-log
+            // channel every other action in this dock layer already uses
+            // (mirrors ScriptTabPanel.tsx's `onLog`/`onToast` wiring
+            // convention), rather than inventing a new UI affordance for a
+            // one-shot construction run.
+            runAudioDebugAudition(code, AUDIO_DEBUG_GRAPH_INDEX, breakpointLines)
+              .then((result) => {
+                const nodeCount = Array.isArray((result.graph as { nodes?: unknown[] }).nodes) ? (result.graph as { nodes: unknown[] }).nodes.length : 0;
+                pushToast(`Debug audition: constructed ${nodeCount} node(s)${result.sources.length > 0 ? `, ${result.sources.length} oscillator source(s)` : ""}.`);
+                log("info", "Debug audition: audio script executed successfully.");
+              })
+              .catch((err: unknown) => {
+                const message = err instanceof Error ? err.message : String(err);
+                pushToast(`Debug audition failed: ${message}`);
+                log("error", `Debug audition: ${message}`);
+              });
+          }}
         />
       </Suspense>
     </div>

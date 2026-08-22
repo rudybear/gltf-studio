@@ -37,7 +37,8 @@ import {
   type UsageRef
 } from "@gltf-studio/usage-index";
 import { IndexedDBStorage } from "@gltf-studio/storage";
-import { createPlayController } from "@gltf-studio/play";
+import { createPlayController, PLAY_GRAPH_INDEX } from "@gltf-studio/play";
+import type { Graph as IrGraph } from "@gltfi/ir";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
 import { OpenAICompatibleAgentProvider, type LlmProviderConfig } from "@gltf-studio/agent-llm";
 import type {
@@ -62,6 +63,7 @@ import { buildEmptySceneGlb } from "../lib/empty-scene.js";
 import { createAutosaveScheduler, tryCaptureThumbnail } from "../lib/autosave.js";
 import { checkoutProject, readLastProjectId, rememberLastProjectId } from "../lib/project-lifecycle.js";
 import { buildShareLink, decodeShareLink, readShareHash } from "../lib/share.js";
+import { buildBreakpointEmitView, resolveBreakpointLine } from "../lib/script-breakpoints.js";
 
 export type ThemeOverride = "light" | "dark" | null;
 export type DockTab = "graph" | "audio-graph" | "script" | "audio-script" | "console" | "data";
@@ -253,6 +255,38 @@ export interface AppState {
    * "enablement, not the checked value, is what an engine switch clears").
    */
   playDebug: boolean;
+  /**
+   * D2 (specs/ux-debugger.md UX-1505): session breakpoints set via the
+   * (interactivity) Script tab's Monaco gutter, keyed by
+   * `extensions.KHR_interactivity.graphs[N]` index — 1-based line numbers
+   * into that graph's OWN emitted flavor-TS text (`buildEmitView`'s `code`),
+   * sorted ascending, no duplicates. Session-only (never persisted), like
+   * `playDebug` above. Only `scriptBreakpoints[PLAY_GRAPH_INDEX]` (graph 0 —
+   * `@gltf-studio/play`'s own "always resolves graphs[0]" scope) is ever
+   * actually injected into a debug-play session (`startPlay` below); a
+   * breakpoint set on a different graph is still shown (gutter dot, canvas
+   * badge) but can never be hit by Play, same "graph 0 only" scope PC-009's
+   * whole debug pipeline already has.
+   */
+  scriptBreakpoints: Record<number, number[]>;
+  /**
+   * D3 (specs/ux-debugger.md UX-1509): the Audio Script tab's own
+   * breakpoint set, keyed by `extensions.KHR_audio_graph.graphs[N]` index —
+   * same shape/semantics as `scriptBreakpoints` above, applied only by
+   * `runAudioDebugAudition` (there is no "Play" for audio scripts to gate
+   * this on — see that function's own header comment for why).
+   */
+  audioScriptBreakpoints: Record<number, number[]>;
+  /**
+   * D2 (specs/ux-debugger.md UX-1504 follow-on): the breakpoint count
+   * ACTUALLY injected into the current debug-play session — captured once at
+   * `startPlay()` (from `scriptBreakpoints[PLAY_GRAPH_INDEX]` at that exact
+   * moment), not a live view of `scriptBreakpoints` itself, since toggling a
+   * breakpoint mid-session has no effect on the session already running
+   * (PC-010's own "applied at start" contract). `0` whenever `playState ===
+   * "stopped"` or the session wasn't started in debug mode.
+   */
+  playDebugBreakpointCount: number;
   /** Registered by `Viewport.tsx` on mount so the store can build a `PlayController` without importing engine-three directly. */
   renderHost: RenderHost | null;
   // -- audio (M7, specs/engine-api.md AH-001/AH-002): registration side only
@@ -395,6 +429,23 @@ export interface AppState {
   setPlayEngine(engine: EngineKind): void;
   /** Only meaningful while `playState === "stopped"`; updates `playbar.debug-toggle`'s pending checked state (specs/ux-shell.md UX-130). */
   setPlayDebug(debug: boolean): void;
+  /** D2 (specs/ux-debugger.md UX-1505): toggles a breakpoint at `line` (1-based, into `graphIndex`'s own emitted text) — adds it if absent, removes it if present. The Script tab's gutter-click callback. */
+  toggleScriptBreakpoint(graphIndex: number, line: number): void;
+  /** D2: idempotent ADD (never removes) — "Break here"'s own semantics, distinct from the gutter's toggle. */
+  setScriptBreakpoint(graphIndex: number, line: number): void;
+  /**
+   * D2 (specs/ux-debugger.md UX-1507): the graph-canvas "Break here" action —
+   * resolves `nodeIndex`'s emitted-script line (`lib/script-breakpoints.ts`'s
+   * `resolveBreakpointLine`, the SAME lookup the badge/disabled-state wiring
+   * uses) against the CURRENT `selectedGraphIndex`'s graph, and sets a
+   * breakpoint there. A no-op (with a warning log, mirroring
+   * `jumpUsageRefToScript`'s own "unresolvable -> log, don't throw" posture)
+   * if the node has no resolvable line — NodeDetails' own `canBreakHere`
+   * disabled state should already prevent this from firing in practice.
+   */
+  breakHereOnNode(nodeIndex: number): void;
+  /** D3 (specs/ux-debugger.md UX-1509): the Audio Script tab's own gutter-toggle callback — see `toggleScriptBreakpoint`'s doc comment; same semantics, separate address space. */
+  toggleAudioScriptBreakpoint(graphIndex: number, line: number): void;
   /** UX-310: starts play mode using the current `playEngine`, freezing the document (DOC-031). */
   startPlay(): Promise<void>;
   /** UX-310: suspends the running simulation without discarding variable values. */
@@ -965,6 +1016,9 @@ export const useAppStore = create<AppState>((set, get) => {
   playState: "stopped",
   playEngine: "interpreter",
   playDebug: false,
+  scriptBreakpoints: {},
+  audioScriptBreakpoints: {},
+  playDebugBreakpointCount: 0,
   renderHost: null,
 
   selectedNodeIndex: null,
@@ -1264,9 +1318,60 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ playDebug: debug });
   },
 
+  toggleScriptBreakpoint(graphIndex, line) {
+    set((state) => {
+      const current = state.scriptBreakpoints[graphIndex] ?? [];
+      const next = current.includes(line) ? current.filter((l) => l !== line) : [...current, line].sort((a, b) => a - b);
+      return { scriptBreakpoints: { ...state.scriptBreakpoints, [graphIndex]: next } };
+    });
+  },
+
+  setScriptBreakpoint(graphIndex, line) {
+    set((state) => {
+      const current = state.scriptBreakpoints[graphIndex] ?? [];
+      if (current.includes(line)) return state;
+      return { scriptBreakpoints: { ...state.scriptBreakpoints, [graphIndex]: [...current, line].sort((a, b) => a - b) } };
+    });
+  },
+
+  breakHereOnNode(nodeIndex) {
+    const { history, selectedGraphIndex, setScriptBreakpoint, log } = get();
+    if (!history) return;
+    const graph = getIn(history.document.json, ["extensions", "KHR_interactivity", "graphs", selectedGraphIndex]) as IrGraph | undefined;
+    if (!graph) return;
+    const view = buildBreakpointEmitView(graph, selectedGraphIndex);
+    const line = resolveBreakpointLine(graph, view, nodeIndex);
+    if (line === null) {
+      log("warn", `Break here: no corresponding script line found for node ${nodeIndex} in graph ${selectedGraphIndex}.`);
+      return;
+    }
+    setScriptBreakpoint(selectedGraphIndex, line);
+  },
+
+  toggleAudioScriptBreakpoint(graphIndex, line) {
+    set((state) => {
+      const current = state.audioScriptBreakpoints[graphIndex] ?? [];
+      const next = current.includes(line) ? current.filter((l) => l !== line) : [...current, line].sort((a, b) => a - b);
+      return { audioScriptBreakpoints: { ...state.audioScriptBreakpoints, [graphIndex]: next } };
+    });
+  },
+
   async startPlay() {
-    const { renderHost, history, document, playEngine, playDebug, pushToast, log } = get();
+    const { renderHost, history, document, playEngine, playDebug, pushToast, log, scriptBreakpoints } = get();
     if (!renderHost || !history || !document || get().playState !== "stopped") return;
+
+    // D2 (specs/ux-debugger.md UX-1505's discoverability item): only ever
+    // graph 0's breakpoints (PLAY_GRAPH_INDEX — `@gltf-studio/play` only ever
+    // resolves `graphs[0]`) can be hit by a play session, regardless of which
+    // graph the Script tab currently shows.
+    const breakpointLines = scriptBreakpoints[PLAY_GRAPH_INDEX] ?? [];
+    if (breakpointLines.length > 0) {
+      if (playEngine === "interpreter") {
+        pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — switch to the compiled engine with Debug enabled to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
+      } else if (!playDebug) {
+        pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — enable Debug to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
+      }
+    }
 
     const controller = createPlayController({
       renderHost,
@@ -1283,12 +1388,14 @@ export const useAppStore = create<AppState>((set, get) => {
     });
 
     try {
-      // PC-009/UX-1500: `debug` is only meaningful for the compiled engine —
-      // gated here too (defense in depth alongside the toggle's own
+      // PC-009/PC-010/UX-1500: `debug`/`debugBreakpointLines` are only
+      // meaningful for the compiled engine — gated here too (defense in
+      // depth alongside the toggle's own
       // disabled-while-interpreter UI state, UX-1500) so a stale `playDebug`
       // checked value left over from a prior compiled session can never
       // silently activate under the interpreter engine.
-      await controller.start({ engine: playEngine, debug: playEngine === "compiled" && playDebug });
+      const isDebugSession = playEngine === "compiled" && playDebug;
+      await controller.start({ engine: playEngine, debug: isDebugSession, debugBreakpointLines: isDebugSession ? breakpointLines : undefined });
     } catch (err) {
       activePlayDiagnosticsUnsub?.();
       activePlayDiagnosticsUnsub = null;
@@ -1298,7 +1405,13 @@ export const useAppStore = create<AppState>((set, get) => {
 
     activePlayController = controller;
     history.freeze(); // DOC-031/DOC-045
-    set({ playState: "playing", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
+    set({
+      playState: "playing",
+      document: history.document,
+      selectedNodeIndex: null,
+      hoveredNodeIndex: null,
+      playDebugBreakpointCount: playEngine === "compiled" && playDebug ? breakpointLines.length : 0
+    });
     syncAgentProviderDocument(history.document);
   },
 
@@ -1336,7 +1449,7 @@ export const useAppStore = create<AppState>((set, get) => {
     // restore by clicking the node again) can then be swallowed by TransformControls' own hit-testing
     // as a spurious micro-drag, pushing an unwanted no-op SceneEdit.setTransform onto history instead
     // of reaching the editor's own click-to-select handling.
-    set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null });
+    set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null, playDebugBreakpointCount: 0 });
     syncAgentProviderDocument(history.document);
   },
 

@@ -29,6 +29,8 @@ export function ScriptTabPanel(): JSX.Element {
   const jumpScriptPointerToScene = useAppStore((s) => s.jumpScriptPointerToScene);
   const log = useAppStore((s) => s.log);
   const pushToast = useAppStore((s) => s.pushToast);
+  const scriptBreakpoints = useAppStore((s) => s.scriptBreakpoints);
+  const toggleScriptBreakpoint = useAppStore((s) => s.toggleScriptBreakpoint);
 
   if (!document) {
     return <Placeholder testId="script.panel" text="Import a .glb/.gltf to view its generated script." />;
@@ -69,6 +71,8 @@ export function ScriptTabPanel(): JSX.Element {
           onLog={log}
           onToast={pushToast}
           onPointerLinkClick={(pointerPath) => jumpScriptPointerToScene(pointerPath, graphCount > 1 ? selectedGraphIndex : 0)}
+          breakpoints={scriptBreakpoints[graphCount > 1 ? selectedGraphIndex : 0]}
+          onToggleBreakpoint={(line) => toggleScriptBreakpoint(graphCount > 1 ? selectedGraphIndex : 0, line)}
         />
       </Suspense>
     </div>
