@@ -106,6 +106,12 @@ same "diff satisfied honestly, not routed around" reason as `EA-pickresult-shape
   `RenderHost` test doubles in `packages/contract-tests/src/play-controller.ts` and
   `packages/play/src/play-controller.test.ts` gained a matching no-op `setEditorHelpers` stub — no
   `PlayController`/`PC-###` behavior changed or depends on it.
+- Audio viewport helpers follow-up (`specs/render-host.md`'s `RH-035`): `EditorHelperKind`
+  (`value-types.ts`, same ownership reasoning as the note immediately above) widens from
+  `"light" | (string & {})` to `"light" | "audio-emitter" | "audio-zone" | (string & {})` — the
+  requirement text and full narrative live in `specs/render-host.md`'s `RH-035`, not duplicated
+  here. No `PC-###`/`PlayController` behavior changed; the existing `setEditorHelpers` stubs above
+  need no further change (the type widening is additive, not a new method).
 - Deflaking `test:browser`'s real-Chromium `PlayController` contract run (recurring flake noted on
   PRs #51/#56/#57): `packages/contract-tests/src/play-controller.ts`'s "pause stops ticking"/"resume
   continues ticking" assertions used to `await` a fixed real-clock delay and compare
