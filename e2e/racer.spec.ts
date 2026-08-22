@@ -1,5 +1,5 @@
 import { PNG } from "pngjs";
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page, type Locator, type CDPSession } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { assertRegionRendersContent, assertRegionSpansMultipleLines, assertRegionsVisuallyDiffer } from "./visual-assert.js";
 import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
@@ -137,9 +137,9 @@ async function loadRacer(page: Page): Promise<void> {
 
 test.describe.configure({ mode: "serial" });
 
-test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pad interaction", async ({ page }) => {
+test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pad interaction", async ({ page, context }) => {
   test.slow();
-  test.setTimeout(120_000); // see the graph-canvas step's own comment for the measured number this is sized against
+  test.setTimeout(180_000); // bumped for the compiled-engine double-click/breakpoint/CDP step below, on top of the graph-canvas step's own already-measured number
 
   await test.step("load R4 Racer from the starter gallery (UX-120)", async () => {
     await loadRacer(page);
@@ -381,6 +381,129 @@ test("R4 Racer: gallery load, scene/graph/script at real scale, and play-mode pa
     // Stop restores the pre-play document — normal editor selection works again.
     await page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`).click();
     await expect(page.getByTestId(`scene-tree.row.${SCENE_NODE.PAD_LEFT}`)).toHaveClass(/selected/);
+  });
+
+  await test.step("play (compiled): a fast double-click on Play cannot orphan a second engine (user-reported bug regression — Pause/Stop 'didn't work' and the car 'kept moving' after Stop/an engine switch), a mid-play breakpoint toasts instead of silently doing nothing, and a real DevTools breakpoint still pauses the racer's own onTick at the next session (specs/ux-shell.md's play-lifecycle follow-up note, specs/ux-debugger.md UX-1505/UX-1508)", async () => {
+    test.slow();
+
+    await page.getByTestId("playbar.engine-picker").selectOption("compiled");
+    await expect(page.getByTestId("playbar.engine-picker")).toHaveValue("compiled");
+
+    // The user's own repro trigger: two Play clicks with no gap between them
+    // (a real impatient double-click). Before the fix, this asset's
+    // multi-hundred-node compiled build (importGraph/checkModule/emit-ts/
+    // esbuild-wasm) is slow enough, in a real browser, that the second click
+    // reliably lands inside `startPlay()`'s async construction window and
+    // builds a SECOND engine host — the loser of that race never gets
+    // tracked by `activePlayController`, so nothing ever calls pause()/
+    // stop() on it again and its own tick loop runs forever, fighting the
+    // tracked engine over the same renderHost. `playStarting` (this fix)
+    // closes that window; if it regresses, this double-click reproduces the
+    // exact orphan below (the screenshot-stability check after Stop).
+    const playBtn = page.getByTestId("playbar.play");
+    await Promise.all([playBtn.click(), playBtn.click().catch(() => {})]);
+
+    await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "playing");
+    await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
+    // Play/engine-picker/Debug-toggle are disabled for the ENTIRE window (the
+    // async `playStarting` gap the fix adds, not just the eventual "really
+    // playing" state) — asserted now, once already playing, as a floor: if
+    // `playStarting` regressed to a no-op, the SECOND click above would have
+    // gone on to build a second engine exactly as it used to.
+    await expect(page.getByTestId("playbar.play")).toBeDisabled();
+    await expect(page.getByTestId("playbar.engine-picker")).toBeDisabled();
+    await expect(page.getByTestId("playbar.debug-toggle")).toBeDisabled();
+
+    const stateRow = page.getByTestId("viewport.play-overlay.variable.state");
+    await expect.poll(() => readVal(stateRow), { timeout: 6000 }).toBe("1"); // countdown -> racing
+    const raceTRow = page.getByTestId("viewport.play-overlay.variable.raceT");
+    const baseRaceT = parseFloat(await readVal(raceTRow));
+    await page.waitForTimeout(400);
+    await expect.poll(async () => parseFloat(await readVal(raceTRow))).toBeGreaterThan(baseRaceT); // exactly one engine ticking, not two racing each other
+
+    // Mid-play breakpoint discoverability fix: setting a breakpoint on the
+    // running session's own graph (0) used to give NO feedback beyond an
+    // easy-to-miss gutter dot. `toggleBreakpointAtLine` is the exact code
+    // path a real glyph-margin click uses (same precedent as
+    // e2e/debugger.spec.ts's own "real click" tests), on the onTick
+    // handler's own emitted line so the SAME breakpoint is ready to actually
+    // fire once a debug session restarts below.
+    await page.getByTestId("dock.tab.script").click();
+    await expect(page.getByTestId("script.panel")).toBeVisible();
+    const scriptText = await page.evaluate(() => window.__gltfStudioScriptTest?.getCode() ?? "");
+    const onTickLine = scriptText.split("\n").findIndex((l) => l.includes("rt.onTick(")) + 1; // 1-based
+    expect(onTickLine).toBeGreaterThan(0);
+    await page.evaluate((line) => window.__gltfStudioScriptTest!.toggleBreakpointAtLine(line), onTickLine);
+    await expect(page.getByTestId("toast")).toContainText("won't hit this session");
+
+    // Pause: the overlay's own values genuinely freeze (not just the UI banner).
+    await page.getByTestId("playbar.pause").click();
+    await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "paused");
+    const pausedRaceT = await readVal(raceTRow);
+    await page.waitForTimeout(500);
+    expect(await readVal(raceTRow)).toBe(pausedRaceT);
+
+    // Stop: restores the pre-play scene, re-enables the controls, AND —
+    // the direct regression check for the reported bug — leaves the
+    // viewport genuinely idle afterward. Before the fix, an orphaned second
+    // engine (from the double-click above) would keep fanning pointer
+    // writes into the SAME renderHost after Stop, so the "restored" scene
+    // would visibly keep drifting frame to frame even though every control
+    // correctly reported "stopped".
+    await page.getByTestId("playbar.stop").click();
+    await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+    await expect(page.getByTestId("viewport.play-overlay")).toHaveCount(0);
+    await expect(page.getByTestId("playbar.engine-picker")).toBeEnabled();
+    await expect(page.getByTestId("playbar.play")).toBeEnabled();
+
+    const mount = page.getByTestId("viewport.mount");
+    await page.waitForTimeout(200); // let the restore's own re-frame/reload settle before baselining
+    const shots: Buffer[] = [];
+    for (let i = 0; i < 4; i++) {
+      shots.push(await mount.screenshot());
+      await page.waitForTimeout(400);
+    }
+    for (let i = 1; i < shots.length; i++) {
+      expect(shots[i].equals(shots[0]), `viewport pixels changed ${i * 400}ms after Stop — an orphaned engine is still writing to the restored scene`).toBe(true);
+    }
+
+    // Real DevTools debugging, end to end, at this asset's real scale: Debug
+    // on, restart Play, attach a real CDP session, and prove the breakpoint
+    // set above (still pending — UX-1505's "next start only" rule) actually
+    // pauses the racer's own onTick this time. No `Debugger.setBreakpointByUrl`
+    // call anywhere here — if a pause arrives, it can only be the injected
+    // `debugger;` statement firing natively.
+    await page.getByTestId("playbar.debug-toggle").click();
+    await expect(page.getByTestId("playbar.debug-toggle")).toHaveClass(/active/);
+
+    const cdp: CDPSession = await context.newCDPSession(page);
+    await cdp.send("Debugger.enable");
+    const pausedEvents: unknown[] = [];
+    cdp.on("Debugger.paused", (event) => pausedEvents.push(event));
+
+    await page.getByTestId("playbar.play").click();
+    await expect.poll(() => pausedEvents.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    await cdp.send("Debugger.resume");
+    await cdp.detach().catch(() => {});
+
+    await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
+    await expect(page.getByTestId("viewport.play-overlay.debug-hint.breakpoints")).toHaveText("1 breakpoint set for this session");
+    // The engine really resumed (not just the CDP event delivered with no
+    // effect): raceT keeps advancing after the debugger resume above.
+    const resumedBase = parseFloat(await readVal(raceTRow));
+    await expect.poll(async () => parseFloat(await readVal(raceTRow)), { timeout: 5000 }).toBeGreaterThan(resumedBase);
+
+    await page.getByTestId("playbar.stop").click();
+    await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+    // Leave the store clean for the remaining steps below: remove the
+    // breakpoint this step added (else every subsequent Play click under the
+    // interpreter engine would re-toast UX-1508's own "switch to compiled"
+    // message), untoggle Debug, and restore the picker to its original
+    // pre-step default.
+    await page.evaluate((line) => window.__gltfStudioScriptTest!.toggleBreakpointAtLine(line), onTickLine);
+    await page.getByTestId("playbar.debug-toggle").click();
+    await expect(page.getByTestId("playbar.engine-picker")).toBeEnabled();
+    await page.getByTestId("playbar.engine-picker").selectOption("interpreter");
   });
 
   await test.step("EDIT mode: clicking a checkpoint pylon (KHR_node_selectability selectable:false) selects it via a real viewport click, and hovering it shows the hover affordance (bug fix regression, specs/ux-viewport.md UX-312 / specs/render-host.md RH-027)", async () => {

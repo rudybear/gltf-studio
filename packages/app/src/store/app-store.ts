@@ -243,6 +243,31 @@ export interface AppState {
   // -- play mode (DOC-031/DOC-045, specs/ux-shell.md UX-106/UX-113,
   // specs/ux-viewport.md UX-309/UX-310) --
   playState: "stopped" | "playing" | "paused";
+  /**
+   * True for the (usually sub-second, but unbounded for a large compiled
+   * graph — engine-host.ts's importGraph/checkModule/emit-ts/esbuild-wasm
+   * pipeline) window between clicking Play and `startPlay()`'s awaited
+   * `controller.start()` actually resolving. `playState` itself stays
+   * `"stopped"` throughout that window (it only flips to `"playing"` once a
+   * host is really running) — this flag is `startPlay()`'s OWN re-entrancy
+   * guard against a second concurrent call (a fast double-click, or any
+   * other overlapping trigger) reading that same `"stopped"` value and
+   * building a SECOND engine host before the first one's promise settles.
+   * Without it, the first engine becomes permanently orphaned the moment
+   * the second one wins the `activePlayController` assignment: nothing ever
+   * calls pause()/stop() on it again, so its own rAF loop keeps ticking and
+   * fanning out pointer writes to the shared renderHost forever — Pause/
+   * Stop/engine-switch all appear to silently do nothing because they only
+   * ever reach the SECOND (tracked) controller (found via a real double-
+   * click repro against the R4 Racer starter's compiled engine, whose
+   * multi-hundred-node build time makes the race trivial to hit; the
+   * default fixtures' near-instant construction almost never lands a click
+   * inside this window, which is why this went uncaught until a real
+   * user hit it). Also gates the TopBar's Play/engine-picker/Debug-toggle
+   * `disabled` state so the window is visibly locked, not just internally
+   * guarded.
+   */
+  playStarting: boolean;
   /** Pending engine-picker selection; only meaningful/settable while `playState === "stopped"`. */
   playEngine: EngineKind;
   /**
@@ -736,6 +761,31 @@ export function getActivePlayController(): PlayController | null {
   return activePlayController;
 }
 
+/**
+ * D2 discoverability fix (specs/ux-debugger.md UX-1505 block; found against
+ * a real user bug report — see `toggleScriptBreakpoint`'s own call site):
+ * `startPlay()` already toasts about an engine/Debug mismatch for
+ * breakpoints that exist BEFORE a session starts (UX-1508), but toggling a
+ * breakpoint on PLAY_GRAPH_INDEX WHILE a session is already
+ * playing/paused previously gave the user no feedback at all beyond a
+ * small gutter dot — easy to miss with attention on the viewport, not the
+ * Script tab, and easily read as "breakpoints don't work". There is no live
+ * CDP re-binding from inside the page itself (debug-breakpoints.ts), so a
+ * mid-session breakpoint can only ever take effect the NEXT time Play
+ * starts, regardless of the current engine/Debug state — this mirrors
+ * `startPlay()`'s own three-way messaging so the two toasts read as one
+ * consistent feature rather than two different features.
+ */
+function midPlayBreakpointToastText(playEngine: EngineKind, playDebug: boolean): string {
+  if (playEngine === "interpreter") {
+    return "Breakpoint set — it won't hit this session. Switch to the compiled engine with Debug enabled, then restart Play.";
+  }
+  if (!playDebug) {
+    return "Breakpoint set — it won't hit this session. Enable Debug, then restart Play.";
+  }
+  return "Breakpoint set — it won't hit this session (breakpoints only apply from the next Play start). Restart Play to hit it.";
+}
+
 // specs/agent-service.md AG-022: the currently-active AgentService provider
 // -- Mock or a local OpenAI-compatible endpoint, per the user's choice in
 // specs/ux-settings.md's settings dialog (`../settings/settings-state.ts`)
@@ -1014,6 +1064,7 @@ export const useAppStore = create<AppState>((set, get) => {
   audioHost: undefined,
 
   playState: "stopped",
+  playStarting: false,
   playEngine: "interpreter",
   playDebug: false,
   scriptBreakpoints: {},
@@ -1319,19 +1370,41 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   toggleScriptBreakpoint(graphIndex, line) {
+    let added = false;
     set((state) => {
       const current = state.scriptBreakpoints[graphIndex] ?? [];
-      const next = current.includes(line) ? current.filter((l) => l !== line) : [...current, line].sort((a, b) => a - b);
+      added = !current.includes(line);
+      const next = added ? [...current, line].sort((a, b) => a - b) : current.filter((l) => l !== line);
       return { scriptBreakpoints: { ...state.scriptBreakpoints, [graphIndex]: next } };
     });
+    // Mid-play discoverability (see `midPlayBreakpointToastText`'s own doc
+    // comment): only for an ADDED breakpoint (removing one needs no "won't
+    // apply this session" messaging) on PLAY_GRAPH_INDEX specifically (the
+    // only graph a running session can ever hit) while a session is
+    // actually playing/paused (toggling before/after Play, or on any other
+    // graph index, is covered by startPlay()'s own pre-session toast
+    // instead, or never matters to Play at all).
+    if (added && graphIndex === PLAY_GRAPH_INDEX && get().playState !== "stopped") {
+      const { playEngine, playDebug, pushToast } = get();
+      pushToast(midPlayBreakpointToastText(playEngine, playDebug));
+    }
   },
 
   setScriptBreakpoint(graphIndex, line) {
+    let added = false;
     set((state) => {
       const current = state.scriptBreakpoints[graphIndex] ?? [];
       if (current.includes(line)) return state;
+      added = true;
       return { scriptBreakpoints: { ...state.scriptBreakpoints, [graphIndex]: [...current, line].sort((a, b) => a - b) } };
     });
+    // Same mid-play discoverability as `toggleScriptBreakpoint` above (this
+    // is "Break here"'s own setter, `breakHereOnNode` below — an equally
+    // real way to add a breakpoint while a session is already running).
+    if (added && graphIndex === PLAY_GRAPH_INDEX && get().playState !== "stopped") {
+      const { playEngine, playDebug, pushToast } = get();
+      pushToast(midPlayBreakpointToastText(playEngine, playDebug));
+    }
   },
 
   breakHereOnNode(nodeIndex) {
@@ -1358,61 +1431,80 @@ export const useAppStore = create<AppState>((set, get) => {
 
   async startPlay() {
     const { renderHost, history, document, playEngine, playDebug, pushToast, log, scriptBreakpoints } = get();
-    if (!renderHost || !history || !document || get().playState !== "stopped") return;
-
-    // D2 (specs/ux-debugger.md UX-1505's discoverability item): only ever
-    // graph 0's breakpoints (PLAY_GRAPH_INDEX — `@gltf-studio/play` only ever
-    // resolves `graphs[0]`) can be hit by a play session, regardless of which
-    // graph the Script tab currently shows.
-    const breakpointLines = scriptBreakpoints[PLAY_GRAPH_INDEX] ?? [];
-    if (breakpointLines.length > 0) {
-      if (playEngine === "interpreter") {
-        pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — switch to the compiled engine with Debug enabled to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
-      } else if (!playDebug) {
-        pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — enable Debug to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
-      }
-    }
-
-    const controller = createPlayController({
-      renderHost,
-      getAudioHost: () => get().audioHost,
-      getDocumentJson: () => get().document!.json,
-      getBinary: () => {
-        const container = get().document!.container;
-        return container.kind === "glb" ? container.binaryChunk : undefined;
-      }
-    });
-
-    activePlayDiagnosticsUnsub = controller.onDiagnostic((d) => {
-      log(d.kind === "engine-error" ? "error" : "warn", `[play/${d.kind}]${d.pointer ? ` ${d.pointer}` : ""}: ${d.message}`);
-    });
+    // `playStarting` (not just `playState !== "stopped"`) is the re-entrancy
+    // guard: `playState` itself doesn't flip to "playing" until AFTER the
+    // `await controller.start(...)` below resolves, so without this a second
+    // overlapping call (a fast double-click, or any other trigger racing
+    // this one) would read the SAME "stopped" value and build a SECOND
+    // engine host before the first call's promise settles. The loser of that
+    // race then never gets assigned to `activePlayController` — nothing ever
+    // calls pause()/stop() on it again, so its own rAF tick loop runs
+    // forever, invisibly fighting the tracked engine over the same
+    // renderHost (found via a real double-click repro against the R4 Racer
+    // starter's compiled engine — its multi-hundred-node build time is long
+    // enough to make the race trivial to hit; this is set+checked
+    // synchronously, before any `await`, so two calls arriving in the same
+    // microtask can't both slip through).
+    if (!renderHost || !history || !document || get().playState !== "stopped" || get().playStarting) return;
+    set({ playStarting: true });
 
     try {
-      // PC-009/PC-010/UX-1500: `debug`/`debugBreakpointLines` are only
-      // meaningful for the compiled engine — gated here too (defense in
-      // depth alongside the toggle's own
-      // disabled-while-interpreter UI state, UX-1500) so a stale `playDebug`
-      // checked value left over from a prior compiled session can never
-      // silently activate under the interpreter engine.
-      const isDebugSession = playEngine === "compiled" && playDebug;
-      await controller.start({ engine: playEngine, debug: isDebugSession, debugBreakpointLines: isDebugSession ? breakpointLines : undefined });
-    } catch (err) {
-      activePlayDiagnosticsUnsub?.();
-      activePlayDiagnosticsUnsub = null;
-      pushToast(`Play failed to start: ${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
+      // D2 (specs/ux-debugger.md UX-1505's discoverability item): only ever
+      // graph 0's breakpoints (PLAY_GRAPH_INDEX — `@gltf-studio/play` only ever
+      // resolves `graphs[0]`) can be hit by a play session, regardless of which
+      // graph the Script tab currently shows.
+      const breakpointLines = scriptBreakpoints[PLAY_GRAPH_INDEX] ?? [];
+      if (breakpointLines.length > 0) {
+        if (playEngine === "interpreter") {
+          pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — switch to the compiled engine with Debug enabled to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
+        } else if (!playDebug) {
+          pushToast(`${breakpointLines.length} breakpoint${breakpointLines.length === 1 ? "" : "s"} set — enable Debug to hit ${breakpointLines.length === 1 ? "it" : "them"}.`);
+        }
+      }
 
-    activePlayController = controller;
-    history.freeze(); // DOC-031/DOC-045
-    set({
-      playState: "playing",
-      document: history.document,
-      selectedNodeIndex: null,
-      hoveredNodeIndex: null,
-      playDebugBreakpointCount: playEngine === "compiled" && playDebug ? breakpointLines.length : 0
-    });
-    syncAgentProviderDocument(history.document);
+      const controller = createPlayController({
+        renderHost,
+        getAudioHost: () => get().audioHost,
+        getDocumentJson: () => get().document!.json,
+        getBinary: () => {
+          const container = get().document!.container;
+          return container.kind === "glb" ? container.binaryChunk : undefined;
+        }
+      });
+
+      activePlayDiagnosticsUnsub = controller.onDiagnostic((d) => {
+        log(d.kind === "engine-error" ? "error" : "warn", `[play/${d.kind}]${d.pointer ? ` ${d.pointer}` : ""}: ${d.message}`);
+      });
+
+      try {
+        // PC-009/PC-010/UX-1500: `debug`/`debugBreakpointLines` are only
+        // meaningful for the compiled engine — gated here too (defense in
+        // depth alongside the toggle's own
+        // disabled-while-interpreter UI state, UX-1500) so a stale `playDebug`
+        // checked value left over from a prior compiled session can never
+        // silently activate under the interpreter engine.
+        const isDebugSession = playEngine === "compiled" && playDebug;
+        await controller.start({ engine: playEngine, debug: isDebugSession, debugBreakpointLines: isDebugSession ? breakpointLines : undefined });
+      } catch (err) {
+        activePlayDiagnosticsUnsub?.();
+        activePlayDiagnosticsUnsub = null;
+        pushToast(`Play failed to start: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+
+      activePlayController = controller;
+      history.freeze(); // DOC-031/DOC-045
+      set({
+        playState: "playing",
+        document: history.document,
+        selectedNodeIndex: null,
+        hoveredNodeIndex: null,
+        playDebugBreakpointCount: playEngine === "compiled" && playDebug ? breakpointLines.length : 0
+      });
+      syncAgentProviderDocument(history.document);
+    } finally {
+      set({ playStarting: false });
+    }
   },
 
   pausePlay() {
@@ -1432,25 +1524,43 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   async stopPlay() {
-    const { history } = get();
+    const { history, log } = get();
     if (!activePlayController || !history) return;
-    await activePlayController.stop();
-    activePlayDiagnosticsUnsub?.();
-    activePlayDiagnosticsUnsub = null;
-    activePlayController = null;
-    history.unfreeze();
-    // Clear selection/hover on stop, mirroring startPlay()'s own reset: a selection made via the
-    // scene tree DURING play (allowed — it's not itself an edit, UX-113) is not a deliberate
-    // post-play editing choice, and resurrecting it here would otherwise let the viewport's gizmo
-    // silently reattach to that node the instant play ends (the gizmo-attach effect only checks
-    // `selectedNodeIndex`/`playState`, not how old the selection is) — right where `stop()`'s own
-    // `renderHost.loadScene()` restore (PC-007) just re-rendered that same node at its restored,
-    // on-screen position. A real pointer click landing there (e.g. a test or user re-confirming the
-    // restore by clicking the node again) can then be swallowed by TransformControls' own hit-testing
-    // as a spurious micro-drag, pushing an unwanted no-op SceneEdit.setTransform onto history instead
-    // of reaching the editor's own click-to-select handling.
-    set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null, playDebugBreakpointCount: 0 });
-    syncAgentProviderDocument(history.document);
+    // try/finally: `PlayControllerImpl.stop()` already tears down its OWN
+    // rAF loop and engine reference synchronously before awaiting the
+    // renderHost restore (so a rejected restore can never leave the ENGINE
+    // itself orphaned/ticking) — but this store-level cleanup used to run
+    // only after that same await, unguarded. If `renderHost.loadScene()`
+    // ever rejects (a malformed captured document, a transient asset-load
+    // failure, ...), `stopPlay()` would throw right here and skip
+    // everything below: `activePlayController` would stay non-null,
+    // `history` would stay frozen, and `playState` would stay stuck at
+    // "playing"/"paused" forever — Stop would look exactly like it "didn't
+    // work" even though the underlying engine had, in fact, already
+    // stopped. finally guarantees the store always reaches "stopped" and
+    // always releases the frozen history, regardless of restore outcome.
+    try {
+      await activePlayController.stop();
+    } catch (err) {
+      log("error", `Stop: restoring the pre-play scene failed (play itself has still stopped): ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      activePlayDiagnosticsUnsub?.();
+      activePlayDiagnosticsUnsub = null;
+      activePlayController = null;
+      history.unfreeze();
+      // Clear selection/hover on stop, mirroring startPlay()'s own reset: a selection made via the
+      // scene tree DURING play (allowed — it's not itself an edit, UX-113) is not a deliberate
+      // post-play editing choice, and resurrecting it here would otherwise let the viewport's gizmo
+      // silently reattach to that node the instant play ends (the gizmo-attach effect only checks
+      // `selectedNodeIndex`/`playState`, not how old the selection is) — right where `stop()`'s own
+      // `renderHost.loadScene()` restore (PC-007) just re-rendered that same node at its restored,
+      // on-screen position. A real pointer click landing there (e.g. a test or user re-confirming the
+      // restore by clicking the node again) can then be swallowed by TransformControls' own hit-testing
+      // as a spurious micro-drag, pushing an unwanted no-op SceneEdit.setTransform onto history instead
+      // of reaching the editor's own click-to-select handling.
+      set({ playState: "stopped", document: history.document, selectedNodeIndex: null, hoveredNodeIndex: null, playDebugBreakpointCount: 0 });
+      syncAgentProviderDocument(history.document);
+    }
   },
 
   selectNode(index) {

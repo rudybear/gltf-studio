@@ -513,6 +513,42 @@ process.
   per-node, no Add-menu existing-clip picker UI yet, Audition's listener pose not live-fed outside
   play mode).
 
+- Follow-up (user-reported bug, play/pause/stop lifecycle: "set a breakpoint — didn't work", "Pause
+  and Stop — didn't work and car continued to move", "switched engine picker to interpreter — didn't
+  change anything and car kept moving", against the R4 Racer starter's compiled engine, `app-
+  store.ts`, `TopBar.tsx`): root cause was an unguarded re-entrancy window in `startPlay()` — `UX-113`/
+  `UX-130`'s "disabled while `playState !== \"stopped\"`" rule for Play/the engine-picker/Debug-toggle
+  only takes effect once `playState` actually flips to `"playing"`, which `startPlay()` doesn't do
+  until AFTER its `await controller.start(...)` resolves; until then `playState` still reads
+  `"stopped"`, so all three controls stayed clickable throughout that window. A second overlapping
+  `startPlay()` call landing inside it (a fast double-click was enough to reproduce this
+  deterministically against the racer's compiled engine, whose multi-hundred-node
+  importGraph/checkModule/emit-ts/esbuild-wasm build time is long enough to make the window easy to
+  hit in real use — a tiny fixture's near-instant build made it effectively unhittable, which is why
+  this shipped uncaught) builds and starts a SECOND engine host; whichever call finishes last wins the
+  single `activePlayController` slot, permanently orphaning the other — its own `requestAnimationFrame`
+  tick loop keeps running and fanning pointer writes into the shared `RenderHost` forever, since
+  nothing ever calls `pause()`/`stop()` on an instance no longer referenced anywhere. Every reported
+  symptom was this one orphan fighting the tracked controller: Pause/Stop only ever reached the
+  tracked one, so the untracked one's writes kept the car moving right through a "successful" Stop
+  (which DID restore the document and DID reset `playState`/re-enable the controls — engine-switching
+  "not changing anything" was therefore literally true, since the orphan doesn't read `playEngine` at
+  all); the breakpoint attempt was a real, unrelated second gap (below), not a cause. Fixed with a new
+  `playStarting` store field: set synchronously (before any `await`) at the top of `startPlay()` and
+  checked alongside `playState !== "stopped"` in both `startPlay()`'s own guard and `TopBar.tsx`'s
+  Play/`playbar.engine-picker`/`playbar.debug-toggle` `disabled` conditions — extending, not replacing,
+  `UX-113`/`UX-130`'s existing rule to also cover the async construction window, and closing the race
+  regardless of what triggers a second call. `stopPlay()` also gained a `try`/`finally` around its
+  `controller.stop()` await (a REAL, independent latent bug found while fixing this: if the restore
+  step ever rejects, `stopPlay()` used to skip its own cleanup entirely, leaving the store stuck
+  showing `"playing"`/`"paused"` forever even though the controller itself had already torn down) —
+  the store now always reaches `"stopped"` and always un-freezes history, logging the restore failure
+  instead of losing it silently. The separate, real breakpoint-discoverability gap this bug report
+  also surfaced (setting a breakpoint while already playing gave no feedback at all beyond an easy-to-
+  miss gutter dot) is `specs/ux-debugger.md`'s `UX-1505` to own; noted here only for the ownership-
+  drift check, per `OPEN(P0-nospec-label-tbd)`'s documented workaround. See `e2e/racer.spec.ts`'s
+  compiled-engine double-click regression coverage.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

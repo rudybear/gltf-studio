@@ -81,3 +81,19 @@ Prefix: `UX`. This file owns the `UX-15xx` block.
   lightweight function without pulling in monaco-editor/React" precedent `docs/adr/0006` established
   for `packages/play`'s identical dependency edge — `BehaviorGraphPanel.tsx` is eagerly mounted, unlike
   the Script tab's own `React.lazy`, so this bundle-weight discipline matters here too).
+- Follow-up (user-reported bug, "tried to set a breakpoint — didn't work", surfaced investigating the
+  play/pause/stop lifecycle bug `specs/ux-shell.md`'s own follow-up note owns): `UX-1505` already
+  specified that toggling a breakpoint on `PLAY_GRAPH_INDEX` while a session is `playing`/`paused` has
+  no effect on that running session — true, but the app gave the user NO feedback saying so beyond the
+  gutter's own red dot, which is easy to miss with attention on the viewport rather than the Script
+  tab. `UX-1508` already toasts about a breakpoint/engine-Debug mismatch, but only at the Play click
+  that STARTS a session with pre-existing breakpoints — never for one added mid-session. `app-store.ts`'s
+  `toggleScriptBreakpoint`/`setScriptBreakpoint` (the latter also `breakHereOnNode`'s, `UX-1507`, own
+  setter) now push a toast whenever an ADDED breakpoint lands on `PLAY_GRAPH_INDEX` while `playState !==
+  "stopped"`, mirroring `UX-1508`'s own three-way engine/Debug messaging (`midPlayBreakpointToastText`)
+  so the two toasts read as one consistent feature: "...it won't hit this session. Switch to the
+  compiled engine with Debug enabled, then restart Play." / "...enable Debug, then restart Play." /
+  "...restart Play to hit it." Removing a breakpoint, or adding one on any graph index other than 0,
+  still shows nothing (neither can ever be hit by a running session either way, so no new
+  "won't apply" fact exists to surface). See `e2e/debugger.spec.ts`'s mid-play breakpoint-toast
+  coverage.

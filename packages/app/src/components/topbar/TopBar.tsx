@@ -68,6 +68,7 @@ export function TopBar(): JSX.Element {
   const startTour = useTourState((s) => s.start);
   const openSettings = useSettingsState((s) => s.open);
   const playState = useAppStore((s) => s.playState);
+  const playStarting = useAppStore((s) => s.playStarting);
   const playEngine = useAppStore((s) => s.playEngine);
   const playDebug = useAppStore((s) => s.playDebug);
   const startPlay = useAppStore((s) => s.startPlay);
@@ -221,8 +222,8 @@ export function TopBar(): JSX.Element {
         <button
           className="btn icon-only"
           data-testid="playbar.play"
-          disabled={!hasDocument || playState === "playing"}
-          title={!hasDocument ? "Import a .glb first." : playState === "paused" ? "Resume" : "Play"}
+          disabled={!hasDocument || playState === "playing" || playStarting}
+          title={!hasDocument ? "Import a .glb first." : playStarting ? "Starting…" : playState === "paused" ? "Resume" : "Play"}
           onClick={() => {
             if (playState === "paused") resumePlay();
             else void startPlay();
@@ -253,7 +254,7 @@ export function TopBar(): JSX.Element {
         <select
           className="field"
           data-testid="playbar.engine-picker"
-          disabled={playState !== "stopped"}
+          disabled={playState !== "stopped" || playStarting}
           value={playEngine}
           title="Play engine"
           onChange={(e) => setPlayEngine(e.target.value as EngineKind)}
@@ -264,7 +265,7 @@ export function TopBar(): JSX.Element {
         <button
           className={`btn icon-only${playDebug ? " active" : ""}`}
           data-testid="playbar.debug-toggle"
-          disabled={playEngine !== "compiled" || playState !== "stopped"}
+          disabled={playEngine !== "compiled" || playState !== "stopped" || playStarting}
           title={
             playEngine !== "compiled"
               ? "Debugging needs the compiled engine — switch engine to enable."
