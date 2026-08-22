@@ -305,4 +305,55 @@ test.describe("Script debugger D2 (specs/ux-debugger.md UX-1505 block)", () => {
     await expect(page.getByTestId("toast")).toContainText("enable Debug");
     await page.getByTestId("playbar.stop").click();
   });
+
+  /**
+   * Follow-up (user-reported bug, play/pause/stop lifecycle — see
+   * specs/ux-shell.md's own follow-up note): the two tests above cover
+   * UX-1508's toast at the Play click that STARTS a session with
+   * PRE-EXISTING breakpoints. Setting one WHILE already playing/paused used
+   * to give no feedback at all beyond the gutter's own red dot — the actual
+   * discoverability gap the bug report's "tried to set a breakpoint —
+   * didn't work" surfaced. `app-store.ts`'s `toggleScriptBreakpoint` now
+   * toasts for that case too, mirroring UX-1508's own three-way engine/Debug
+   * messaging.
+   */
+  test("setting a breakpoint WHILE already playing (interpreter) toasts the same UX-1508 guidance, not silence (UX-1505 mid-play discoverability)", async ({ page }) => {
+    await importPlayFixture(page);
+    const scriptTabText = await openScriptTabAndGetCode(page);
+    const onTickLine = lineIndexOf(scriptTabText, "rt.onTick(") + 1;
+
+    await expect(page.getByTestId("playbar.engine-picker")).toHaveValue("interpreter");
+    await page.getByTestId("playbar.play").click();
+    await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
+
+    await page.evaluate((line) => window.__gltfStudioScriptTest!.toggleBreakpointAtLine(line), onTickLine);
+    await expect(page.getByTestId("toast")).toContainText("won't hit this session");
+    await expect(page.getByTestId("toast")).toContainText("compiled engine with Debug enabled");
+
+    // Removing it again mid-session is a silent no-op — there is no new
+    // "won't apply" fact to surface for taking a breakpoint away.
+    await page.getByTestId("toast").waitFor({ state: "hidden", timeout: 3000 });
+    await page.evaluate((line) => window.__gltfStudioScriptTest!.toggleBreakpointAtLine(line), onTickLine);
+    await page.waitForTimeout(300);
+    await expect(page.getByTestId("toast")).toHaveCount(0);
+
+    await page.getByTestId("playbar.stop").click();
+  });
+
+  test("setting a breakpoint WHILE already playing (compiled + Debug) toasts that it only applies from the NEXT Play start (UX-1505 mid-play discoverability)", async ({ page }) => {
+    await importPlayFixture(page);
+    const scriptTabText = await openScriptTabAndGetCode(page);
+    const onTickLine = lineIndexOf(scriptTabText, "rt.onTick(") + 1;
+
+    await page.getByTestId("playbar.engine-picker").selectOption("compiled");
+    await page.getByTestId("playbar.debug-toggle").click();
+    await page.getByTestId("playbar.play").click();
+    await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
+
+    await page.evaluate((line) => window.__gltfStudioScriptTest!.toggleBreakpointAtLine(line), onTickLine);
+    await expect(page.getByTestId("toast")).toContainText("won't hit this session");
+    await expect(page.getByTestId("toast")).toContainText("Restart Play to hit it");
+
+    await page.getByTestId("playbar.stop").click();
+  });
 });
