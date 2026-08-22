@@ -2,7 +2,7 @@
   "name": "@gltf-studio/play",
   "version": "0.0.1",
   "private": true,
-  "description": "PlayController implementation (specs/engine-api.md PC-001..PC-008): runs the document's KHR_interactivity graph against the interpreter (@gltfi/runtime) or compiled (@gltfi/runtime-lib + @gltfi/ir + @gltfi/emit-ts) engine, fanning outgoing pointer writes out to RenderHost/AudioHost.",
+  "description": "PlayController implementation (specs/engine-api.md PC-001..PC-009): runs the document's KHR_interactivity graph against the interpreter (@gltfi/runtime) or compiled (@gltfi/runtime-lib + @gltfi/ir + @gltfi/emit-ts) engine, fanning outgoing pointer writes out to RenderHost/AudioHost. PC-009 (docs/adr/0006) adds an optional debug compiled-play pipeline: the exact flavor-TS text @gltf-studio/script-panel's Script tab shows, transformed via esbuild-wasm into JS + a real inline source map, loaded under a stable virtual sourceURL for real DevTools debugging.",
   "license": "MIT",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -24,10 +24,12 @@
   "dependencies": {
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",
+    "@gltf-studio/script-panel": "workspace:*",
     "@gltfi/emit-ts": "0.0.1",
     "@gltfi/ir": "0.0.1",
     "@gltfi/runtime": "0.0.1",
-    "@gltfi/runtime-lib": "0.0.1"
+    "@gltfi/runtime-lib": "0.0.1",
+    "esbuild-wasm": "^0.21.5"
   },
   "devDependencies": {
     "@gltf-studio/contract-tests": "workspace:*",

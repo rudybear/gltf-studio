@@ -5,6 +5,17 @@
 // how to go from a raw graph to displayable code — used both for the
 // default read-only view and to (re)seed the editable buffer when a caller
 // enters edit mode or discards unapplied edits by leaving it.
+//
+// Also reachable via this package's own `./emit-view` subpath export
+// (package.json) — `@gltf-studio/play`'s debug compiled-play pipeline
+// (docs/adr/0006-devtools-script-debugging.md, specs/ux-debugger.md UX-1503)
+// imports `buildEmitView` from there directly rather than the aggregated
+// `.` entry, so it never pulls in `monaco-editor`/React just to reach this
+// one lightweight function — same "narrow subpath, not the whole barrel"
+// precedent as `@gltfi/parse-ts`'s own `./runtime-lib-dts` export. That
+// caller's text-identity guarantee (the debug session shows EXACTLY what
+// the Script tab shows) depends on this staying the one and only place that
+// turns a graph into displayable code — do not add a second one.
 import { importGraph, type Diagnostic, type Graph, type IRModule } from "@gltfi/ir";
 import { emitModule, type EmitNames } from "@gltfi/emit-ts";
 

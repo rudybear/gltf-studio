@@ -243,6 +243,16 @@ export interface AppState {
   playState: "stopped" | "playing" | "paused";
   /** Pending engine-picker selection; only meaningful/settable while `playState === "stopped"`. */
   playEngine: EngineKind;
+  /**
+   * `playbar.debug-toggle`'s checked state (specs/ux-shell.md UX-130,
+   * specs/ux-debugger.md UX-1500): only meaningful/settable while
+   * `playState === "stopped"`, same as `playEngine`. Session-only — an
+   * in-memory store field, never persisted to `localStorage` or a
+   * per-project setting (same tier as `testIdOverlay`), and unaffected by
+   * `playEngine` switching away from `"compiled"` and back (UX-1500's own
+   * "enablement, not the checked value, is what an engine switch clears").
+   */
+  playDebug: boolean;
   /** Registered by `Viewport.tsx` on mount so the store can build a `PlayController` without importing engine-three directly. */
   renderHost: RenderHost | null;
   // -- audio (M7, specs/engine-api.md AH-001/AH-002): registration side only
@@ -383,6 +393,8 @@ export interface AppState {
   registerRenderHost(host: RenderHost | null): void;
   /** Only meaningful while `playState === "stopped"`; updates the engine-picker's pending selection. */
   setPlayEngine(engine: EngineKind): void;
+  /** Only meaningful while `playState === "stopped"`; updates `playbar.debug-toggle`'s pending checked state (specs/ux-shell.md UX-130). */
+  setPlayDebug(debug: boolean): void;
   /** UX-310: starts play mode using the current `playEngine`, freezing the document (DOC-031). */
   startPlay(): Promise<void>;
   /** UX-310: suspends the running simulation without discarding variable values. */
@@ -952,6 +964,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   playState: "stopped",
   playEngine: "interpreter",
+  playDebug: false,
   renderHost: null,
 
   selectedNodeIndex: null,
@@ -1246,8 +1259,13 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ playEngine: engine });
   },
 
+  setPlayDebug(debug) {
+    if (get().playState !== "stopped") return;
+    set({ playDebug: debug });
+  },
+
   async startPlay() {
-    const { renderHost, history, document, playEngine, pushToast, log } = get();
+    const { renderHost, history, document, playEngine, playDebug, pushToast, log } = get();
     if (!renderHost || !history || !document || get().playState !== "stopped") return;
 
     const controller = createPlayController({
@@ -1265,7 +1283,12 @@ export const useAppStore = create<AppState>((set, get) => {
     });
 
     try {
-      await controller.start({ engine: playEngine });
+      // PC-009/UX-1500: `debug` is only meaningful for the compiled engine —
+      // gated here too (defense in depth alongside the toggle's own
+      // disabled-while-interpreter UI state, UX-1500) so a stale `playDebug`
+      // checked value left over from a prior compiled session can never
+      // silently activate under the interpreter engine.
+      await controller.start({ engine: playEngine, debug: playEngine === "compiled" && playDebug });
     } catch (err) {
       activePlayDiagnosticsUnsub?.();
       activePlayDiagnosticsUnsub = null;

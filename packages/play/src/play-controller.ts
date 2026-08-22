@@ -112,7 +112,9 @@ export class PlayControllerImpl implements PlayController {
     // PC-004: engine construction failures reject start()'s promise with a
     // descriptive Error and leave #state/#host untouched (still "stopped",
     // still null) — nothing below this try block runs on failure.
-    const host = await createEngineHost(options.engine, documentJson, binary, fanOut);
+    // PC-009: `options.debug` is a no-op for the interpreter engine —
+    // createEngineHost only reads it on the compiled branch.
+    const host = await createEngineHost(options.engine, documentJson, binary, fanOut, options.debug);
     host.engine.start();
 
     this.#host = host;

@@ -457,6 +457,9 @@ importers:
       '@gltf-studio/engine-api':
         specifier: workspace:*
         version: link:../engine-api
+      '@gltf-studio/script-panel':
+        specifier: workspace:*
+        version: link:../script-panel
       '@gltfi/emit-ts':
         specifier: file:../../vendor/gltfi-emit-ts-0.0.1.tgz
         version: file:vendor/gltfi-emit-ts-0.0.1.tgz
@@ -469,6 +472,9 @@ importers:
       '@gltfi/runtime-lib':
         specifier: file:../../vendor/gltfi-runtime-lib-0.0.1.tgz
         version: file:vendor/gltfi-runtime-lib-0.0.1.tgz
+      esbuild-wasm:
+        specifier: ^0.21.5
+        version: 0.21.5
     devDependencies:
       '@gltf-studio/contract-tests':
         specifier: workspace:*
@@ -1543,6 +1549,11 @@ packages:
 
   es-module-lexer@1.7.0:
     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
+
+  esbuild-wasm@0.21.5:
+    resolution: {integrity: sha512-L/FlOPMMFtw+6qPAbuPvJXdrOYOp9yx/PEwSrIZW0qghY4vgV003evdYDwqQ/9ENMQI0B6RMod9xT4FHtto6OQ==}
+    engines: {node: '>=12'}
+    hasBin: true
 
   esbuild@0.21.5:
     resolution: {integrity: sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw==}
@@ -3247,6 +3258,8 @@ snapshots:
   emoji-regex@8.0.0: {}
 
   es-module-lexer@1.7.0: {}
+
+  esbuild-wasm@0.21.5: {}
 
   esbuild@0.21.5:
     optionalDependencies:

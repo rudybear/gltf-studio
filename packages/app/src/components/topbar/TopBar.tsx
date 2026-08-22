@@ -32,6 +32,10 @@ function getShowOpenFilePicker(): ShowOpenFilePicker | undefined {
  * (theme toggle), UX-111 (testid overlay toggle), UX-106/UX-113 (play-state
  * chrome + real play-bar wiring against `PlayController` via the store's
  * `startPlay`/`pausePlay`/`resumePlay`/`stopPlay`/`setPlayEngine` actions),
+ * UX-130 (`playbar.debug-toggle` — enabled only for the compiled engine
+ * while stopped; its checked state becomes `PlayStartOptions.debug`, PC-009,
+ * the next time Play starts; full behavior contract in specs/ux-debugger.md's
+ * UX-1500 block),
  * UX-121 (`topbar.tour-start` — a distinct glyph from UX-111's `?`, starts
  * `specs/ux-tour.md`'s tour at step 1 regardless of prior state), UX-129
  * (`topbar.settings` — opens `specs/ux-settings.md`'s settings dialog).
@@ -65,11 +69,13 @@ export function TopBar(): JSX.Element {
   const openSettings = useSettingsState((s) => s.open);
   const playState = useAppStore((s) => s.playState);
   const playEngine = useAppStore((s) => s.playEngine);
+  const playDebug = useAppStore((s) => s.playDebug);
   const startPlay = useAppStore((s) => s.startPlay);
   const pausePlay = useAppStore((s) => s.pausePlay);
   const resumePlay = useAppStore((s) => s.resumePlay);
   const stopPlay = useAppStore((s) => s.stopPlay);
   const setPlayEngine = useAppStore((s) => s.setPlayEngine);
+  const setPlayDebug = useAppStore((s) => s.setPlayDebug);
 
   const systemPrefersDark = useSystemPrefersDark();
   const effectiveDark = themeOverride ? themeOverride === "dark" : systemPrefersDark;
@@ -255,6 +261,19 @@ export function TopBar(): JSX.Element {
           <option value="interpreter">interpreter</option>
           <option value="compiled">compiled</option>
         </select>
+        <button
+          className={`btn icon-only${playDebug ? " active" : ""}`}
+          data-testid="playbar.debug-toggle"
+          disabled={playEngine !== "compiled" || playState !== "stopped"}
+          title={
+            playEngine !== "compiled"
+              ? "Debugging needs the compiled engine — switch engine to enable."
+              : "Debug: show this graph's compiled script in your browser's DevTools (Sources → gltf-studio://)"
+          }
+          onClick={() => setPlayDebug(!playDebug)}
+        >
+          🐞
+        </button>
       </div>
       <div className="topbar-spacer" />
       <div className="topbar-group">

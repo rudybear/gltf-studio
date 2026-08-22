@@ -10,12 +10,25 @@
 // play-controller.ts never has to branch on engine kind beyond the single
 // call to createEngineHost below (PC-008's "pointer routing is identical
 // across both engine kinds" note applies here too).
+//
+// PC-009 (docs/adr/0006-devtools-script-debugging.md): when `debug` is set
+// (compiled engine only), buildCompiledEngine's code string instead comes
+// from buildDebugModule below — the SAME flavor-TS text
+// @gltf-studio/script-panel's Script tab shows (buildEmitView, imported from
+// that package's narrow `./emit-view` subpath so this package never pulls in
+// monaco-editor/React), transformed to JS + a real inline source map via
+// esbuild-wasm (debug-transform.ts), with a stable virtual `sourceURL`
+// appended so a real DevTools session shows and can set breakpoints against
+// the user's own script.
 import { resolveGraph, InteractivityRuntime, type Graph as InterpGraph } from "@gltfi/runtime";
 import type { EngineInteractive } from "@gltfi/runtime";
-import { importGraph, checkModule, type Graph as IrGraph } from "@gltfi/ir";
+import { importGraph, checkModule, type Graph as IrGraph, type IRModule } from "@gltfi/ir";
 import { emitModule, EmitError } from "@gltfi/emit-ts";
+import { buildEmitView } from "@gltf-studio/script-panel/emit-view";
 import type { EngineFactory } from "@gltfi/runtime-lib";
 import type { EngineKind } from "@gltf-studio/engine-api";
+import { appendDebugSourceUrl, debugVirtualSourceUrl } from "./debug-source.js";
+import { transformForDebug } from "./debug-transform.js";
 
 /** Matches SceneAdapter.applyPointer / EngineOptions.onPointerSet's exact value union — both engines agree on this shape. */
 export type PointerFanOut = (pointer: string, value: number[] | boolean[] | number | boolean) => void;
@@ -43,12 +56,13 @@ function resolveGraphOrThrow(documentJson: unknown): InterpGraph {
   return resolveGraph(documentJson);
 }
 
-/** PC-001/PC-004: builds whichever engine kind `start({engine})` asked for, bound to the fan-out `SceneAdapter`/`onPointerSet`. */
+/** PC-001/PC-004/PC-009: builds whichever engine kind `start({engine})` asked for, bound to the fan-out `SceneAdapter`/`onPointerSet`. `debug` is meaningful only for `kind === "compiled"` (PC-009) — ignored otherwise. */
 export async function createEngineHost(
   kind: EngineKind,
   documentJson: unknown,
   binary: ArrayBuffer | Uint8Array | undefined,
-  fanOut: PointerFanOut
+  fanOut: PointerFanOut,
+  debug = false
 ): Promise<EngineHost> {
   const graph = resolveGraphOrThrow(documentJson);
   if (kind === "interpreter") {
@@ -56,22 +70,68 @@ export async function createEngineHost(
     runtime.bindAdapter({ applyPointer: fanOut });
     return { graph, engine: runtime.asEngineLike() };
   }
-  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut);
+  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug);
   return { graph, engine };
+}
+
+/**
+ * PC-009: the graph index @gltf-studio/play always resolves — see
+ * resolveGraphOrThrow above (`graphs[0]`) — kept as a named constant rather
+ * than a bare `0` literal at each of this file's two use sites. Exported so
+ * tests can build the same virtual name this file uses without duplicating
+ * the literal `0`.
+ */
+export const PLAY_GRAPH_INDEX = 0;
+
+/**
+ * Produces the compiled module's code string ONLY — no blob/import step —
+ * so the branch choice (debug vs. non-debug) is a small, pure,
+ * Node-unit-testable function on its own (compiled-debug.test.ts): non-debug
+ * is an unchanged, byte-identical call to `emitModule(module,
+ * {flavor:"js"})`; debug delegates to buildDebugModule below. Exported for
+ * that same reason — buildCompiledEngine itself is not unit-testable in
+ * plain Node (its `import(blob:)` step isn't, see engine-host.test.ts), but
+ * this pure, blob-free code-string computation is.
+ */
+export async function computeCompiledCode(graph: IrGraph, module: IRModule, debug: boolean): Promise<string> {
+  if (debug) {
+    return buildDebugModule(graph);
+  }
+  return emitModule(module, { flavor: "js" }).code;
+}
+
+/**
+ * PC-009/specs/ux-debugger.md UX-1502/UX-1503: the exact flavor-TS text
+ * @gltf-studio/script-panel's Script tab shows for this graph (`buildEmitView`
+ * — the ONE function that turns a graph into displayable code, imported from
+ * script-panel's narrow `./emit-view` subpath so this package never pulls in
+ * monaco-editor/React), transformed to JS + a real inline source map via
+ * esbuild-wasm, with a stable virtual `//# sourceURL=` appended — identical
+ * to the source map's own `sources[0]` entry, so DevTools reports this exact
+ * name for both the running compiled script (`Debugger.scriptParsed.url`)
+ * and the source-mapped pretty TypeScript it groups under.
+ */
+export async function buildDebugModule(graph: IrGraph): Promise<string> {
+  const sourceUrl = debugVirtualSourceUrl(PLAY_GRAPH_INDEX);
+  const { code: tsText } = buildEmitView(graph, PLAY_GRAPH_INDEX);
+  const jsCode = await transformForDebug(tsText, sourceUrl);
+  return appendDebugSourceUrl(jsCode, sourceUrl);
 }
 
 async function buildCompiledEngine(
   graph: InterpGraph,
   documentJson: unknown,
   binary: ArrayBuffer | Uint8Array | undefined,
-  fanOut: PointerFanOut
+  fanOut: PointerFanOut,
+  debug: boolean
 ): Promise<EngineInteractive> {
   // @gltfi/runtime's Graph and @gltfi/ir's Graph are two independently
   // declared but structurally identical types — no KHR_interactivity-graph
   // shape conversion actually happens here, just a type-system formality
   // (see gltf-interactivity's packages/conformance/src/run-compiled.ts for
   // the same cast).
-  const { module, diagnostics } = importGraph(graph as unknown as IrGraph);
+  const irGraph = graph as unknown as IrGraph;
+  const { module, diagnostics } = importGraph(irGraph);
   const importErrors = diagnostics.filter((d) => d.severity === "error");
   if (importErrors.length > 0) {
     throw new Error(`PlayController.start: graph -> IR import errors: ${JSON.stringify(importErrors)}`);
@@ -82,7 +142,7 @@ async function buildCompiledEngine(
   }
   let code: string;
   try {
-    code = emitModule(module, { flavor: "js" }).code;
+    code = await computeCompiledCode(irGraph, module, debug);
   } catch (err) {
     const message = err instanceof EmitError ? err.message : err instanceof Error ? err.message : String(err);
     throw new Error(`PlayController.start: emit-ts could not compile this graph to JS: ${message}`);

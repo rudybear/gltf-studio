@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./emit-view": {
+      "types": "./dist/emit-view.d.ts",
+      "default": "./dist/emit-view.js"
+    },
     "./script-panel.css": "./src/script-panel.css"
   },
   "files": [
