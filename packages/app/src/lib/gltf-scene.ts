@@ -227,6 +227,25 @@ export function iconForNode(node: GltfNodeJson | undefined): NodeIconType {
 }
 
 /**
+ * Full punctual-light control (specs/render-host.md RH-032): every node
+ * index whose glTF entry carries `extensions.KHR_lights_punctual.light` —
+ * the "all lights" viewport toolbar toggle's own `EditorHelperDescriptor`
+ * list (`Viewport.tsx`) enumerates these directly rather than re-deriving
+ * them from `flattenSceneTree`'s row list, since a light helper is wanted
+ * for every light NODE regardless of scene-tree collapse state.
+ */
+export function lightNodeIndices(json: GltfJsonShape | undefined): number[] {
+  const nodes = json?.nodes ?? [];
+  const indices: number[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i]?.extensions?.KHR_lights_punctual?.light !== undefined) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+/**
  * Flattens the default scene's node graph into a depth-first row list
  * (UX-200): each row knows its depth (for 16px/level indent) and whether it
  * has children (for the twisty vs. spacer, UX-200). Does not itself apply

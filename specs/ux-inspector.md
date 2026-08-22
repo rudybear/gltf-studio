@@ -34,7 +34,7 @@ Prefix: `UX`. This file owns the `UX-4xx` block.
 
 ### Light and Camera sections (richer inspector)
 
-- [UX-417] (active) A node whose glTF entry carries `extensions.KHR_lights_punctual.light` shows a Light section: type (read-only — changing a light's type is a later iteration, noted inline), a color picker, an intensity field (own `◈`), and — only when meaningful for the light's own type, per the glTF spec's own definitions — a range field (point/spot only, own `◈`) and inner/outer cone-angle fields (spot only, each with its own `◈`). Every editable field writes via `SceneEdit.setLightProperty` against the ROOT `extensions.KHR_lights_punctual.lights[]` registry (addressed by light index, not node index) and renders live through the vendored pointer-router's own `KHR_lights_punctual` rows.
+- [UX-417] (active) A node whose glTF entry carries `extensions.KHR_lights_punctual.light` shows a Light section: an EDITABLE type dropdown (point/spot/directional — r2, full punctual-light control; previously read-only, "changing a light's type is a later iteration" — that iteration is this one), a color picker, an intensity field (own `◈`), and — only when meaningful for the light's own CURRENT type, per the glTF spec's own definitions — a range field (point/spot only, own `◈`) and inner/outer cone-angle fields (spot only, each with its own `◈`). Every editable field writes via `SceneEdit.setLightProperty` against the ROOT `extensions.KHR_lights_punctual.lights[]` registry (addressed by light index, not node index) and renders live through the vendored pointer-router's own `KHR_lights_punctual` rows. The type dropdown itself writes via the dedicated `SceneEdit.setLightType` (`specs/document-model.md`'s `DOC-065`) instead of a bare `setLightProperty(..., ["type"], ...)` call — converting a type also adds/drops the type-specific `range`/`spot` fields in the SAME undoable command (see `DOC-065`'s own carry-over rules), which a bare `type` field write alone could not do without leaving a schema-invalid light (e.g. a `"directional"` light still carrying a `spot` object).
 - [UX-418] (active) A node whose glTF entry carries `camera` shows a Camera section: perspective `yfov`/`znear`/`zfar` fields (each with its own `◈`), written via `SceneEdit.setCameraProperty` against core glTF's `cameras[]`. These edits round-trip through the document (undoable, correctly persisted/exported) but do NOT preview live through this camera in the viewport in v1 — `ThreeRenderHost`'s own viewport camera is an independent free-fly camera, not derived from any scene camera node, and there is no vendored pointer-router route for camera properties either (camera isn't part of KHR_interactivity's node/material Object Model families the router covers) — an explicit inline note says so, matching `UX-414`'s "never a silently missing section" discipline. A "look through this camera" live-preview viewport mode is a real, scoped-out follow-up.
 
 ### Mesh & Primitives section
@@ -52,7 +52,7 @@ Prefix: `UX`. This file owns the `UX-4xx` block.
 ### Empty and deferred states
 
 - [UX-413] (active) With no selection, the Inspector shows exactly one "Nothing selected." message and no section content.
-- [UX-414] (active) Light and camera nodes show their Transform section plus their own real, editable section (`UX-417` for lights, `UX-418` for cameras) — never a silently missing section with no explanation. (Supersedes this requirement's own original text, which deferred BOTH sections' entire contents to "a later iteration" — that iteration is `UX-417`/`UX-418`; each section's own NARROWER remaining gap — light type is still read-only, a camera has no live viewport preview yet — is itself noted inline rather than silently dropped, the same discipline this requirement always asked for.)
+- [UX-414] (active) Light and camera nodes show their Transform section plus their own real, editable section (`UX-417` for lights, `UX-418` for cameras) — never a silently missing section with no explanation. (Supersedes this requirement's own original text, which deferred BOTH sections' entire contents to "a later iteration" — that iteration is `UX-417`/`UX-418`; each section's own NARROWER remaining gap — a camera has no live viewport preview yet — is itself noted inline rather than silently dropped, the same discipline this requirement always asked for. Full punctual-light control's r2 closed the ONE such gap `UX-417` itself used to carry — light type is a real editable dropdown now, not read-only — so only the camera live-preview gap remains as of this update.)
 
 ### Emitter/environment/listener authoring (audio pass 3/3)
 
@@ -81,17 +81,24 @@ Prefix: `UX`. This file owns the `UX-4xx` block.
   - Texture slot REPLACEMENT/upload (`UX-416`) — v1 is READ + CLEAR + `KHR_texture_transform`
     offset/scale/rotation edit only; assigning a brand-new image to a slot is a real, separately-
     scoped follow-up.
-  - A light's `type` (`UX-417`) is read-only; changing directional/point/spot in place (which would
-    need to swap the underlying `THREE.Light` subclass entirely, not just tweak a property) is a
-    later iteration.
   - A camera's live "look through this camera" viewport preview (`UX-418`) doesn't exist yet —
     `ThreeRenderHost`'s own viewport camera has no linkage to any scene camera node at all today;
     property edits still round-trip through the document (undoable, persisted/exported correctly),
     just without a live viewport preview of their effect.
   - `pointer-vocab.ts`'s `buildPointerContentTree`/`parsePointerPath` (the pointer-picker dialog's
-    own content tree) still don't enumerate lights/cameras as pickable targets — only this
-    Inspector's own `◈` affordance (via that same file's new `LIGHT_PROPS`/`CAMERA_PROPS` tables)
-    can target a light/camera property pointer today.
+    own content tree) still don't enumerate CAMERAS as pickable targets — only this Inspector's own
+    `◈` affordance (via that file's `CAMERA_PROPS` table) can target a camera property pointer today.
+    LIGHTS were closed by full punctual-light control (`specs/ux-pointer-picker.md`'s `UX-901` r2/
+    `UX-909`) — a real "Lights" content-tree section now exists, gated per-type exactly like this
+    Inspector's own Light section.
+  - **RESOLVED as of full punctual-light control**: a light's `type` (`UX-417`) is a real, editable
+    dropdown now (`SceneEdit.setLightType`, `specs/document-model.md`'s `DOC-065`) — the "later
+    iteration" this entry used to defer. `ThreeRenderHost` needed no change to make this render
+    correctly: `GLTFLoader`'s own stock `KHR_lights_punctual` extension already instantiates the
+    right `THREE.Light` subclass per type on every reload, and a type change is a STRUCTURAL patch
+    (the whole light object is replaced) — `RenderHost.patchScene` already classifies that as
+    `"needs-reload"` (RH-011..013) and a plain reload re-parses the new type correctly; no live/
+    non-structural pointer-router route for `type` was needed or added.
   - `KHR_materials_clearcoat`/`KHR_materials_sheen`'s own texture slots and factors, and
     `KHR_materials_emissive_strength`/`ior`/`specular` — all real vendored pointer-router families
     (see `pointer-router.js`'s own M4 rows) — are not surfaced in the Inspector at all yet; a cheap

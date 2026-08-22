@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildPointerContentTree, colorKindForPointerPath, materialPropPath, nodePropPath, nodePropsFor, parsePointerPath } from "./pointer-vocab";
+import {
+  buildPointerContentTree,
+  colorKindForPointerPath,
+  lightPropPath,
+  lightPropsFor,
+  materialPropPath,
+  nodePropPath,
+  nodePropsFor,
+  parsePointerPath
+} from "./pointer-vocab";
 import type { GltfJsonShape } from "./gltf-scene";
 
 const JSON_FIXTURE: GltfJsonShape = {
@@ -11,6 +20,7 @@ const JSON_FIXTURE: GltfJsonShape = {
   ],
   meshes: [{ name: "MorphMesh", primitives: [{ attributes: {}, targets: [{}, {}, {}] }] }],
   materials: [{ name: "Mat0", pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1] } }],
+  extensions: { KHR_lights_punctual: { lights: [{ name: "Lamp", type: "point", color: [1, 1, 1], intensity: 500 }] } },
   animations: [{ name: "Idle" }]
 };
 
@@ -52,16 +62,48 @@ describe("path builders", () => {
     expect(materialPropPath(0, "emissiveFactor")).toBe("/materials/0/emissiveFactor");
     expect(materialPropPath(0, "alphaCutoff")).toBe("/materials/0/alphaCutoff");
   });
+
+  it("lightPropPath addresses the root KHR_lights_punctual registry by light index", () => {
+    expect(lightPropPath(0, "intensity")).toBe("/extensions/KHR_lights_punctual/lights/0/intensity");
+    expect(lightPropPath(1, "spot/outerConeAngle")).toBe("/extensions/KHR_lights_punctual/lights/1/spot/outerConeAngle");
+  });
 });
 
-describe("buildPointerContentTree (UX-901)", () => {
-  it("orders sections Nodes / Materials / Animations, in that order", () => {
+describe("lightPropsFor (UX-909): gated by the light's CURRENT type, mirroring LightSection.tsx", () => {
+  it("a point light exposes color/intensity/range but not spot cone angles", () => {
+    const keys = lightPropsFor(0, JSON_FIXTURE).map((p) => p.key);
+    expect(keys).toEqual(["color", "intensity", "range"]);
+  });
+
+  it("a spot light exposes all five props including both cone angles", () => {
+    const spotDoc: GltfJsonShape = { ...JSON_FIXTURE, extensions: { KHR_lights_punctual: { lights: [{ type: "spot" }] } } };
+    const keys = lightPropsFor(0, spotDoc).map((p) => p.key);
+    expect(keys).toEqual(["color", "intensity", "range", "spot/innerConeAngle", "spot/outerConeAngle"]);
+  });
+
+  it("a directional light exposes only color/intensity (no range, no cone angles)", () => {
+    const dirDoc: GltfJsonShape = { ...JSON_FIXTURE, extensions: { KHR_lights_punctual: { lights: [{ type: "directional" }] } } };
+    const keys = lightPropsFor(0, dirDoc).map((p) => p.key);
+    expect(keys).toEqual(["color", "intensity"]);
+  });
+});
+
+describe("buildPointerContentTree (UX-901 r2, full punctual-light control)", () => {
+  it("orders sections Nodes / Materials / Lights / Animations, in that order", () => {
     const rows = buildPointerContentTree(JSON_FIXTURE, [
       { nodeIndex: 0, name: "Root", depth: 0, icon: "group" },
       { nodeIndex: 1, name: "Morphy", depth: 1, icon: "mesh" }
     ]);
-    expect(rows.map((r) => r.section)).toEqual(["nodes", "nodes", "materials", "animations"]);
-    expect(rows.map((r) => r.label)).toEqual(["Root", "Morphy", "Mat0", "Idle"]);
+    expect(rows.map((r) => r.section)).toEqual(["nodes", "nodes", "materials", "lights", "animations"]);
+    expect(rows.map((r) => r.label)).toEqual(["Root", "Morphy", "Mat0", "Lamp", "Idle"]);
+  });
+
+  it("labels an unnamed light by index, like materials/animations do", () => {
+    const unnamed: GltfJsonShape = { ...JSON_FIXTURE, extensions: { KHR_lights_punctual: { lights: [{ type: "point" }] } } };
+    const rows = buildPointerContentTree(unnamed, []);
+    const lightRow = rows.find((r) => r.section === "lights")!;
+    expect(lightRow.label).toBe("Light 0");
+    expect(lightRow.icon).toBe("light");
   });
 });
 
@@ -106,9 +148,50 @@ describe("parsePointerPath (UX-907 preselection)", () => {
     });
   });
 
+  it("parses a light intensity property path", () => {
+    expect(parsePointerPath("/extensions/KHR_lights_punctual/lights/0/intensity", JSON_FIXTURE)).toEqual({
+      section: "lights",
+      index: 0,
+      propKey: "intensity",
+      compIndex: undefined,
+      type: "float"
+    });
+  });
+
+  it("parses a light color property path as a whole float3", () => {
+    expect(parsePointerPath("/extensions/KHR_lights_punctual/lights/0/color", JSON_FIXTURE)).toEqual({
+      section: "lights",
+      index: 0,
+      propKey: "color",
+      compIndex: undefined,
+      type: "float3"
+    });
+  });
+
+  it("parses a per-component light color property path as a float", () => {
+    expect(parsePointerPath("/extensions/KHR_lights_punctual/lights/0/color/1", JSON_FIXTURE)).toEqual({
+      section: "lights",
+      index: 0,
+      propKey: "color",
+      compIndex: 1,
+      type: "float"
+    });
+  });
+
+  it("parses a nested spot cone-angle light property path", () => {
+    expect(parsePointerPath("/extensions/KHR_lights_punctual/lights/2/spot/outerConeAngle", JSON_FIXTURE)).toEqual({
+      section: "lights",
+      index: 2,
+      propKey: "spot/outerConeAngle",
+      compIndex: undefined,
+      type: "float"
+    });
+  });
+
   it("returns null for an unrecognized path (never guesses)", () => {
     expect(parsePointerPath("/extensions/KHR_interactivity/asset/majorVersion", JSON_FIXTURE)).toBeNull();
     expect(parsePointerPath("/nodes/0/name", JSON_FIXTURE)).toBeNull();
+    expect(parsePointerPath("/extensions/KHR_lights_punctual/lights/0/type", JSON_FIXTURE)).toBeNull(); // type isn't a LIGHT_PROPS entry.
   });
 });
 

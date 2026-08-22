@@ -21,6 +21,10 @@ const VEC3 = "VEC3";
 
 export const FIXTURE_HIT_NODE_INDEX = 0;
 export const FIXTURE_DECOY_NODE_INDEX = 1;
+// Full punctual-light control (specs/render-host.md RH-032..RH-034): a real
+// KHR_lights_punctual point light node, appended (not replacing 0/1, which
+// several other tests pin) for light-helper/studio-rig coverage.
+export const FIXTURE_LIGHT_NODE_INDEX = 2;
 
 export function buildFixtureGlb(): ArrayBuffer {
   // 3 vertices: (-1,-1,0), (1,-1,0), (0,1,0) — CCW as viewed from +Z (glTF's
@@ -38,12 +42,13 @@ export function buildFixtureGlb(): ArrayBuffer {
 
   const json = {
     asset: { version: "2.0", generator: "gltf-studio engine-three contract-test fixture" },
-    extensionsUsed: ["KHR_interactivity"],
+    extensionsUsed: ["KHR_interactivity", "KHR_lights_punctual"],
     scene: 0,
-    scenes: [{ nodes: [0, 1] }],
+    scenes: [{ nodes: [0, 1, 2] }],
     nodes: [
       { name: "Hit", mesh: 0, translation: [0, 0, 0] },
-      { name: "Decoy", mesh: 1, translation: [10, 10, 10] }
+      { name: "Decoy", mesh: 1, translation: [10, 10, 10] },
+      { name: "Lampy", translation: [0, 0, 2], extensions: { KHR_lights_punctual: { light: 0 } } }
     ],
     meshes: [
       { name: "HitMesh", primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, material: 0 }] },
@@ -99,7 +104,8 @@ export function buildFixtureGlb(): ArrayBuffer {
             ]
           }
         ]
-      }
+      },
+      KHR_lights_punctual: { lights: [{ name: "Lamp", type: "point", color: [1, 1, 1], intensity: 500 }] }
     }
   };
 

@@ -19,6 +19,7 @@ import {
 import { applyPatches } from "@gltf-studio/editor-core";
 import type {
   CameraPose,
+  EditorHelperDescriptor,
   GizmoChangeEvent,
   GizmoChangePhase,
   GizmoMode,
@@ -35,6 +36,48 @@ import { applyDoubleSidedPatch, applyTextureSlotClearPatch } from "./material-ex
 import { classifyPatchBatch } from "./patch-classify.js";
 import { coercePointerValue } from "./pointer-value.js";
 import { toGlbArrayBuffer } from "./scene-input.js";
+
+/**
+ * Studio-rig AUTO policy (specs/ux-viewport.md's studio-lighting section):
+ * true when the document carries at least one REAL `KHR_lights_punctual`
+ * registry entry — deliberately a cheap, static JSON check (does this
+ * document author any punctual light at all) rather than "is a light
+ * currently reachable/visible from the default scene", matching the same
+ * simplicity level `documentHasPunctualLights`'s only caller (`loadScene`,
+ * recomputed on every load — see that method's own doc comment for why a
+ * manual toggle doesn't survive a reload) needs.
+ */
+const STUDIO_HEMISPHERE_INTENSITY = 1.1;
+const STUDIO_DIRECTIONAL_INTENSITY = 2.2;
+/** Full punctual-light control: the studio rig's "off" state is DIMMED to this fraction of its full intensity, not hidden entirely — see the `studioHemisphereLight`/`studioDirectionalLight` field doc comment for why a hard `.visible = false` regressed real fixtures with a degenerate/token authored light. */
+const STUDIO_DIM_FACTOR = 0.4;
+
+function documentHasPunctualLights(json: unknown): boolean {
+  const lights = (json as { extensions?: { KHR_lights_punctual?: { lights?: unknown[] } } } | null | undefined)?.extensions?.KHR_lights_punctual
+    ?.lights;
+  return Array.isArray(lights) && lights.length > 0;
+}
+
+/**
+ * Full punctual-light control (RH-032..RH-034): the one THREE helper class
+ * per light type three.js itself ships, sized/instantiated per its own
+ * constructor signature (PointLightHelper/DirectionalLightHelper take an
+ * explicit size in world units — 0.3 keeps them small relative to this
+ * app's own default studio-rig/grid scale, matching this package's other
+ * gizmo/highlight helpers' modest visual footprint; SpotLightHelper derives
+ * its own size from the light's cone, no size argument). Returns `null` for
+ * any other `THREE.Light` subclass (e.g. `HemisphereLight`/`AmbientLight` —
+ * not a `KHR_lights_punctual` type at all, never reachable here since only
+ * point/spot/directional nodes are ever looked up by `lightObjectForNode`,
+ * but kept a graceful `null` rather than a assumption-throw for safety).
+ */
+function buildLightHelper(light: THREE.Light): THREE.Object3D | null {
+  const anyLight = light as THREE.PointLight & THREE.SpotLight & THREE.DirectionalLight;
+  if (anyLight.isPointLight) return new THREE.PointLightHelper(light as THREE.PointLight, 0.3);
+  if (anyLight.isSpotLight) return new THREE.SpotLightHelper(light as THREE.SpotLight);
+  if (anyLight.isDirectionalLight) return new THREE.DirectionalLightHelper(light as THREE.DirectionalLight, 0.3);
+  return null;
+}
 
 function isEffectivelyVisible(object: THREE.Object3D): boolean {
   let current: THREE.Object3D | null = object;
@@ -81,6 +124,32 @@ export class ThreeRenderHost implements RenderHost {
   private referenceHighlightHelpers: THREE.BoxHelper[] = [];
   private referenceHighlightedNodeIndices = new Set<number>();
 
+  // Full punctual-light control (specs/render-host.md's implementation
+  // notes, specs/ux-viewport.md's studio-lighting section): the neutral
+  // studio rig's two actual lights (hemisphere + directional key light) —
+  // NOT the grid helper, which stays a plain scene sibling, unaffected by
+  // the studio-lighting AUTO policy/toggle. DIMMED (intensity scaled down
+  // by STUDIO_DIM_FACTOR), never fully hidden, when the AUTO policy or the
+  // manual toggle turns it "off" — see `setStudioLightingEnabled`'s own doc
+  // comment for why a full on/off (`.visible = false`) turned out to be the
+  // wrong call: a document whose only authored light is a token/placeholder
+  // one (this project's own `e2e/global-setup.ts` fixture had exactly this
+  // shape — a `KHR_lights_punctual` point light co-located with the very
+  // surface it nominally lights, a genuinely degenerate near-zero-distance
+  // case no realistic intensity value fixes) would otherwise go completely
+  // dark the instant it's imported, a far worse outcome than a merely-
+  // dimmed neutral fill the user can still fall back on.
+  private studioHemisphereLight: THREE.HemisphereLight | null = null;
+  private studioDirectionalLight: THREE.DirectionalLight | null = null;
+  private studioLightingFull = true;
+  // `editorHelperGroup` is the dedicated EDITOR-ONLY overlay group RH-032
+  // describes: every visual `setEditorHelpers` creates lives here, nowhere
+  // else, so `snapshot()` (RH-034) can hide the whole group for one render
+  // call cheaply, and so it's obvious by construction that nothing in it
+  // ever reaches `this.currentJson`/`patchScene`'s document-facing state.
+  private editorHelperGroup: THREE.Group | null = null;
+  private editorHelperObjects = new Map<string, THREE.Object3D>();
+
   private gizmo: TransformControls | null = null;
   private gizmoNodeIndex: number | null = null;
   private readonly gizmoChangeHandlers = new Set<(event: GizmoChangeEvent) => void>();
@@ -104,6 +173,16 @@ export class ThreeRenderHost implements RenderHost {
     }
     for (const helper of this.referenceHighlightHelpers) {
       helper.update();
+    }
+    // RH-032: PointLightHelper/SpotLightHelper/DirectionalLightHelper each
+    // rebuild their own wireframe geometry from the live light's CURRENT
+    // color/cone/etc on `.update()` — called every frame here (same
+    // convention as the highlight/hover/reference-highlight helpers just
+    // above) so a `patchScene`/`applyPointer` light-property write shows up
+    // in the helper's own shape immediately, with no separate "refresh the
+    // helpers" call needed from `applyNonStructuralPatch`.
+    for (const helper of this.editorHelperObjects.values()) {
+      (helper as { update?: () => void }).update?.();
     }
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
@@ -142,11 +221,25 @@ export class ThreeRenderHost implements RenderHost {
 
     // Neutral studio rig: hemisphere (sky/ground fill) + directional (key
     // light) — many glTF assets ship with no lights of their own at all.
-    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x30323a, 1.1);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    // Full punctual-light control: DIMMED (never fully hidden — see the
+    // field doc comment above) by the AUTO policy (`loadScene`, below) and
+    // the viewport toolbar's manual toggle (`setStudioLightingEnabled`) —
+    // the grid stays a plain, always-on scene sibling, unaffected by either.
+    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x30323a, STUDIO_HEMISPHERE_INTENSITY);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, STUDIO_DIRECTIONAL_INTENSITY);
     directionalLight.position.set(3, 6, 4);
+    this.studioHemisphereLight = hemisphereLight;
+    this.studioDirectionalLight = directionalLight;
     const grid = new THREE.GridHelper(10, 10);
     scene.add(hemisphereLight, directionalLight, grid);
+
+    // RH-032: the dedicated editor-only overlay group — see its own field
+    // doc comment above for what it's for and why it stays separate from
+    // every other scene content.
+    const editorHelperGroup = new THREE.Group();
+    editorHelperGroup.name = "editor-helpers";
+    scene.add(editorHelperGroup);
+    this.editorHelperGroup = editorHelperGroup;
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
     camera.position.set(2, 2, 3);
@@ -217,6 +310,12 @@ export class ThreeRenderHost implements RenderHost {
     }
     this.referenceHighlightHelpers = [];
     this.referenceHighlightedNodeIndices = new Set();
+
+    this.disposeEditorHelpers();
+    this.studioHemisphereLight = null;
+    this.studioDirectionalLight = null;
+    this.studioLightingFull = true;
+    this.editorHelperGroup = null;
 
     if (this.gizmo) {
       this.scene!.remove(this.gizmo.getHelper());
@@ -291,6 +390,13 @@ export class ThreeRenderHost implements RenderHost {
     this.referenceHighlightedNodeIndices = new Set();
     this.gizmo?.detach();
     this.gizmoNodeIndex = null;
+    // RH-032: every existing helper object was built against the OLD
+    // tables/light objects `disposeObject3D(this.modelRoot)` above just
+    // tore down — stale references, cleared the same way every other
+    // per-node helper set in this method is. The caller (Viewport.tsx,
+    // mirroring its own gizmo/highlight `reloadSeq` re-attach convention)
+    // re-calls `setEditorHelpers` once the new tables exist.
+    this.disposeEditorHelpers();
 
     this.modelRoot = gltf.scene;
     this.scene.add(this.modelRoot);
@@ -300,6 +406,35 @@ export class ThreeRenderHost implements RenderHost {
     this.tables = loadedTables ?? buildIndexTables(gltf.parser, gltf.scene);
     this.diagnostics = new DiagnosticsRecorder();
     this.currentJson = gltf.parser.json;
+
+    // Studio-rig AUTO policy (specs/ux-viewport.md): recomputed on EVERY
+    // load/reload, unconditionally — a prior manual `setStudioLightingEnabled`
+    // toggle does not survive a reload (a deliberate v1 simplicity choice,
+    // documented on that method's own doc comment, not an oversight).
+    this.applyStudioLighting(!documentHasPunctualLights(this.currentJson));
+  }
+
+  /** Full punctual-light control: sets both studio-rig lights' intensity to full strength or `STUDIO_DIM_FACTOR` of it (never `0` — see the two light fields' own doc comment) and records `studioLightingFull` for `getStudioLightingEnabled()` to read back. */
+  private applyStudioLighting(full: boolean): void {
+    this.studioLightingFull = full;
+    const factor = full ? 1 : STUDIO_DIM_FACTOR;
+    if (this.studioHemisphereLight) {
+      this.studioHemisphereLight.intensity = STUDIO_HEMISPHERE_INTENSITY * factor;
+    }
+    if (this.studioDirectionalLight) {
+      this.studioDirectionalLight.intensity = STUDIO_DIRECTIONAL_INTENSITY * factor;
+    }
+  }
+
+  /** RH-032: disposes and clears every currently-tracked editor-helper object (both loadScene's reload teardown and dispose() use this). */
+  private disposeEditorHelpers(): void {
+    if (this.editorHelperGroup) {
+      for (const helper of this.editorHelperObjects.values()) {
+        this.editorHelperGroup.remove(helper);
+        (helper as { dispose?: () => void }).dispose?.();
+      }
+    }
+    this.editorHelperObjects.clear();
   }
 
   // ---------------------------------------------------------------------
@@ -667,14 +802,123 @@ export class ThreeRenderHost implements RenderHost {
   }
 
   // ---------------------------------------------------------------------
-  // snapshot (RH-024)
+  // Editor helpers (RH-032, RH-033 — full punctual-light control's shared
+  // editor-overlay seam)
   // ---------------------------------------------------------------------
 
+  /**
+   * RH-032/RH-033: replaces the entire editor-helper set. Unknown `kind`s
+   * and unresolvable `nodeIndex`es are silently skipped, never thrown —
+   * same tolerance `setHighlight`/`attachGizmo` already establish for a
+   * `nodeIndex` that doesn't (yet) exist in the currently loaded scene.
+   * v1 only draws `"light"` (a `PointLightHelper`/`SpotLightHelper`/
+   * `DirectionalLightHelper` per the live light's own current type,
+   * `buildLightHelper`) — every other `kind` (e.g. a future
+   * `"audio-emitter"`/`"audio-listener"`) is ignored today, forward-
+   * compatible with `EditorHelperKind`'s own "open string union" design.
+   */
+  setEditorHelpers(descriptors: EditorHelperDescriptor[]): void {
+    if (!this.scene || !this.editorHelperGroup) {
+      throw new Error("RenderHost.setEditorHelpers: call mount() first");
+    }
+    this.disposeEditorHelpers();
+    if (!this.tables) {
+      return; // no scene loaded yet — nothing resolvable, same as setHighlight's own no-tables early return.
+    }
+    for (const descriptor of descriptors) {
+      if (descriptor.kind !== "light") {
+        continue;
+      }
+      const light = this.lightObjectForNode(descriptor.nodeIndex);
+      if (!light) {
+        continue;
+      }
+      const helper = buildLightHelper(light);
+      if (!helper) {
+        continue;
+      }
+      this.editorHelperGroup.add(helper);
+      this.editorHelperObjects.set(`${descriptor.kind}:${descriptor.nodeIndex}`, helper);
+    }
+  }
+
+  /**
+   * Resolves `nodeIndex`'s own KHR_lights_punctual light object, if any.
+   * GLTFLoader's node-building (`GLTFParser.getDependency('node', ...)`) IS
+   * the light object itself when a light is the node's ONLY attachment (no
+   * mesh/camera) — `objects.length === 1` short-circuits to `node =
+   * objects[0]` rather than wrapping it in a `Group` — so `nodeByIndex`'s
+   * entry for a pure light node already satisfies `isLight` directly; only
+   * a node with MULTIPLE attachments (e.g. a light co-located with a mesh)
+   * gets wrapped in a `Group`, with the light as one of its children.
+   * Checked in that order (object itself, then its immediate children).
+   */
+  private lightObjectForNode(nodeIndex: number): THREE.Light | null {
+    const object = this.tables?.nodeByIndex[nodeIndex];
+    if (!object) {
+      return null;
+    }
+    if ((object as THREE.Light).isLight) {
+      return object as THREE.Light;
+    }
+    for (const child of object.children) {
+      if ((child as THREE.Light).isLight) {
+        return child as THREE.Light;
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Studio lighting (specs/ux-viewport.md's studio-lighting section — not
+  // part of the RenderHost interface, same "engine-three-only public
+  // method" convention as setControlsEnabled/frameNode/getRendererStats).
+  // ---------------------------------------------------------------------
+
+  /**
+   * Manually overrides the studio rig's strength for the CURRENTLY loaded
+   * scene: `true` is full strength, `false` DIMS it to `STUDIO_DIM_FACTOR`
+   * of full (never fully hidden — see the two studio-light fields' own doc
+   * comment for why). Does not persist across the next `loadScene` call —
+   * every `loadScene` recomputes the AUTO policy fresh
+   * (`documentHasPunctualLights`) regardless of any override made here, a
+   * deliberate v1 simplicity choice (see that call site's own comment): the
+   * toolbar toggle is a per-scene, not per-document, override.
+   */
+  setStudioLightingEnabled(enabled: boolean): void {
+    this.applyStudioLighting(enabled);
+  }
+
+  /** Current studio-rig strength state (AUTO-computed on load, or manually overridden since — see `setStudioLightingEnabled`): `true` means full strength, `false` means dimmed. `true` when nothing has mounted yet (matches the rig's own default-full state before any scene loads). */
+  getStudioLightingEnabled(): boolean {
+    return this.studioLightingFull;
+  }
+
+  // ---------------------------------------------------------------------
+  // snapshot (RH-024, RH-034)
+  // ---------------------------------------------------------------------
+
+  /**
+   * RH-034: editor-only helpers (RH-032) are excluded from the captured
+   * image — cheap to do exactly right since they all live in one dedicated
+   * `editorHelperGroup`: hide it for this one render call, restore
+   * whatever visibility it had immediately after. (The grid/selection/hover/
+   * reference-highlight helpers are NOT hidden here — a pre-existing,
+   * separately-tracked gap this change doesn't newly introduce or widen,
+   * see specs/render-host.md's own note on `snapshot()`.)
+   */
   async snapshot(): Promise<Blob> {
     if (!this.renderer || !this.scene || !this.camera) {
       throw new Error("RenderHost.snapshot: call mount() first");
     }
+    const helpersWereVisible = this.editorHelperGroup?.visible ?? false;
+    if (this.editorHelperGroup) {
+      this.editorHelperGroup.visible = false;
+    }
     this.renderer.render(this.scene, this.camera);
+    if (this.editorHelperGroup) {
+      this.editorHelperGroup.visible = helpersWereVisible;
+    }
     const renderer = this.renderer;
     return await new Promise<Blob>((resolve, reject) => {
       renderer.domElement.toBlob((blob) => {
@@ -722,6 +966,11 @@ export class ThreeRenderHost implements RenderHost {
   /** three.js-specific GPU-resource counters, for leak-discipline tests (RH-008) and a future viewport HUD. */
   getRendererStats(): RendererStats | null {
     return this.renderer ? { geometries: this.renderer.info.memory.geometries, textures: this.renderer.info.memory.textures } : null;
+  }
+
+  /** Test-only (not part of the RenderHost interface): the number of currently-shown editor helpers (RH-032) — lets e2e assert the light-helper toggle/selected-always behavior directly without a fragile pixel-level wireframe check. */
+  getEditorHelperCount(): number {
+    return this.editorHelperObjects.size;
   }
 
   /**

@@ -17,17 +17,18 @@ Prefix: `UX`. This file owns the `UX-9xx` block.
 ### Dialog anatomy
 
 - [UX-900] (active) The dialog is a modal with a content tree on the left and a properties panel on the right for the tree's current selection; its footer shows the currently-assembled pointer path, a type chip for that path's value type, a Cancel action, and a primary "Use pointer" action.
-- [UX-901] (active) The content tree has exactly three sections, in this order: Nodes (the full scene hierarchy, indented, each with its type icon), Materials, Animations (listed by name).
+- [UX-901] (active) The content tree has exactly four sections, in this order: Nodes (the full scene hierarchy, indented, each with its type icon), Materials, Lights, Animations (listed by name). (r2, full punctual-light control: adds the Lights section — one row per ROOT `extensions.KHR_lights_punctual.lights[]` registry entry, addressed by light index like Materials, never nested under whichever node(s) happen to reference it; previously three sections, Materials/Animations only.)
 
 ### Search
 
-- [UX-902] (active) A search field filters all three tree sections and the current selection's property list simultaneously, by substring match against name/op-id.
+- [UX-902] (active) A search field filters all four tree sections and the current selection's property list simultaneously, by substring match against name/op-id.
 
 ### Property list and component expansion
 
 - [UX-903] (active) Each animatable property row shows its name and a type chip (e.g. `float3`, `bool`, `float`); a property with more than one component (`float2`/`float3`/`float4`/`float[N]`) exposes a twisty that expands per-component rows (`/0`, `/1`, ...), each independently selectable and typed `float`.
 - [UX-904] (active) Selecting a property row or one of its expanded component rows live-assembles the full pointer path and its type into the footer (`UX-900`); the "Use pointer" action stays disabled until a concrete path is selected.
 - [UX-905] (active) Selecting an entry under Animations shows an explanatory note in place of a property list — animation clips are not themselves pointer targets; they are referenced from `animation/start`/`animation/stop` nodes instead.
+- [UX-909] (active) Full punctual-light control: selecting an entry under Lights shows its property list gated by that light's CURRENT `type` — color and intensity always; `range` for point/spot only; `spot/innerConeAngle`/`spot/outerConeAngle` for spot only — mirroring `specs/ux-inspector.md`'s `UX-417` Light section's own field-visibility rule exactly (`lightPropsFor`, `packages/app/src/lib/pointer-vocab.ts`), so the dialog never offers a field meaningless for that light's current type. `color` is a real selectable `float3` row here (with per-component expansion, `UX-903`) even though the Inspector's own `◈` shortcut set deliberately excludes it (a native color-picker input already covers editing it there) — the pointer-picker's job is browsing every reachable property, not just the ones with a dedicated Inspector shortcut.
 
 ### Confirming and preselection
 

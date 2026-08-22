@@ -48,7 +48,9 @@ interface SceneJson {
   bufferViews?: unknown[];
   extensionsUsed?: string[];
   extensions?: {
-    KHR_lights_punctual?: { lights: Array<{ type: string }> };
+    KHR_lights_punctual?: {
+      lights: Array<{ type: string; intensity?: number; range?: number; spot?: { innerConeAngle: number; outerConeAngle: number } }>;
+    };
     KHR_audio_emitter?: {
       audio: Array<{ bufferView: number; mimeType: string }>;
       sources: Array<{ audio: number }>;
@@ -129,22 +131,56 @@ test.describe("scene tree + Add menu (specs/ux-scene-tree.md UX-205/UX-206/UX-21
     await expect(page.getByTestId("scene-tree.row.4")).toHaveCount(0);
   });
 
-  test("Light: adds a real KHR_lights_punctual point light node (UX-206)", async ({ page }) => {
+  test("Light: 'Light' expands its own Point/Spot/Directional submenu, mirroring Mesh's (UX-205 r2)", async ({ page }) => {
     await page.getByTestId("scene-tree.add").click();
+    await expect(page.getByTestId("scene-tree.add-menu.light.point")).not.toBeVisible();
     await page.getByTestId("scene-tree.add-menu.light").click();
-    await waitForReload(page);
-    await expect(page.getByTestId("scene-tree.row.4.rename-input")).toHaveValue("Point Light");
-    await page.getByTestId("scene-tree.row.4.rename-input").press("Escape");
-
-    const json = await documentJson(page);
-    const node = json.nodes[4];
-    expect(node.name).toBe("Point Light");
-    const lightIndex = node.extensions!.KHR_lights_punctual!.light;
-    expect(json.extensions!.KHR_lights_punctual!.lights[lightIndex].type).toBe("point");
-    expect(json.extensionsUsed).toContain("KHR_lights_punctual");
-    // The fixture already carries one light (KeyLight) — this is a genuinely new second entry, not a dedupe artifact.
-    expect(json.extensions!.KHR_lights_punctual!.lights.length).toBeGreaterThanOrEqual(2);
+    await expect(page.getByTestId("scene-tree.add-menu.light.point")).toBeVisible();
+    await expect(page.getByTestId("scene-tree.add-menu.light.spot")).toBeVisible();
+    await expect(page.getByTestId("scene-tree.add-menu.light.directional")).toBeVisible();
   });
+
+  // Full punctual-light control (specs/ux-scene-tree.md UX-205/UX-206 r2,
+  // specs/document-model.md DOC-065): each Light submenu entry creates a
+  // real light of that type, with real per-type default field shapes.
+  for (const entry of [
+    { kind: "point", label: "Point Light" },
+    { kind: "spot", label: "Spot Light" },
+    { kind: "directional", label: "Directional Light" }
+  ] as const) {
+    test(`Light > ${entry.label}: adds a real KHR_lights_punctual ${entry.kind} light node with per-type defaults (UX-206 r2)`, async ({
+      page
+    }) => {
+      await page.getByTestId("scene-tree.add").click();
+      await page.getByTestId("scene-tree.add-menu.light").click();
+      await page.getByTestId(`scene-tree.add-menu.light.${entry.kind}`).click();
+      await waitForReload(page);
+      await expect(page.getByTestId("scene-tree.row.4.rename-input")).toHaveValue(entry.label);
+      await page.getByTestId("scene-tree.row.4.rename-input").press("Escape");
+
+      const json = await documentJson(page);
+      const node = json.nodes[4];
+      expect(node.name).toBe(entry.label);
+      const lightIndex = node.extensions!.KHR_lights_punctual!.light;
+      const light = json.extensions!.KHR_lights_punctual!.lights[lightIndex];
+      expect(light.type).toBe(entry.kind);
+      expect(json.extensionsUsed).toContain("KHR_lights_punctual");
+      // The fixture already carries one light (KeyLight) — this is a genuinely new second entry, not a dedupe artifact.
+      expect(json.extensions!.KHR_lights_punctual!.lights.length).toBeGreaterThanOrEqual(2);
+
+      // Per-type default shape (DOC-065): a real, visible starting intensity
+      // always; range never fabricated; spot cone angles present ONLY for spot.
+      expect(light.intensity).toBeGreaterThan(0);
+      if (entry.kind === "spot") {
+        expect(light.spot).toEqual({ innerConeAngle: 0, outerConeAngle: Math.PI / 4 });
+      } else {
+        expect(light.spot).toBeUndefined();
+      }
+      if (entry.kind === "directional") {
+        expect(light.range).toBeUndefined();
+      }
+    });
+  }
 
   test("Camera: adds a real perspective camera node, scaffolding json.cameras from scratch (UX-206)", async ({ page }) => {
     const before = await documentJson(page);
@@ -226,6 +262,7 @@ test.describe("scene tree + Add menu (specs/ux-scene-tree.md UX-205/UX-206/UX-21
   }) => {
     await page.getByTestId("scene-tree.add").click();
     await page.getByTestId("scene-tree.add-menu.light").click();
+    await page.getByTestId("scene-tree.add-menu.light.point").click();
     await waitForReload(page);
     await page.getByTestId("scene-tree.row.4.rename-input").press("Escape");
 

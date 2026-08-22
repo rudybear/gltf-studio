@@ -4,6 +4,8 @@ import { flattenSceneTree, type GltfJsonShape } from "../../lib/gltf-scene";
 import { NodeIcon } from "../scene-tree/NodeIcon";
 import {
   buildPointerContentTree,
+  lightPropPath,
+  lightPropsFor,
   materialPropPath,
   nodePropPath,
   nodePropsFor,
@@ -199,11 +201,15 @@ export function PointerPickerDialog(): JSX.Element | null {
     if (section === "materials" && selKey !== null) {
       return MATERIAL_PROPS.map((prop) => propRow(prop, materialPropPath(selKey, prop.key)));
     }
-    return <div className="pp-empty-hint">Select a node, material, or animation on the left.</div>;
+    if (section === "lights" && selKey !== null) {
+      return lightPropsFor(selKey, json).map((prop) => propRow(prop, lightPropPath(selKey, prop.key)));
+    }
+    return <div className="pp-empty-hint">Select a node, material, light, or animation on the left.</div>;
   }
 
   const nodeRows = treeRows.filter((r) => r.section === "nodes");
   const materialRows = treeRows.filter((r) => r.section === "materials");
+  const lightRows = treeRows.filter((r) => r.section === "lights");
   const animationRows = treeRows.filter((r) => r.section === "animations");
 
   return (
@@ -224,7 +230,7 @@ export function PointerPickerDialog(): JSX.Element | null {
         <div className="modal-search">
           <input
             className="field"
-            placeholder="Search nodes, materials, animations…"
+            placeholder="Search nodes, materials, lights, animations…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             data-testid="pointer-picker.search"
@@ -234,6 +240,7 @@ export function PointerPickerDialog(): JSX.Element | null {
           <div className="pp-tree" data-testid="pointer-picker.tree">
             {renderTreeSection("Nodes", nodeRows)}
             {renderTreeSection("Materials", materialRows)}
+            {renderTreeSection("Lights", lightRows)}
             {renderTreeSection("Animations", animationRows)}
           </div>
           <div className="pp-props" data-testid="pointer-picker.props">

@@ -59,6 +59,41 @@ export interface PickOptions {
   ignoreEligibility?: boolean;
 }
 
+/**
+ * RH-032 (see specs/render-host.md): the editor-overlay seam
+ * `RenderHost.setEditorHelpers` uses — a generic, kind-tagged list of
+ * scene-node indices the implementation may render an EDITOR-ONLY visual
+ * aid for (never written to the document; RH-034 guarantees export never
+ * sees them). Deliberately minimal: one shared method for every future
+ * helper family (lights today; audio-emitter/listener are a real,
+ * anticipated follow-up for `@gltf-studio/audio-webaudio`'s own editor work)
+ * rather than a per-domain method each new family would otherwise add to
+ * this interface. `kind` is an open string (not a closed union) so a
+ * `RenderHost` implementation that doesn't yet recognize a given `kind` can
+ * simply ignore those descriptors rather than the type system forcing every
+ * implementation to keep this file's own union in lock-step with every
+ * consumer's helper roadmap — see `EditorHelperKind`'s own doc comment.
+ */
+export interface EditorHelperDescriptor {
+  kind: EditorHelperKind;
+  /** The referencing scene node's index (never a light/emitter registry index) — the same indexing space `RenderHost.setHighlight`/`attachGizmo` already use. */
+  nodeIndex: number;
+}
+
+/**
+ * Known helper-kind tags. An implementation encountering a `kind` it
+ * doesn't recognize (e.g. a future "audio-emitter"/"audio-listener" tag
+ * reaching an older `RenderHost` build) silently ignores those descriptors
+ * rather than throwing — the same "unknown gets skipped, not rejected"
+ * tolerance this file's `PickOptions`/RH-031's unresolvable-index handling
+ * already establishes elsewhere in this interface. `engine-three`'s v1
+ * implementation only draws `"light"` (RH-032..RH-034); this union stays
+ * open (a plain `string` fallback via the union's last member) specifically
+ * so `@gltf-studio/audio-webaudio`'s own follow-up can add its own kinds
+ * without a breaking change here.
+ */
+export type EditorHelperKind = "light" | (string & {});
+
 /** SP-011 (see specs/storage-provider.md): thumbnail is the only optional field. */
 export interface ProjectMeta {
   id: string;

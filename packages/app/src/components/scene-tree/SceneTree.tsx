@@ -15,16 +15,28 @@ const MESH_SUBMENU_ENTRIES = [
   { kind: "plane", label: "Plane" }
 ] as const;
 
+// Full punctual-light control (specs/ux-scene-tree.md UX-205/206 r2,
+// specs/document-model.md DOC-065): "Light" mirrors "Mesh"'s own submenu
+// shape (still ONE top-level add-menu entry per UX-205) instead of always
+// creating a point light directly.
+const LIGHT_SUBMENU_ENTRIES = [
+  { kind: "point", label: "Point" },
+  { kind: "spot", label: "Spot" },
+  { kind: "directional", label: "Directional" }
+] as const;
+
 /**
  * specs/ux-scene-tree.md UX-200..206: real hierarchy from `document.json`
  * (names, type icons, twisties, show-indices), synced selection (UX-202).
  *
- * UX-205/UX-206 (M8-lite): the add-menu's five entries create REAL content
- * via the `SceneEdit.add*Node` composite factories (`packages/editor-core/
- * src/scene-edit.ts`, DOC-047) — each a single undoable command. "Mesh"
- * expands a submenu (Cube/Sphere/Plane, `primitives.ts`) rather than
- * creating directly, since a submenu still counts as ONE top-level entry
- * for UX-205's "exactly five entries" count. Every entry lands the new
+ * UX-205/UX-206 (M8-lite, extended by full punctual-light control's r2): the
+ * add-menu's five entries create REAL content via the `SceneEdit.add*Node`
+ * composite factories (`packages/editor-core/src/scene-edit.ts`, DOC-047/
+ * DOC-065) — each a single undoable command. "Mesh" expands a submenu
+ * (Cube/Sphere/Plane, `primitives.ts`) and "Light" expands its own submenu
+ * (Point/Spot/Directional, `SceneEdit.addLightNode`'s `opts.type`) rather
+ * than creating directly, since a submenu still counts as ONE top-level
+ * entry for UX-205's "exactly five entries" count. Every entry lands the new
  * node under the currently-selected node (`opts.parentNodeIndex`) when one
  * is selected, else the scene root, then auto-selects the new node and
  * opens its inline rename (reusing the same `renamingNode`/`renameValue`
@@ -97,6 +109,7 @@ export function SceneTree(): JSX.Element {
   );
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [meshSubmenuOpen, setMeshSubmenuOpen] = useState(false);
+  const [lightSubmenuOpen, setLightSubmenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
   const [renamingNode, setRenamingNode] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -137,6 +150,7 @@ export function SceneTree(): JSX.Element {
     setRenameValue(defaultName);
     setAddMenuOpen(false);
     setMeshSubmenuOpen(false);
+    setLightSubmenuOpen(false);
   }
 
   // UX-206: lands under the currently-selected node (append-only: last
@@ -150,10 +164,11 @@ export function SceneTree(): JSX.Element {
     afterCreate(command, index, label);
   }
 
-  function createLight(): void {
+  function createLight(type: "point" | "spot" | "directional"): void {
     if (!history) return;
-    const { command, index } = SceneEdit.addLightNode(history.document, "Point Light", { parentNodeIndex: newNodeParent });
-    afterCreate(command, index, "Point Light");
+    const label = type === "point" ? "Point Light" : type === "spot" ? "Spot Light" : "Directional Light";
+    const { command, index } = SceneEdit.addLightNode(history.document, label, { parentNodeIndex: newNodeParent, type });
+    afterCreate(command, index, label);
   }
 
   function createCamera(): void {
@@ -358,7 +373,11 @@ export function SceneTree(): JSX.Element {
           data-testid="scene-tree.add"
           onClick={() =>
             setAddMenuOpen((v) => {
-              if (v) setMeshSubmenuOpen(false); // closing the top menu also collapses any open submenu
+              if (v) {
+                // closing the top menu also collapses any open submenu
+                setMeshSubmenuOpen(false);
+                setLightSubmenuOpen(false);
+              }
               return !v;
             })
           }
@@ -381,9 +400,18 @@ export function SceneTree(): JSX.Element {
             </ul>
           </li>
           <li>
-            <button data-testid="scene-tree.add-menu.light" onClick={createLight}>
-              Light
+            <button data-testid="scene-tree.add-menu.light" onClick={() => setLightSubmenuOpen((v) => !v)}>
+              Light ▸
             </button>
+            <ul className={`add-menu add-submenu${lightSubmenuOpen ? " open" : ""}`} data-testid="scene-tree.add-menu.light-submenu">
+              {LIGHT_SUBMENU_ENTRIES.map((entry) => (
+                <li key={entry.kind}>
+                  <button data-testid={`scene-tree.add-menu.light.${entry.kind}`} onClick={() => createLight(entry.kind)}>
+                    {entry.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </li>
           <li>
             <button data-testid="scene-tree.add-menu.camera" onClick={createCamera}>

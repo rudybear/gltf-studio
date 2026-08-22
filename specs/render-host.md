@@ -77,8 +77,46 @@ this file now owns the entire `RH` numbering space going forward.
 
 - [RH-024] (active) `snapshot()` returns a `Promise` that resolves to a PNG-encoded `Blob` captured at the render canvas's current resolution.
 
+### Editor helpers (RH-032..RH-034 — full punctual-light control's shared editor-overlay seam)
+
+- [RH-032] (active) `RenderHost.setEditorHelpers(descriptors: EditorHelperDescriptor[])` REPLACES the entire set of editor-only helper visuals a `RenderHost` may render, keyed by `{kind, nodeIndex}` — the same whole-set-replace convention `setHighlight`/`setReferenceHighlight` (RH-022/RH-029) already establish. `EditorHelperKind` is deliberately an OPEN string union (`"light" | (string & {})`, `packages/engine-api/src/value-types.ts`) rather than a closed one: one shared method serves every present and future helper family (lights today; `@gltf-studio/audio-webaudio`'s own audio-emitter/listener helpers are an anticipated follow-up) instead of a new interface method per family. An implementation MUST silently skip (never throw for) any descriptor whose `kind` it doesn't recognize, and any `nodeIndex` that doesn't resolve in the currently loaded scene — the same tolerance `setHighlight`'s/`attachGizmo`'s (RH-031) own unresolvable-index handling already gives. `engine-three`'s v1 implementation recognizes only `"light"`: it resolves `nodeIndex` to its live `THREE.Light` object (GLTFLoader makes the light object itself the node's own `Object3D` when the light is that node's ONLY attachment, or a child of a wrapping `Group` when the node has multiple attachments — both cases checked) and attaches the matching stock three.js helper class — `THREE.PointLightHelper`/`THREE.SpotLightHelper`/`THREE.DirectionalLightHelper` per the light's own type — to a dedicated `editorHelperGroup` scene child, updated every render-loop frame (`.update()`) so a live `patchScene`/`applyPointer` color/cone/range write reflects in the helper's own shape immediately.
+- [RH-033] (active) `setEditorHelpers([])` clears every currently-shown helper (and disposes each one's three.js-side geometry/material — no GPU-resource leak across repeated calls, mirroring RH-008's own loadScene leak-discipline bar) without throwing.
+- [RH-034] (active) Editor helpers (RH-032) are EDITOR-ONLY three.js-scene objects: they are never written to the document JSON (`setEditorHelpers` only ever creates/removes local `THREE.Object3D`s — there is no code path from it to `patchScene`/`this.currentJson` at all, so this guarantee holds by construction, not by a separate check) and, in `engine-three`, are excluded from the image `snapshot()` (RH-024) resolves to: the dedicated `editorHelperGroup` is hidden for exactly the one render call `snapshot()` makes, then restored to whatever visibility it had immediately after — cheap to do exactly right because every helper lives in that one group and nowhere else. (This does NOT extend to the grid/selection/hover/reference-highlight helpers, which stay visible in a captured snapshot exactly as before this change — a pre-existing, separately-tracked gap this requirement does not newly introduce, widen, or claim to fix.)
+
 ## Implementation notes
 
+- Full punctual-light control — neutral studio-rig AUTO policy (not a new `RH-###` requirement:
+  `ThreeRenderHost`'s neutral studio rig — a `HemisphereLight` + `DirectionalLight` "key light" pair,
+  added unconditionally since M2 so an asset with no authored lights of its own still renders
+  something — was never previously gated on anything; it stayed on even for a document that DOES
+  carry real `KHR_lights_punctual` lights, additively washing out the authored lighting truth. Every
+  `loadScene()` call now recomputes each light's intensity to either its full-strength default or
+  `STUDIO_DIM_FACTOR` (0.15) of it, per `documentHasPunctualLights(json)` — AUTO: dimmed when the
+  document has at least one real light, full strength otherwise. **DIMMED, never fully hidden
+  (`.visible = false`)** — an earlier version of this change did hide the rig outright and broke
+  a real, pre-existing e2e fixture (`e2e/global-setup.ts`'s "KeyLight", a bare `{type:"point"}` with
+  no real intensity, co-located with the exact surface it nominally lights — a genuinely degenerate
+  near-zero-distance case that stayed adequately visible ONLY because the (until-then-always-on)
+  studio rig was doing the real illumination work; several `e2e/viewport-real-click.spec.ts` tests
+  that locate the rendered object by scanning pixels, rather than a fixed known camera pose, failed
+  outright once the rig vanished for that fixture). Raising that one light's OWN intensity alone did
+  not fix it either (tried: `intensity: 200`) — the light sits inside the surface's own plane, not
+  merely close to it, which is a shading degeneracy no intensity value fixes, and its POSITION cannot
+  move (`e2e/scene-tree-reparent-world-position.spec.ts` asserts it starts at the origin). A modest,
+  nonzero DIM floor sidesteps the whole class of "the one authored light happens to be
+  unusable/degenerate" case while still making a REAL authored light's own contribution clearly
+  dominant, satisfying `specs/ux-viewport.md`'s `UX-313` "authored lighting is the visible truth"
+  intent without an all-or-nothing gamble on every document's authored light actually being usable.
+  Two new non-interface `ThreeRenderHost` methods (same "public but not part of `RenderHost`"
+  convention as `setControlsEnabled`/`frameNode`/`getRendererStats`): `setStudioLightingEnabled
+  (enabled)` manually overrides the CURRENT scene's rig strength — `true` full, `false` dimmed —
+  (backs `specs/ux-viewport.md`'s `UX-313` toolbar toggle) and `getStudioLightingEnabled()` reads it
+  back. Deliberate v1 simplicity choice, not an oversight: a manual override does NOT survive the
+  next `loadScene` call (including an in-place structural-patch reload) — AUTO recomputes fresh every
+  time, unconditionally superseding whatever the toggle was set to. `UX-313` owns the full user-facing
+  policy statement and the toggle's own behavior; this note exists so the `packages/engine-three/**`
+  ownership-drift obligation (this file owns that whole package glob) is satisfied honestly for a
+  behavior that has no interface-level requirement ID of its own.
 - Bug fix (M8-lite, `specs/ux-scene-tree.md`'s add-menu real-content change): making the scene tree's "+ Add" menu auto-select a freshly created node (`UX-213`) surfaced a latent race — `Viewport.tsx`'s gizmo-attach effect re-runs on every `selectedNodeIndex` change, but a structural command's `patchScene` -> `loadScene` reload (`RH-011`..`RH-014`) is async, so the effect could fire against the STALE pre-reload node table a moment before the new index existed in it. `attachGizmo` used to throw in that case (`RH-031` above resolves it to a tolerant no-op instead, mirroring `setHighlight`'s convention) and `packages/app/src/components/viewport/Viewport.tsx` gained a `reloadSeq` counter (bumped once a `needs-reload` reload's `loadScene()` promise actually resolves) in the gizmo/selection-highlight/hover effects' dependency arrays, so they get a reactive reason to re-run once the new node genuinely exists — the gizmo/highlight still end up attached to the new node moments later, not just silently dropped.
 - Richer inspector (`specs/ux-inspector.md`'s `UX-415`/`UX-416`): two material patch shapes the
   vendored `@gltfi/three-adapter`'s own pointer-router has no row for at all — `doubleSided`

@@ -38,7 +38,9 @@ export const renderHostContractObligations: string[] = [
   "setHighlight([]) clears all highlighting (RH-023)",
   "setReferenceHighlight(indices) highlights exactly the given node indices, independent of setHighlight's own set (RH-029)",
   "setReferenceHighlight([]) clears reference highlighting without touching setHighlight's set (RH-030)",
-  "snapshot() after loadScene resolves to a PNG Blob at the canvas's current resolution (RH-024)"
+  "snapshot() after loadScene resolves to a PNG Blob at the canvas's current resolution (RH-024)",
+  "setEditorHelpers(descriptors) does not throw, including for an unknown kind or an unresolvable nodeIndex (RH-032)",
+  "setEditorHelpers([]) clears any previously-set helpers without throwing (RH-033)"
 ];
 
 /**
@@ -590,6 +592,31 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       expect(blob).toBeInstanceOf(Blob);
       expect(blob.size).toBeGreaterThan(0);
       expect(blob.type).toBe("image/png");
+      teardown(host, container);
+    });
+
+    // Full punctual-light control (specs/render-host.md RH-032/RH-033): the
+    // shared editor-overlay seam. This fixture has no light node at all —
+    // deliberately so, since the portable cross-implementation contract can
+    // only assert the "never throws" half; the REAL per-kind rendering
+    // behavior (a light node actually growing a PointLightHelper/etc, RH-034's
+    // snapshot exclusion) is engine-three's own implementation-specific
+    // coverage (packages/engine-three/test/render-host.light-helpers.test.ts),
+    // not assertable against an arbitrary future RenderHost implementation.
+    test("setEditorHelpers(descriptors) does not throw, including for an unknown kind or an unresolvable nodeIndex (RH-032)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await loadFixture(host);
+      expect(() => host.setEditorHelpers([{ kind: "light", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // a real node, but not a light — resolves to "skip, don't throw".
+      expect(() => host.setEditorHelpers([{ kind: "audio-emitter", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // unknown kind.
+      expect(() => host.setEditorHelpers([{ kind: "light", nodeIndex: 999 }])).not.toThrow(); // unresolvable nodeIndex.
+      teardown(host, container);
+    });
+
+    test("setEditorHelpers([]) clears any previously-set helpers without throwing (RH-033)", async () => {
+      const { host, container } = await mountedHost(makeHost);
+      await loadFixture(host);
+      host.setEditorHelpers([{ kind: "light", nodeIndex: FIXTURE_HIT_NODE_INDEX }]);
+      expect(() => host.setEditorHelpers([])).not.toThrow();
       teardown(host, container);
     });
   });

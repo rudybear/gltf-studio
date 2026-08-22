@@ -549,6 +549,19 @@ process.
   drift check, per `OPEN(P0-nospec-label-tbd)`'s documented workaround. See `e2e/racer.spec.ts`'s
   compiled-engine double-click regression coverage.
 
+- Full punctual-light control (this file's own `packages/app/**` catch-all ownership — no
+  `ux-shell.md`-owned behavior itself changed; the substantive spec changes are `specs/ux-scene-
+  tree.md`'s `UX-205`/`UX-206` r2, `specs/ux-inspector.md`'s `UX-417` r2, `specs/ux-pointer-
+  picker.md`'s `UX-901` r2/`UX-909`, `specs/ux-viewport.md`'s new `UX-313`/`UX-314`, `specs/
+  document-model.md`'s new `DOC-065`, and `specs/render-host.md`'s new `RH-032`..`RH-034`):
+  `SceneTree.tsx`'s "+ Add" > Light entry gained its own Point/Spot/Directional submenu (mirroring
+  Mesh's own Cube/Sphere/Plane one); `LightSection.tsx`'s Type field is a real editable dropdown now
+  (`SceneEdit.setLightType`), not read-only text; `pointer-vocab.ts` gained a "Lights" content-tree
+  section (`lightPropsFor`, gated per-type) for `PointerPickerDialog.tsx`; `gltf-scene.ts` gained
+  `lightNodeIndices`; `Viewport.tsx` gained two toolbar toggles (studio lighting, light helpers) —
+  see `specs/ux-viewport.md`'s own two new requirements for the full user-facing behavior and
+  `specs/render-host.md`'s `RH-032`..`RH-034` for the underlying `RenderHost.setEditorHelpers` seam.
+
 ## Open questions
 
 - OPEN(UX-history-jump-tbd): `UX-108` specifies listing every history entry with the current one

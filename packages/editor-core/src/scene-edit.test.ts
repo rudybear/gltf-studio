@@ -147,6 +147,97 @@ describe("SceneEdit.setLightProperty (DOC-060)", () => {
   });
 });
 
+type LightJson = { name?: string; type: string; color?: number[]; intensity?: number; range?: number; spot?: { innerConeAngle: number; outerConeAngle: number } };
+
+// Full punctual-light control (specs/document-model.md DOC-065,
+// specs/ux-inspector.md UX-417 r2): SceneEdit.setLightType converts an
+// EXISTING light's type as one undoable command, preserving color/intensity
+// always and adding/dropping range/spot per KHR_lights_punctual's own
+// per-type field applicability.
+describe("SceneEdit.setLightType (DOC-065)", () => {
+  function lightFixtureDocument(light: LightJson) {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      extensionsUsed: ["KHR_lights_punctual"],
+      extensions: { KHR_lights_punctual: { lights: [light] } }
+    });
+  }
+
+  it("point -> spot: preserves name/color/intensity, seeds spot cone defaults, no range change", () => {
+    const doc = lightFixtureDocument({ name: "Lamp", type: "point", color: [0.2, 0.4, 0.6], intensity: 700, range: 12 });
+    const command = SceneEdit.setLightType(doc, 0, "spot");
+    const after = expectRoundTrip(doc.json, command) as { extensions: { KHR_lights_punctual: { lights: LightJson[] } } };
+    const light = after.extensions.KHR_lights_punctual.lights[0];
+    expect(light.type).toBe("spot");
+    expect(light.name).toBe("Lamp");
+    expect(light.color).toEqual([0.2, 0.4, 0.6]);
+    expect(light.intensity).toBe(700);
+    expect(light.range).toBe(12); // range stays meaningful point -> spot.
+    expect(light.spot).toEqual({ innerConeAngle: 0, outerConeAngle: Math.PI / 4 }); // no prior spot object -> seeded defaults.
+  });
+
+  it("spot -> directional: preserves color/intensity, drops range AND spot (both meaningless for directional)", () => {
+    const doc = lightFixtureDocument({
+      type: "spot",
+      color: [1, 1, 1],
+      intensity: 500,
+      range: 20,
+      spot: { innerConeAngle: 0.1, outerConeAngle: 0.5 }
+    });
+    const command = SceneEdit.setLightType(doc, 0, "directional");
+    const after = expectRoundTrip(doc.json, command) as { extensions: { KHR_lights_punctual: { lights: LightJson[] } } };
+    const light = after.extensions.KHR_lights_punctual.lights[0];
+    expect(light.type).toBe("directional");
+    expect(light.color).toEqual([1, 1, 1]);
+    expect(light.intensity).toBe(500);
+    expect(light.range).toBeUndefined();
+    expect(light.spot).toBeUndefined();
+    expect(Object.keys(light)).not.toContain("range");
+    expect(Object.keys(light)).not.toContain("spot");
+  });
+
+  it("directional -> point: preserves intensity, adds no fabricated range, no spot", () => {
+    const doc = lightFixtureDocument({ type: "directional", intensity: 3 });
+    const command = SceneEdit.setLightType(doc, 0, "point");
+    const after = expectRoundTrip(doc.json, command) as { extensions: { KHR_lights_punctual: { lights: LightJson[] } } };
+    const light = after.extensions.KHR_lights_punctual.lights[0];
+    expect(light.type).toBe("point");
+    expect(light.intensity).toBe(3);
+    expect(light.range).toBeUndefined(); // never fabricated — absent range means "no limit", a valid point-light value.
+    expect(light.spot).toBeUndefined();
+  });
+
+  it("spot -> point: drops spot, keeps range", () => {
+    const doc = lightFixtureDocument({ type: "spot", intensity: 500, range: 5, spot: { innerConeAngle: 0.2, outerConeAngle: 0.6 } });
+    const command = SceneEdit.setLightType(doc, 0, "point");
+    const after = expectRoundTrip(doc.json, command) as { extensions: { KHR_lights_punctual: { lights: LightJson[] } } };
+    const light = after.extensions.KHR_lights_punctual.lights[0];
+    expect(light.type).toBe("point");
+    expect(light.range).toBe(5);
+    expect(light.spot).toBeUndefined();
+  });
+
+  it("point -> spot -> point round-trips color/intensity exactly across two commands", () => {
+    const doc = lightFixtureDocument({ name: "Round", type: "point", color: [0.5, 0.5, 0.5], intensity: 42 });
+    const toSpot = SceneEdit.setLightType(doc, 0, "spot");
+    const jsonAfterSpot = applyPatches(doc.json, toSpot.patches);
+    const docAfterSpot = { ...doc, json: jsonAfterSpot };
+    const backToPoint = SceneEdit.setLightType(docAfterSpot, 0, "point");
+    const final = applyPatches(jsonAfterSpot, backToPoint.patches) as { extensions: { KHR_lights_punctual: { lights: LightJson[] } } };
+    const light = final.extensions.KHR_lights_punctual.lights[0];
+    expect(light.type).toBe("point");
+    expect(light.name).toBe("Round");
+    expect(light.color).toEqual([0.5, 0.5, 0.5]);
+    expect(light.intensity).toBe(42);
+    expect(light.spot).toBeUndefined();
+  });
+
+  it("throws for a light index that doesn't exist", () => {
+    const doc = lightFixtureDocument({ type: "point" });
+    expect(() => SceneEdit.setLightType(doc, 5, "spot")).toThrow();
+  });
+});
+
 // Richer inspector (specs/ux-inspector.md UX-418): SceneEdit.setCameraProperty
 // against core glTF's cameras[] array.
 describe("SceneEdit.setCameraProperty (DOC-060)", () => {
@@ -1067,6 +1158,46 @@ describe("SceneEdit.addLightNode (DOC-047)", () => {
     const { command, index } = SceneEdit.addLightNode(doc, "Lamp", { parentNodeIndex: 1 });
     const after = expectRoundTrip(doc.json, command) as { nodes: Array<{ children?: number[] }> };
     expect(after.nodes[1].children).toContain(index);
+  });
+
+  // Full punctual-light control (DOC-065, specs/ux-scene-tree.md UX-205/206
+  // r2): opts.type selects a real per-type default light definition.
+  it("opts.type 'spot' creates a real spot light with cone-angle defaults", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addLightNode(doc, "Spot Light", { type: "spot" });
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_lights_punctual?: { light: number } } }>;
+      extensions: { KHR_lights_punctual: { lights: Array<{ type: string; spot?: { innerConeAngle: number; outerConeAngle: number } }> } };
+    };
+    const lightIndex = after.nodes[index].extensions!.KHR_lights_punctual!.light;
+    const light = after.extensions.KHR_lights_punctual.lights[lightIndex];
+    expect(light.type).toBe("spot");
+    expect(light.spot).toEqual({ innerConeAngle: 0, outerConeAngle: Math.PI / 4 });
+  });
+
+  it("opts.type 'directional' creates a real directional light with no range/spot fields", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addLightNode(doc, "Sun", { type: "directional" });
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_lights_punctual?: { light: number } } }>;
+      extensions: { KHR_lights_punctual: { lights: Array<{ type: string; range?: number; spot?: unknown }> } };
+    };
+    const lightIndex = after.nodes[index].extensions!.KHR_lights_punctual!.light;
+    const light = after.extensions.KHR_lights_punctual.lights[lightIndex];
+    expect(light.type).toBe("directional");
+    expect(light.range).toBeUndefined();
+    expect(light.spot).toBeUndefined();
+  });
+
+  it("omitting opts.type still defaults to 'point' (backward-compatible default)", () => {
+    const doc = fixtureDocument();
+    const { command, index } = SceneEdit.addLightNode(doc, "Lamp");
+    const after = expectRoundTrip(doc.json, command) as {
+      nodes: Array<{ extensions?: { KHR_lights_punctual?: { light: number } } }>;
+      extensions: { KHR_lights_punctual: { lights: Array<{ type: string }> } };
+    };
+    const lightIndex = after.nodes[index].extensions!.KHR_lights_punctual!.light;
+    expect(after.extensions.KHR_lights_punctual.lights[lightIndex].type).toBe("point");
   });
 });
 

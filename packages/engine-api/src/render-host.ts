@@ -1,5 +1,5 @@
 import type { JsonPatchOp } from "./json-patch.js";
-import type { CameraPose, PickOptions, PickResult, TRS } from "./value-types.js";
+import type { CameraPose, EditorHelperDescriptor, PickOptions, PickResult, TRS } from "./value-types.js";
 
 /**
  * RenderHost: the viewport abstraction. The editor never imports three.js
@@ -111,6 +111,27 @@ export interface RenderHost {
    * canvas's current resolution. See specs/render-host.md's "Open
    * questions" for the unresolved tension with PC-003's use of "snapshot"
    * to describe restoring pre-play scene *state* (not just an image).
+   * RH-034: a `RenderHost` that draws editor-only overlays (RH-032) MUST
+   * exclude them from the image `snapshot()` resolves to — see that
+   * requirement.
    */
   snapshot(): Promise<Blob>;
+
+  /**
+   * RH-032 (full punctual-light control's shared editor-overlay seam, see
+   * specs/render-host.md): REPLACES the entire set of editor-only helper
+   * visuals a `RenderHost` may render, keyed by `{kind, nodeIndex}`
+   * (`EditorHelperDescriptor`) — the same "whole-set replace" convention
+   * `setHighlight`/`setReferenceHighlight` already establish, so a caller
+   * never needs to diff against whatever was previously showing. An
+   * implementation ignores any descriptor whose `kind` it doesn't recognize
+   * (see `EditorHelperKind`'s own doc comment) and any `nodeIndex` that
+   * doesn't resolve in the currently loaded scene (mirrors `setHighlight`'s
+   * own tolerant "skip what can't be resolved" convention, RH-022) —
+   * neither case throws. These visuals are PURELY a live three.js-scene
+   * (or equivalent) concern: they are never written to the document JSON
+   * (RH-034 also guarantees `snapshot()` never captures them, so even an
+   * autosave thumbnail can't leak one in).
+   */
+  setEditorHelpers(descriptors: EditorHelperDescriptor[]): void;
 }

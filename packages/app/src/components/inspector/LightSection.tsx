@@ -5,19 +5,26 @@ import { hexToRgb01, rgb01ToHex } from "../../lib/color";
 import { PointerButton } from "./PointerButton";
 
 /**
- * specs/ux-inspector.md UX-417: a node whose glTF entry carries
- * `extensions.KHR_lights_punctual.light` shows this section — type
- * (read-only; changing a light's type is a later iteration, noted inline
- * rather than silently omitted), color, intensity, and (only when
- * meaningful for the light's own type, per the glTF spec's own "range"/
- * "spot" definitions) range and spot inner/outer cone angle. Every editable
- * field here writes via `SceneEdit.setLightProperty` against the ROOT
- * `extensions.KHR_lights_punctual.lights[lightIndex]` registry (addressed by
- * LIGHT index, not the node's own index) and renders live through the
- * vendored @gltfi/three-adapter's own KHR_lights_punctual pointer-router
- * rows — no direct-apply workaround needed here, unlike `MaterialSection`'s
- * doubleSided/texture-clear cases (those have no vendored route; every
- * property this section exposes does).
+ * specs/ux-inspector.md UX-417 (r2, full punctual-light control): a node
+ * whose glTF entry carries `extensions.KHR_lights_punctual.light` shows
+ * this section — an EDITABLE type dropdown (point/spot/directional, r2 —
+ * previously read-only), a color picker, an intensity field (own `◈`), and
+ * (only when meaningful for the light's own CURRENT type, per the glTF
+ * spec's own "range"/"spot" definitions) range and spot inner/outer cone
+ * angle. Every editable field here writes via `SceneEdit.setLightProperty`
+ * against the ROOT `extensions.KHR_lights_punctual.lights[lightIndex]`
+ * registry (addressed by LIGHT index, not the node's own index) and renders
+ * live through the vendored @gltfi/three-adapter's own KHR_lights_punctual
+ * pointer-router rows — no direct-apply workaround needed here, unlike
+ * `MaterialSection`'s doubleSided/texture-clear cases (those have no
+ * vendored route; every property this section exposes does). The type
+ * dropdown itself writes via the dedicated `SceneEdit.setLightType`
+ * (DOC-065) instead — a single whole-light-object replace, not a
+ * `setLightProperty(..., ["type"], ...)` call, since converting a type also
+ * adds/drops the type-specific `range`/`spot` fields in the SAME undoable
+ * command (see that factory's own doc comment for the exact carry-over
+ * rules) — a bare `type` field write alone would leave a schema-invalid
+ * light (e.g. a `"directional"` light still carrying a `spot` object).
  */
 export function LightSection({ lightIndex, json, document }: { lightIndex: number; json: GltfJsonShape; document: EditorDocument }): JSX.Element {
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
@@ -29,6 +36,9 @@ export function LightSection({ lightIndex, json, document }: { lightIndex: numbe
   const innerConeAngle = light.spot?.innerConeAngle ?? 0;
   const outerConeAngle = light.spot?.outerConeAngle ?? Math.PI / 4;
 
+  function setType(newType: "point" | "spot" | "directional"): void {
+    dispatchCommand(SceneEdit.setLightType(document, lightIndex, newType));
+  }
   function setColor(hex: string): void {
     dispatchCommand(SceneEdit.setLightProperty(document, lightIndex, ["color"], hexToRgb01(hex)));
   }
@@ -51,9 +61,16 @@ export function LightSection({ lightIndex, json, document }: { lightIndex: numbe
       <div className="content">
         <div className="field-row">
           <label>Type</label>
-          <span className="mono dim" data-testid="inspector.light.type">
-            {type}
-          </span>
+          <select
+            className="field"
+            value={type}
+            data-testid="inspector.light.type"
+            onChange={(e) => setType(e.target.value as "point" | "spot" | "directional")}
+          >
+            <option value="point">point</option>
+            <option value="spot">spot</option>
+            <option value="directional">directional</option>
+          </select>
         </div>
         <div className="field-row">
           <label>Color</label>
@@ -114,9 +131,6 @@ export function LightSection({ lightIndex, json, document }: { lightIndex: numbe
             </div>
           </>
         )}
-        <div className="empty-note" data-testid="inspector.light.note">
-          Light type is read-only here — changing it is a later iteration.
-        </div>
       </div>
     </div>
   );

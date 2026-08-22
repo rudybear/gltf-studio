@@ -70,6 +70,7 @@ function fakeRenderHost(overrides: Partial<RenderHost> = {}): RenderHost {
     applyPointer: vi.fn(),
     setHighlight: vi.fn(),
     setReferenceHighlight: vi.fn(),
+    setEditorHelpers: vi.fn(),
     snapshot: vi.fn(async () => new Blob(["x"])),
     ...overrides
   } as RenderHost;

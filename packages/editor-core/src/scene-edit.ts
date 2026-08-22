@@ -264,6 +264,25 @@ function ensureExtensionUsedFragment(json: unknown, extensionName: string): Patc
   return extensionsUsed.includes(extensionName) ? { patches: [], inverse: [] } : appendFragment(json, ["extensionsUsed"], extensionName);
 }
 
+/**
+ * DOC-065: a brand-new `KHR_lights_punctual` light definition for
+ * `addLightNode`'s per-type defaults — see that factory's doc comment for
+ * the intensity-value rationale. Also reused by `setLightType` (below) as
+ * the seed for the type-specific fields (`spot`) it adds when converting
+ * INTO a type the light didn't previously have any type-specific fields
+ * for.
+ */
+function lightDefaultsForType(type: "point" | "spot" | "directional"): Record<string, unknown> {
+  switch (type) {
+    case "directional":
+      return { type, intensity: 3 };
+    case "point":
+      return { type, intensity: 500 };
+    case "spot":
+      return { type, intensity: 500, spot: { innerConeAngle: 0, outerConeAngle: Math.PI / 4 } };
+  }
+}
+
 export interface TransformFields {
   translation?: [number, number, number];
   rotation?: [number, number, number, number];
@@ -579,6 +598,68 @@ export const SceneEdit = {
   },
 
   /**
+   * DOC-065 (full punctual-light control, specs/ux-inspector.md UX-417 r2):
+   * converts an EXISTING light at ROOT `extensions.KHR_lights_punctual.
+   * lights[lightIndex]` to `newType`, as ONE undoable command — a single
+   * `replace` of the whole light object (mirroring `AudioGraphEdit.
+   * replaceAudioGraph`'s, DOC-064, whole-object-replace shape, the same
+   * "simpler and still fully DOC-008-exact for a realistic object size"
+   * tradeoff that entry documents), rather than a sequence of individual
+   * `setLightProperty` field add/removes. `name`/`color`/`intensity` (and
+   * any other field this schema doesn't otherwise touch, e.g. `extras`) are
+   * preserved UNCONDITIONALLY via object spread — never dropped or reset by
+   * a type change. Per KHR_lights_punctual's own schema (each field valid
+   * for only SOME light types): `range` (point/spot only) is carried over
+   * unchanged when converting between point and spot (both meaningful) and
+   * DROPPED when converting to `"directional"` (meaningless there, and the
+   * vendored pointer-router's own `range` family already no-ops + logs a
+   * diagnostic note for a directional target — dropping it here keeps the
+   * authored JSON honest rather than leaving a field the renderer ignores).
+   * `spot.{innerConeAngle,outerConeAngle}` is DROPPED when converting away
+   * from `"spot"` (meaningless for point/directional) and (re)SEEDED with
+   * `lightDefaultsForType`'s spot defaults when converting INTO `"spot"`
+   * from a type that had no prior `spot` object to carry over — converting
+   * spot -> point -> spot back to back does lose whatever custom cone
+   * angles were set (there is nowhere in a point/directional light's own
+   * JSON shape to stash them for later, a deliberate v1 simplicity choice,
+   * not an oversight). Throws if `lightIndex` doesn't resolve to an
+   * existing light (same "read-before-write fail-fast" discipline
+   * `AudioGraphEdit.replaceAudioGraph` and `getAudioGraph` already
+   * establish) — there's no sensible "convert a light that doesn't exist"
+   * value to build an inverse-patch pair against, and every other
+   * `setLightProperty`/`setCameraProperty`-shaped factory in this file
+   * assumes its target root-registry index already exists too.
+   */
+  setLightType(document: EditorDocument, lightIndex: number, newType: "point" | "spot" | "directional"): Command {
+    const path = ["extensions", "KHR_lights_punctual", "lights", lightIndex];
+    const current = getIn(document.json, path.map(String)) as Record<string, unknown> | undefined;
+    if (current === undefined) {
+      throw new Error(`SceneEdit.setLightType: no light at index ${lightIndex}.`);
+    }
+    const next: Record<string, unknown> = { ...current, type: newType };
+    if (newType === "directional") {
+      delete next.range;
+      delete next.spot;
+    } else if (newType === "point") {
+      delete next.spot;
+    } else {
+      // "spot": carry over an existing spot object (e.g. re-converting
+      // spot -> point -> spot inside one still-uncommitted editing session
+      // isn't possible today, see doc comment above, but converting
+      // directly TO spot from a light that — unusually — already carries a
+      // leftover `spot` object, e.g. hand-authored JSON, is still honored).
+      next.spot = (current.spot as Record<string, unknown> | undefined) ?? (lightDefaultsForType("spot").spot as Record<string, unknown>);
+    }
+    const fragment = setPathFragment(document.json, path, next);
+    return {
+      id: makeCommandId("set-light-type"),
+      label: `Set light ${lightIndex} type to ${newType}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
+    };
+  },
+
+  /**
    * Richer inspector (specs/ux-inspector.md UX-418): sets an arbitrary
    * property on `cameras[cameraIndex]` (e.g. `["perspective", "yfov"]`) —
    * mirrors `setMaterialProperty`'s own by-index-into-a-root-array shape.
@@ -850,17 +931,37 @@ export const SceneEdit = {
   },
 
   /**
-   * DOC-047 (M8-lite, specs/ux-scene-tree.md UX-206): the scene tree's
-   * "+ Add" > Light entry. Appends a `KHR_lights_punctual` light (default: a
-   * point light) to `extensions.KHR_lights_punctual.lights`, scaffolding
-   * the extension + its `extensionsUsed` entry when neither exists yet
-   * (mirroring `GraphEdit.ensureGraph`'s, DOC-041, find-or-scaffold
-   * pattern for `KHR_interactivity`), plus a node referencing it via
-   * `node.extensions.KHR_lights_punctual.light` — all as ONE combined
-   * command. Lands under `opts.parentNodeIndex` when given, else scene root.
+   * DOC-047 (M8-lite, specs/ux-scene-tree.md UX-206), extended by DOC-065
+   * (full punctual-light control, specs/ux-scene-tree.md UX-205/206 r2):
+   * the scene tree's "+ Add" > Light submenu (Point/Spot/Directional).
+   * Appends a `KHR_lights_punctual` light of `opts.type` (default `"point"`,
+   * preserving this factory's pre-DOC-065 behavior for any caller that
+   * doesn't pass one) to `extensions.KHR_lights_punctual.lights`,
+   * scaffolding the extension + its `extensionsUsed` entry when neither
+   * exists yet (mirroring `GraphEdit.ensureGraph`'s, DOC-041, find-or-
+   * scaffold pattern for `KHR_interactivity`), plus a node referencing it
+   * via `node.extensions.KHR_lights_punctual.light` — all as ONE combined
+   * command. Lands under `opts.parentNodeIndex` when given, else scene
+   * root. `opts.light`, when given, bypasses `opts.type`'s defaults
+   * entirely (a full custom light definition, unchanged pre-existing escape
+   * hatch). Per-type defaults (`lightDefaultsForType`) give point/spot a
+   * real, visible starting intensity (500, matching this codebase's own
+   * `e2e/inspector-fixture.ts` "Lamp" fixture — three.js's own bare default
+   * of 1 combined with inverse-square distance falloff renders as
+   * effectively invisible at ordinary scene scale) and directional a flat,
+   * un-attenuated 3 (directional light has no distance falloff at all, so a
+   * much smaller value already reads as bright); spot additionally seeds
+   * `spot.{innerConeAngle,outerConeAngle}` explicitly (harmless — these
+   * match `GLTFLoader`'s own implicit defaults when `spot` is omitted
+   * entirely — so the Inspector's Light section starts with real,
+   * inspectable values instead of relying on load-time implicit fill-in).
    */
-  addLightNode(document: EditorDocument, name: string, opts: { parentNodeIndex?: number; light?: Record<string, unknown> } = {}): { command: Command; index: number } {
-    const lightDef = opts.light ?? { type: "point" };
+  addLightNode(
+    document: EditorDocument,
+    name: string,
+    opts: { parentNodeIndex?: number; type?: "point" | "spot" | "directional"; light?: Record<string, unknown> } = {}
+  ): { command: Command; index: number } {
+    const lightDef = opts.light ?? lightDefaultsForType(opts.type ?? "point");
     const lightFragment = appendFragment(document.json, ["extensions", "KHR_lights_punctual", "lights"], lightDef);
     const jsonAfterLight = applyPatches(document.json, lightFragment.patches);
 
