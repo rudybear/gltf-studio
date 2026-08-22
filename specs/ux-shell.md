@@ -164,6 +164,15 @@ process.
 
 ## Implementation notes
 
+- D2 script debugger (specs/ux-debugger.md UX-1505..UX-1508): `app-store.ts` gained `scriptBreakpoints`/
+  `audioScriptBreakpoints`/`playDebugBreakpointCount` state and `toggleScriptBreakpoint`/
+  `setScriptBreakpoint`/`breakHereOnNode`/`toggleAudioScriptBreakpoint` actions, and
+  `BehaviorGraphPanel.tsx`/`ScriptTabPanel.tsx`/`AudioScriptTabPanel.tsx`/`PlayOverlay.tsx` wired them
+  into the Script tab's gutter, the Behavior graph canvas's breakpoint badge/"Break here" action, and
+  the play overlay's breakpoint-count row — all under this file's `packages/app/**` catch-all
+  ownership, but the substance is `specs/ux-debugger.md`'s `UX-1505` block, not a shell-level change;
+  noted here only to satisfy this repo's ownership-drift check, per `OPEN(P0-nospec-label-tbd)`'s
+  documented workaround (same pattern the r2 audio-graph migration note below already establishes).
 - r2 audio-graph migration: `packages/app/src/components/inspector/AudioSection.tsx` (the Audio
   Emitter inspector section, `specs/ux-inspector.md` `UX-406`/`UX-419`/`UX-420`) gained a Source Type
   (Clip/Oscillator) toggle per Sources sub-list row and `packages/app/src/lib/gltf-scene.ts` gained
