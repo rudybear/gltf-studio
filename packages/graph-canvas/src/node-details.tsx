@@ -58,6 +58,17 @@ export type NodeDetailsProps = {
   sceneRef?: number | null;
   /** UX-1111: "Reveal in viewport" — omitted (button hidden) when the host has no viewport to reveal into, same optional-callback convention as `onOpenPointerPicker` above. */
   onRevealInViewport?: (sceneNodeIndex: number) => void;
+  /**
+   * D2 (specs/ux-debugger.md UX-1507): whether `selectedNode` has a
+   * resolvable emitted-script line to break on (the SAME cross-highlight
+   * resolution `packages/app`'s graph-canvas badge wiring uses) — governs
+   * the "Break here" button's disabled state below. `undefined`/omitted
+   * (button hidden entirely) when the host has no script-breakpoint concept
+   * at all (e.g. `@gltf-studio/audio-canvas`'s reuse of this component).
+   */
+  canBreakHere?: boolean;
+  /** D2: "Break here" was clicked for `selectedNode.index` — the host resolves the line and sets the breakpoint (`onSetConfigField`-style optional-callback convention: omitted -> button hidden). */
+  onBreakHere?: (nodeIndex: number) => void;
 };
 
 function formatLiteral(value: Array<number | boolean | string>): string {
@@ -642,7 +653,9 @@ export function NodeDetails({
   onOpenPointerPicker,
   onLiteralCommit,
   sceneRef = null,
-  onRevealInViewport
+  onRevealInViewport,
+  canBreakHere,
+  onBreakHere
 }: NodeDetailsProps) {
   if (collapsed) {
     return (
@@ -699,6 +712,18 @@ export function NodeDetails({
                 onClick={() => onRevealInViewport(sceneRef)}
               >
                 Reveal in viewport
+              </button>
+            ) : null}
+            {onBreakHere ? (
+              <button
+                type="button"
+                className="btn small"
+                data-testid="gcanvas.details.break-here"
+                disabled={!canBreakHere}
+                title={canBreakHere ? "Set a breakpoint at this node's emitted script line" : "This node has no corresponding script line to break on."}
+                onClick={() => onBreakHere(selectedNode.index)}
+              >
+                Break here
               </button>
             ) : null}
           </>

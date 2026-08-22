@@ -103,6 +103,22 @@
   margin-left: 3px;
 }
 
+/* D2 (specs/ux-debugger.md UX-1505): a gutter breakpoint's glyph-margin dot
+   — plain CSS on Monaco's own glyph-margin element via `::before` (a real
+   Monaco decoration glyph is a CSS background-image slot, not a DOM node
+   this stylesheet could otherwise target directly). Red (`--danger`, same
+   token graph-canvas.css's own error badge uses) so it reads as a real
+   breakpoint marker, distinct from any other gutter chrome. */
+.gi-breakpoint-glyph::before {
+  content: "";
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: 3px auto 0;
+  border-radius: 50%;
+  background: var(--danger, #e5484d);
+}
+
 .script-diagnostics {
   flex: 0 0 auto;
   margin: 0;

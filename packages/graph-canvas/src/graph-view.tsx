@@ -50,6 +50,8 @@ type PendingExternalDrop = { kind: DropKind; refId: number; flowPosition: { x: n
 
 export interface GraphCanvasTestHook {
   setViewport(viewport: { x: number; y: number; zoom: number }): void;
+  /** e2e-only: the CURRENT pan/zoom — lets a test compute a node's on-screen position back into flow-space (e.g. to re-center/zoom on it via `setViewport` for a pixel assertion) without hardcoding this canvas's `fitView` auto-zoom choice. */
+  getViewport(): { x: number; y: number; zoom: number };
   /**
    * Invokes the SAME `onConnect` handler a real handle-to-handle drag
    * triggers, bypassing raw pixel mouse choreography. Mirrors
@@ -159,6 +161,8 @@ export type GraphViewProps = {
   docNames?: DocNames;
   /** The target chip's click handler — selects the resolved scene node, same store action a scene-tree row click makes. Omitted (chip renders inert) when the host has no scene selection to drive. */
   onTargetChipClick?: (sceneNodeIndex: number) => void;
+  /** D2 (specs/ux-debugger.md UX-1506): `graph.nodes[]` indices whose resolved emitted-script line currently holds a session breakpoint — drives OpNode's red breakpoint badge (op-node.ts's `hasBreakpoint`). Omitted (no badges) when the host has no script-breakpoint concept (e.g. `@gltf-studio/audio-canvas`'s reuse of this same component). */
+  breakpointNodeIndices?: ReadonlySet<number>;
   /**
    * M7 audio-graph editing: the `window` key this instance's test hook
    * (`GraphCanvasTestHook`, below) installs itself under. Defaults to
@@ -177,7 +181,7 @@ export type GraphViewProps = {
 function GraphViewInner(props: GraphViewProps) {
   const { graph, selectedNodeIndex, onSelectNode, diagnosticsByNode, onLiteralCommit, onPointerTextClick, onPointerIconClick } = props;
   const { onConnectValue, onConnectFlow, onConnectRejected, onDisconnectEdge, onRemoveNodes, onMoveNode, onDropOp, onCreateFromDrop, onRendered, focusRequest } = props;
-  const { docNames, onTargetChipClick, testHookKey = "__gltfStudioGraphCanvasTest" } = props;
+  const { docNames, onTargetChipClick, breakpointNodeIndices, testHookKey = "__gltfStudioGraphCanvasTest" } = props;
 
   const engineRef = useRef<LayoutEngine | null>(null);
   const [elkPositions, setElkPositions] = useState<LayoutPositions | null>(null);
@@ -391,7 +395,8 @@ function GraphViewInner(props: GraphViewProps) {
         onPointerTextClick,
         onPointerIconClick,
         docNames,
-        onTargetChipClick
+        onTargetChipClick,
+        hasBreakpoint: breakpointNodeIndices?.has(node.index) ?? false
       };
       const id = String(node.index);
       const previous = previousById.get(id);
@@ -442,7 +447,7 @@ function GraphViewInner(props: GraphViewProps) {
     // itself changing (e.g. renaming a scene node elsewhere in the editor
     // never touches this graph's own JSON) — included explicitly so a
     // handler's target chip / animation clip-name row never goes stale.
-  }, [graph, elkPositions, diagnosticsByNode, connectedValueInPorts, selectedNodeIndex, docNames, onTargetChipClick]);
+  }, [graph, elkPositions, diagnosticsByNode, connectedValueInPorts, selectedNodeIndex, docNames, onTargetChipClick, breakpointNodeIndices]);
 
   const nodeColor = useMemo(
     () => (n: Node) => {
@@ -496,6 +501,7 @@ function GraphViewInner(props: GraphViewProps) {
     const hookWindow = window as unknown as Record<string, GraphCanvasTestHook | undefined>;
     hookWindow[testHookKey] = {
       setViewport: (v) => reactFlow.setViewport(v),
+      getViewport: () => reactFlow.getViewport(),
       simulateConnect: (connection) => handleConnectRef.current(connection),
       simulateMoveNode: (nodeId, x, y) => onMoveNodeRef.current(Number(nodeId), x, y),
       simulateExternalDrop: (kind, refId, flowPosition) => {

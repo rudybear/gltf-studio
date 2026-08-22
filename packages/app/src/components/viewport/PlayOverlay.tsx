@@ -44,6 +44,7 @@ export function PlayOverlay(): JSX.Element | null {
   const playState = useAppStore((s) => s.playState);
   const playEngine = useAppStore((s) => s.playEngine);
   const playDebug = useAppStore((s) => s.playDebug);
+  const playDebugBreakpointCount = useAppStore((s) => s.playDebugBreakpointCount);
   const [inspection, setInspection] = useState<PlayInspection>(EMPTY_INSPECTION);
 
   useEffect(() => {
@@ -68,6 +69,15 @@ export function PlayOverlay(): JSX.Element | null {
       {isDebugSession && (
         <div className="play-overlay-row play-overlay-debug-hint" data-testid="viewport.play-overlay.debug-hint" title={debugVirtualSourceUrl(0)}>
           Debuggable — open DevTools → Sources → gltf-studio://
+        </div>
+      )}
+      {isDebugSession && playDebugBreakpointCount > 0 && (
+        // D2 (specs/ux-debugger.md UX-1505 block, item 4): a SEPARATE row
+        // from the UX-1504 hint above (whose exact text an existing e2e test
+        // asserts verbatim) — this session's own captured breakpoint count
+        // (`playDebugBreakpointCount`, frozen at `startPlay()`, PC-010).
+        <div className="play-overlay-row play-overlay-debug-breakpoints" data-testid="viewport.play-overlay.debug-hint.breakpoints">
+          {playDebugBreakpointCount} breakpoint{playDebugBreakpointCount === 1 ? "" : "s"} set for this session
         </div>
       )}
       <div className="play-overlay-row" data-testid="viewport.play-overlay.time">

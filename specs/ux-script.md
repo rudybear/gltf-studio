@@ -106,6 +106,18 @@ logic.
 
 ## Implementation notes
 
+- D2 script debugger (`specs/ux-debugger.md` `UX-1505` block): `script-panel.tsx`'s Monaco buffer
+  gained a clickable glyph margin (`glyphMargin: true`, an `onMouseDown` handler keyed on
+  `MouseTargetType.GUTTER_GLYPH_MARGIN`) and a `breakpoints`/`onToggleBreakpoint` prop pair rendering
+  session breakpoints as a red glyph decoration (`gi-breakpoint-glyph`) — a SEPARATE decorations
+  collection from `UX-712`/`UX-1108`'s own jump-highlight one, independent lifecycles. The package
+  also gained a `./cross-highlight` subpath export (mirroring the pre-existing `./emit-view` one,
+  same "narrow subpath, not the whole barrel" precedent `docs/adr/0006` established) so
+  `packages/app`'s eagerly-mounted `BehaviorGraphPanel.tsx` can reuse `findHighlightForNode`/
+  `offsetToLineColumn` for the graph-canvas breakpoint badge/"Break here" action without pulling in
+  this package's `monaco-editor`/React weight. The full breakpoint behavior contract (injection
+  mechanism, honesty, badges, "Break here") is `specs/ux-debugger.md`'s to own, per that file's own
+  "entry point here, content in the owning file" split (`UX-1505`..`UX-1507`).
 - Usage mapping (`specs/ux-usage-mapping.md` `UX-1108`/`UX-1114`): the Inspector's "Used in
   behavior" → Script row action originally reused `UX-712`'s existing `selectedGraphNodeIndex`-
   driven cross-highlight as-is with no change to this package's own logic — that held for

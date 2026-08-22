@@ -15,6 +15,10 @@
       "types": "./dist/emit-view.d.ts",
       "default": "./dist/emit-view.js"
     },
+    "./cross-highlight": {
+      "types": "./dist/cross-highlight.d.ts",
+      "default": "./dist/cross-highlight.js"
+    },
     "./script-panel.css": "./src/script-panel.css"
   },
   "files": [

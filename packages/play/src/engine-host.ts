@@ -27,8 +27,8 @@ import { emitModule, EmitError } from "@gltfi/emit-ts";
 import { buildEmitView } from "@gltf-studio/script-panel/emit-view";
 import type { EngineFactory } from "@gltfi/runtime-lib";
 import type { EngineKind } from "@gltf-studio/engine-api";
-import { appendDebugSourceUrl, debugVirtualSourceUrl } from "./debug-source.js";
-import { transformForDebug } from "./debug-transform.js";
+import { debugVirtualSourceUrl } from "./debug-source.js";
+import { buildDebugModuleSource } from "./debug-compose.js";
 
 /** Matches SceneAdapter.applyPointer / EngineOptions.onPointerSet's exact value union — both engines agree on this shape. */
 export type PointerFanOut = (pointer: string, value: number[] | boolean[] | number | boolean) => void;
@@ -56,13 +56,20 @@ function resolveGraphOrThrow(documentJson: unknown): InterpGraph {
   return resolveGraph(documentJson);
 }
 
-/** PC-001/PC-004/PC-009: builds whichever engine kind `start({engine})` asked for, bound to the fan-out `SceneAdapter`/`onPointerSet`. `debug` is meaningful only for `kind === "compiled"` (PC-009) — ignored otherwise. */
+/**
+ * PC-001/PC-004/PC-009/PC-010: builds whichever engine kind `start({engine})`
+ * asked for, bound to the fan-out `SceneAdapter`/`onPointerSet`. `debug` and
+ * `breakpointLines` (D2, specs/ux-debugger.md UX-1505) are meaningful only
+ * for `kind === "compiled"` — ignored otherwise (the interpreter has no
+ * compile step, and therefore no injected `debugger;` statements to run).
+ */
 export async function createEngineHost(
   kind: EngineKind,
   documentJson: unknown,
   binary: ArrayBuffer | Uint8Array | undefined,
   fanOut: PointerFanOut,
-  debug = false
+  debug = false,
+  breakpointLines?: readonly number[]
 ): Promise<EngineHost> {
   const graph = resolveGraphOrThrow(documentJson);
   if (kind === "interpreter") {
@@ -70,7 +77,7 @@ export async function createEngineHost(
     runtime.bindAdapter({ applyPointer: fanOut });
     return { graph, engine: runtime.asEngineLike() };
   }
-  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug);
+  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug, breakpointLines);
   return { graph, engine };
 }
 
@@ -93,9 +100,9 @@ export const PLAY_GRAPH_INDEX = 0;
  * plain Node (its `import(blob:)` step isn't, see engine-host.test.ts), but
  * this pure, blob-free code-string computation is.
  */
-export async function computeCompiledCode(graph: IrGraph, module: IRModule, debug: boolean): Promise<string> {
+export async function computeCompiledCode(graph: IrGraph, module: IRModule, debug: boolean, breakpointLines?: readonly number[]): Promise<string> {
   if (debug) {
-    return buildDebugModule(graph);
+    return buildDebugModule(graph, breakpointLines);
   }
   return emitModule(module, { flavor: "js" }).code;
 }
@@ -110,12 +117,17 @@ export async function computeCompiledCode(graph: IrGraph, module: IRModule, debu
  * to the source map's own `sources[0]` entry, so DevTools reports this exact
  * name for both the running compiled script (`Debugger.scriptParsed.url`)
  * and the source-mapped pretty TypeScript it groups under.
+ *
+ * `breakpointLines` (D2, specs/ux-debugger.md UX-1505): 1-based Script-tab
+ * line numbers to inject a `debugger;` statement before — session breakpoints
+ * set via the Script tab's own gutter, applied here at build time (the only
+ * point this pipeline CAN apply them; there is no live CDP re-binding from
+ * inside the page itself, see debug-breakpoints.ts's own header comment).
  */
-export async function buildDebugModule(graph: IrGraph): Promise<string> {
+export async function buildDebugModule(graph: IrGraph, breakpointLines?: readonly number[]): Promise<string> {
   const sourceUrl = debugVirtualSourceUrl(PLAY_GRAPH_INDEX);
   const { code: tsText } = buildEmitView(graph, PLAY_GRAPH_INDEX);
-  const jsCode = await transformForDebug(tsText, sourceUrl);
-  return appendDebugSourceUrl(jsCode, sourceUrl);
+  return buildDebugModuleSource(tsText, sourceUrl, breakpointLines);
 }
 
 async function buildCompiledEngine(
@@ -123,7 +135,8 @@ async function buildCompiledEngine(
   documentJson: unknown,
   binary: ArrayBuffer | Uint8Array | undefined,
   fanOut: PointerFanOut,
-  debug: boolean
+  debug: boolean,
+  breakpointLines?: readonly number[]
 ): Promise<EngineInteractive> {
   // @gltfi/runtime's Graph and @gltfi/ir's Graph are two independently
   // declared but structurally identical types — no KHR_interactivity-graph
@@ -142,7 +155,7 @@ async function buildCompiledEngine(
   }
   let code: string;
   try {
-    code = await computeCompiledCode(irGraph, module, debug);
+    code = await computeCompiledCode(irGraph, module, debug, breakpointLines);
   } catch (err) {
     const message = err instanceof EmitError ? err.message : err instanceof Error ? err.message : String(err);
     throw new Error(`PlayController.start: emit-ts could not compile this graph to JS: ${message}`);

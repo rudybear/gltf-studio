@@ -140,6 +140,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@gltf-audiograph/runtime-lib':
+        specifier: file:../../vendor/gltf-audiograph-runtime-lib-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz
       '@gltf-studio/agent-llm':
         specifier: workspace:*
         version: link:../agent-llm
@@ -185,6 +188,9 @@ importers:
       '@gltfi/gltf':
         specifier: file:../../vendor/gltfi-gltf-0.0.1.tgz
         version: file:vendor/gltfi-gltf-0.0.1.tgz
+      '@gltfi/ir':
+        specifier: file:../../vendor/gltfi-ir-0.0.1.tgz
+        version: file:vendor/gltfi-ir-0.0.1.tgz
       '@xyflow/react':
         specifier: ^12.11.2
         version: 12.11.2(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -762,6 +768,10 @@ packages:
 
   '@gltf-audiograph/parse-ts@file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz':
     resolution: {integrity: sha512-AgjOoluqzohpNafIQw0P1Sirru5k1VaRZVQ5Luqxk/RTRPPpX6EjTCwN2FPR1JK1nSoyiRcNNVUTu4UQjUSkGQ==, tarball: file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz}
+    version: 0.0.1
+
+  '@gltf-audiograph/runtime-lib@file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz':
+    resolution: {integrity: sha512-MP6dx6qtGmuEXz2afACGrvwV/ZQHbd9QpEaZ/3wgQKYq5LH1CUG01gZqk5LrT11AYwhumEUVMpFfi87tnJMIwA==, tarball: file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz}
     version: 0.0.1
 
   '@gltf-audiograph/verify@file:vendor/gltf-audiograph-verify-0.0.1.tgz':
@@ -2564,6 +2574,8 @@ snapshots:
       '@gltf-audiograph/ir': file:vendor/gltf-audiograph-ir-0.0.1.tgz
       '@gltf-audiograph/kernel': file:vendor/gltf-audiograph-kernel-0.0.1.tgz
       ts-morph: 23.0.0
+
+  '@gltf-audiograph/runtime-lib@file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz': {}
 
   '@gltf-audiograph/verify@file:vendor/gltf-audiograph-verify-0.0.1.tgz':
     dependencies:

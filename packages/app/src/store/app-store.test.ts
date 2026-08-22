@@ -26,7 +26,9 @@ const controllerMocks = {
 };
 
 vi.mock("@gltf-studio/play", () => ({
-  createPlayController: vi.fn(() => controllerMocks)
+  createPlayController: vi.fn(() => controllerMocks),
+  // PC-010/specs/ux-debugger.md UX-1505: `startPlay`'s own breakpoint-count/toast logic reads this real constant (0) directly, not through the mocked `createPlayController`.
+  PLAY_GRAPH_INDEX: 0
 }));
 
 // The real `IndexedDBStorage` throws at construction time without a real or
@@ -154,7 +156,27 @@ describe("startPlay / stopPlay state transitions (UX-310)", () => {
   it("startPlay passes debug:true when the compiled engine is selected and the toggle is checked (PC-009, UX-130)", async () => {
     useAppStore.setState({ playEngine: "compiled", playDebug: true });
     await useAppStore.getState().startPlay();
-    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "compiled", debug: true });
+    // PC-010: `debugBreakpointLines` is always passed alongside `debug: true` — `[]` here since no breakpoints are set in this test's own state.
+    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "compiled", debug: true, debugBreakpointLines: [] });
+  });
+
+  it("startPlay forwards scriptBreakpoints[0] as debugBreakpointLines when a debug session actually starts (PC-010, specs/ux-debugger.md UX-1505)", async () => {
+    useAppStore.setState({ playEngine: "compiled", playDebug: true, scriptBreakpoints: { 0: [3, 7] } });
+    await useAppStore.getState().startPlay();
+    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "compiled", debug: true, debugBreakpointLines: [3, 7] });
+    expect(useAppStore.getState().playDebugBreakpointCount).toBe(2);
+  });
+
+  it("startPlay toasts when breakpoints are set but Debug is off under the compiled engine (UX-1505's discoverability item)", async () => {
+    useAppStore.setState({ playEngine: "compiled", playDebug: false, scriptBreakpoints: { 0: [1] } });
+    await useAppStore.getState().startPlay();
+    expect(useAppStore.getState().toasts.some((t) => t.text.includes("enable Debug"))).toBe(true);
+  });
+
+  it("startPlay toasts a compiled+debug-required message when breakpoints are set under the interpreter engine (UX-1505's discoverability item)", async () => {
+    useAppStore.setState({ playEngine: "interpreter", scriptBreakpoints: { 0: [1] } });
+    await useAppStore.getState().startPlay();
+    expect(useAppStore.getState().toasts.some((t) => t.text.includes("compiled engine"))).toBe(true);
   });
 
   it("startPlay forces debug:false under the interpreter engine even with a stale playDebug:true left over from a prior compiled session (PC-009's own no-op guarantee, defense in depth alongside the toggle's disabled UI state)", async () => {

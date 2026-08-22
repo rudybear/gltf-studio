@@ -114,7 +114,7 @@ export class PlayControllerImpl implements PlayController {
     // still null) — nothing below this try block runs on failure.
     // PC-009: `options.debug` is a no-op for the interpreter engine —
     // createEngineHost only reads it on the compiled branch.
-    const host = await createEngineHost(options.engine, documentJson, binary, fanOut, options.debug);
+    const host = await createEngineHost(options.engine, documentJson, binary, fanOut, options.debug, options.debugBreakpointLines);
     host.engine.start();
 
     this.#host = host;

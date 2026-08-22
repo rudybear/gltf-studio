@@ -12,6 +12,17 @@ export interface PlayStartOptions {
    * when `engine === "interpreter"`.
    */
   debug?: boolean;
+  /**
+   * PC-010 (specs/ux-debugger.md UX-1505, D2): 1-based line numbers, into
+   * the SAME flavor-TS text `debug: true` builds the compiled module from,
+   * to inject a `debugger;` statement immediately before — session
+   * breakpoints set via the Script tab's own gutter, applied once at THIS
+   * `start()` call (there is no live CDP re-binding into an already-running
+   * session; toggling a breakpoint while `playing`/`paused` takes effect the
+   * next time `start()` runs). Meaningful only alongside `debug: true` — a
+   * no-op otherwise, same gating as `debug` itself.
+   */
+  debugBreakpointLines?: readonly number[];
 }
 
 /**

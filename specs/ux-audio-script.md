@@ -128,6 +128,20 @@ Prefix: `UX`. This file owns the `UX-14xx` block.
 
 ## Implementation notes
 
+- D3 script debugger (`specs/ux-debugger.md` `UX-1509`, `docs/adr/0006`'s D3 investigation): audio
+  scripts do not execute at Play time (this tab's own graph runs from document JSON, never from
+  calling the authored module function) — investigated whether `@gltf-audiograph/runtime-lib` ships a
+  real executor to debug against instead, found `createAudioScriptRecorder()` (a genuine, executable
+  `AudioScript` builder), and shipped a "Debug audition" toolbar action (`audio-script.debug-audition`,
+  the toolbar's third button — `UX-1400`'s own beforeEach-style e2e count assertion was updated from 2
+  to 3 buttons accordingly) plus gutter breakpoints (`breakpoints`/`onToggleBreakpoint` props, an
+  `onDebugAudition` callback) mirroring `specs/ux-script.md`'s identical D2 addition byte-for-byte
+  (own copy, not a shared module — same "two small independent panels" convention this file's
+  monaco-setup.ts/request-sequencer.ts entries already establish). `emit-view.ts`'s
+  `buildAudioEmitView` is additionally reachable via a new `./emit-view` subpath export, mirroring
+  `@gltf-studio/script-panel`'s identical precedent, so `packages/app`'s "Debug audition" execution
+  glue (`lib/audio-debug-audition.ts`) can reach it without a UI-package dependency. Full behavior
+  contract is `specs/ux-debugger.md`'s `UX-1509` to own.
 - **Vendoring**: `scripts/refresh-vendor.mjs` gained an `AUDIOGRAPH_PACKAGES` block (`kernel`, `ir`,
   `emit-ts`, `parse-ts`, `verify`, `runtime-lib`) packed from a sibling `../gltf-audiograph` checkout
   the same way the pre-existing `GLTFI_PACKAGES` block packs `../gltf-interactivity` — these packages

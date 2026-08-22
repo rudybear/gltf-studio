@@ -4,10 +4,14 @@
 // history and its diagnostics/toasts into the console + toast layer. A
 // multi-graph selector appears only when the asset actually declares more
 // than one `extensions.KHR_interactivity.graphs[]` entry.
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { GraphCanvas } from "@gltf-studio/graph-canvas";
+import type { Graph as IrGraph } from "@gltfi/ir";
 import { useAppStore } from "../../store/app-store";
+import { buildBreakpointEmitView, computeBreakpointNodeIndices, resolveBreakpointLine } from "../../lib/script-breakpoints.js";
 import { Placeholder } from "./Placeholder";
+
+const EMPTY_BREAKPOINT_LINES: readonly number[] = [];
 
 /**
  * Test-only seam (no UX-### requirement covers it — same pattern as
@@ -48,6 +52,8 @@ export function BehaviorGraphPanel(): JSX.Element {
   const graphNodeFocusRequest = useAppStore((s) => s.graphNodeFocusRequest);
   const revealSceneNodeInViewport = useAppStore((s) => s.revealSceneNodeInViewport);
   const selectNode = useAppStore((s) => s.selectNode);
+  const scriptBreakpoints = useAppStore((s) => s.scriptBreakpoints);
+  const setScriptBreakpoint = useAppStore((s) => s.setScriptBreakpoint);
 
   useEffect(() => {
     window.__gltfStudioGraphTest = { getDocumentJson: () => document?.json };
@@ -56,12 +62,39 @@ export function BehaviorGraphPanel(): JSX.Element {
     };
   }, [document]);
 
+  const graphs = (document?.json as { extensions?: { KHR_interactivity?: { graphs?: unknown[] } } } | undefined)?.extensions?.KHR_interactivity?.graphs;
+  const graphCount = graphs?.length ?? 0;
+  const effectiveGraphIndex = graphCount > 1 ? selectedGraphIndex : 0;
+  const rawGraph = (graphs?.[effectiveGraphIndex] as IrGraph | undefined) ?? undefined;
+
+  // D2 (specs/ux-debugger.md UX-1505 block): the graph-canvas breakpoint
+  // badges (UX-1506) and "Break here" node-details action (UX-1507) both
+  // resolve node<->line through the SAME EmitView — built once per
+  // [rawGraph, effectiveGraphIndex] change and reused by both, rather than
+  // re-running importGraph+emitModule per lookup.
+  const emitView = useMemo(() => (rawGraph ? buildBreakpointEmitView(rawGraph, effectiveGraphIndex) : null), [rawGraph, effectiveGraphIndex]);
+  const graphBreakpointLines = scriptBreakpoints[effectiveGraphIndex] ?? EMPTY_BREAKPOINT_LINES;
+  const breakpointNodeIndices = useMemo(
+    () => (rawGraph && emitView ? computeBreakpointNodeIndices(rawGraph, emitView, graphBreakpointLines) : undefined),
+    [rawGraph, emitView, graphBreakpointLines]
+  );
+  const canBreakHereForNode = useCallback(
+    (nodeIndex: number): boolean => !!rawGraph && !!emitView && resolveBreakpointLine(rawGraph, emitView, nodeIndex) !== null,
+    [rawGraph, emitView]
+  );
+  const handleBreakHere = useCallback(
+    (nodeIndex: number) => {
+      if (!rawGraph || !emitView) return;
+      const line = resolveBreakpointLine(rawGraph, emitView, nodeIndex);
+      if (line === null) return; // NodeDetails' own `canBreakHere` disabled state already prevents this in practice — defensive no-op, not a silent lie.
+      setScriptBreakpoint(effectiveGraphIndex, line);
+    },
+    [rawGraph, emitView, effectiveGraphIndex, setScriptBreakpoint]
+  );
+
   if (!document) {
     return <Placeholder testId="graph.panel" text="Import a .glb/.gltf to edit its behavior graph." />;
   }
-
-  const graphs = (document.json as { extensions?: { KHR_interactivity?: { graphs?: unknown[] } } }).extensions?.KHR_interactivity?.graphs;
-  const graphCount = graphs?.length ?? 0;
 
   return (
     <div className="graph-panel-wrap" data-testid="graph.panel">
@@ -114,6 +147,9 @@ export function BehaviorGraphPanel(): JSX.Element {
           focusRequest={graphNodeFocusRequest}
           onRevealInViewport={revealSceneNodeInViewport}
           onSelectSceneNode={selectNode}
+          breakpointNodeIndices={breakpointNodeIndices}
+          canBreakHere={selectedGraphNodeIndex !== null ? canBreakHereForNode(selectedGraphNodeIndex) : false}
+          onBreakHere={handleBreakHere}
         />
       </div>
     </div>
