@@ -323,6 +323,23 @@ export interface AppState {
   // audioHost` fan-out (PC-001) reads this field; wiring that fan-out is
   // NOT this store's concern (see the `packages/play` PR).
   audioHost?: AudioHost;
+  /**
+   * Clip management (Track A audio task): a project folder the user has
+   * granted read access to via `window.showDirectoryPicker()` (or a test
+   * double structurally matching `DirectoryHandleLike`), backing LIVE
+   * resolution of URI-REFERENCED `KHR_audio_emitter.audio[]` clips for
+   * preview/playback — distinct from `missingFilesDialog`'s folder grant
+   * (SP-004-adjacent, UX-117), which is a ONE-TIME import-time fixup that
+   * gets consumed and discarded. This handle instead stays live for the
+   * whole session (DOC-030: ephemeral, never persisted — re-granting is
+   * required on reload, same as any other File System Access handle) so a
+   * referenced clip added or discovered later in the session still
+   * resolves without asking again. `App.tsx`'s `WebAudioHost` construction
+   * reads this field lazily (a closure over `useAppStore.getState()`, not a
+   * value captured once), so granting mid-session takes effect on the next
+   * `loadEmitters` reload with no `WebAudioHost` reconstruction needed.
+   */
+  audioFolderHandle?: DirectoryHandleLike;
 
   // -- selection (DOC-030: ephemeral only) --
   selectedNodeIndex: number | null;
@@ -417,6 +434,17 @@ export interface AppState {
    * lifecycle). Passing `undefined` clears it (e.g. on dispose).
    */
   registerAudioHost(host: AudioHost | undefined): void;
+  /**
+   * Clip management: grants `dirHandle` as the session's live audio-folder
+   * resolver (see `audioFolderHandle`'s own doc comment) and, when a
+   * document/audioHost is already live, immediately re-triggers a
+   * `loadEmitters` reload so any clip that was `getUnresolvedAudioUris()`-
+   * listed a moment ago gets retried right away rather than waiting for the
+   * next unrelated document edit. The Assets > Audio Clips tab's "Grant
+   * folder access" action (shown whenever at least one referenced clip is
+   * unresolved).
+   */
+  grantAudioFolder(dirHandle: DirectoryHandleLike): void;
   importGlb(file: { name: string; bytes: Uint8Array }): Promise<void>;
   /**
    * Entry point for TopBar's (now multi-select/drag-drop-capable) import
@@ -1116,6 +1144,15 @@ export const useAppStore = create<AppState>((set, get) => {
 
   registerAudioHost(host) {
     set({ audioHost: host });
+  },
+
+  grantAudioFolder(dirHandle) {
+    set({ audioFolderHandle: dirHandle });
+    const { history, audioHost } = get();
+    if (history && audioHost) {
+      const binary = extractBinaryChunk(history.document.container);
+      void audioHost.loadEmitters({ json: history.document.json, binary });
+    }
   },
 
   async importGlb(file) {

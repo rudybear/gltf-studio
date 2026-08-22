@@ -114,6 +114,23 @@ export function AudioEnvironmentSection({
   function setShapeRadius(value: number): void {
     dispatchCommand(SceneEdit.setNodeAudioEnvironmentProperty(document, nodeIndex, ["shape"], { type: "sphere", radius: value }));
   }
+  /**
+   * Environment deepening (audit vs the extension schema, closing PR #48's
+   * documented "only sphere authorable" gap): switching Shape Type between
+   * `sphere`/`box` wholesale-replaces the zone's `shape` object — the two
+   * shapes share no fields (`radius` vs `size`), so there's nothing
+   * meaningful to carry over, mirroring `AudioSection.tsx`'s own
+   * Clip<->Oscillator source-type toggle precedent one level down.
+   */
+  function setShapeType(type: "sphere" | "box"): void {
+    const nextShape = type === "sphere" ? { type: "sphere", radius: 5 } : { type: "box", size: [1, 1, 1] as [number, number, number] };
+    dispatchCommand(SceneEdit.setNodeAudioEnvironmentProperty(document, nodeIndex, ["shape"], nextShape));
+  }
+  function setBoxSizeAxis(axis: 0 | 1 | 2, value: number): void {
+    const size: [number, number, number] = [...(shape.size ?? [1, 1, 1])] as [number, number, number];
+    size[axis] = value;
+    dispatchCommand(SceneEdit.setNodeAudioEnvironmentProperty(document, nodeIndex, ["shape"], { type: "box", size }));
+  }
   function setReverbPreset(preset: string): void {
     if (typeof environmentIndex !== "number") return;
     dispatchCommand(SceneEdit.setAudioEnvironmentProperty(document, environmentIndex, ["reverb", "preset"], preset));
@@ -223,16 +240,45 @@ export function AudioEnvironmentSection({
               )}
             </div>
             <div className="field-row">
-              <label>Zone Radius</label>
-              <input
-                type="number"
-                step="0.5"
-                min="0"
-                value={shape.radius ?? 5}
-                data-testid="inspector.audio-environment.zone-radius"
-                onChange={(e) => setShapeRadius(Number(e.target.value))}
-              />
+              <label>Shape</label>
+              <select
+                className="field"
+                data-testid="inspector.audio-environment.shape-type"
+                value={shape.type === "box" ? "box" : "sphere"}
+                onChange={(e) => setShapeType(e.target.value as "sphere" | "box")}
+              >
+                <option value="sphere">sphere</option>
+                <option value="box">box</option>
+              </select>
             </div>
+            {shape.type === "box" ? (
+              <div className="field-row">
+                <label>Box Size (x/y/z)</label>
+                {[0, 1, 2].map((axis) => (
+                  <input
+                    key={axis}
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={(shape.size ?? [1, 1, 1])[axis]}
+                    data-testid={`inspector.audio-environment.box-size.${axis}`}
+                    onChange={(e) => setBoxSizeAxis(axis as 0 | 1 | 2, Number(e.target.value))}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="field-row">
+                <label>Zone Radius</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={shape.radius ?? 5}
+                  data-testid="inspector.audio-environment.zone-radius"
+                  onChange={(e) => setShapeRadius(Number(e.target.value))}
+                />
+              </div>
+            )}
             <div className="field-row">
               <label>Blend Distance</label>
               <input

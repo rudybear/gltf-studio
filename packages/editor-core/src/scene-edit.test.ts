@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyPatches } from "./patch.js";
 import { deepEqualJson } from "./json-pointer.js";
-import { CycleReparentError, SceneEdit } from "./scene-edit.js";
+import { AudioClipInUseError, CycleReparentError, SceneEdit, countAudioClipUsage } from "./scene-edit.js";
 import { fixtureDocument, fixtureGltfJson } from "./test-fixtures.js";
 import type { Command } from "./command.js";
 
@@ -149,12 +149,12 @@ describe("SceneEdit.setLightProperty (DOC-060)", () => {
 
 type LightJson = { name?: string; type: string; color?: number[]; intensity?: number; range?: number; spot?: { innerConeAngle: number; outerConeAngle: number } };
 
-// Full punctual-light control (specs/document-model.md DOC-065,
+// Full punctual-light control (specs/document-model.md DOC-066,
 // specs/ux-inspector.md UX-417 r2): SceneEdit.setLightType converts an
 // EXISTING light's type as one undoable command, preserving color/intensity
 // always and adding/dropping range/spot per KHR_lights_punctual's own
 // per-type field applicability.
-describe("SceneEdit.setLightType (DOC-065)", () => {
+describe("SceneEdit.setLightType (DOC-066)", () => {
   function lightFixtureDocument(light: LightJson) {
     return fixtureDocument({
       ...fixtureGltfJson(),
@@ -1160,7 +1160,7 @@ describe("SceneEdit.addLightNode (DOC-047)", () => {
     expect(after.nodes[1].children).toContain(index);
   });
 
-  // Full punctual-light control (DOC-065, specs/ux-scene-tree.md UX-205/206
+  // Full punctual-light control (DOC-066, specs/ux-scene-tree.md UX-205/206
   // r2): opts.type selects a real per-type default light definition.
   it("opts.type 'spot' creates a real spot light with cone-angle defaults", () => {
     const doc = fixtureDocument();
@@ -1479,5 +1479,246 @@ describe("SceneEdit.setSceneAudioEnvironment / setSceneAudioActiveListener (DOC-
       scenes: Array<{ extensions?: { KHR_audio_environment?: { activeListener: number } } }>;
     };
     expect(after.scenes[0].extensions!.KHR_audio_environment!.activeListener).toBe(0);
+  });
+});
+
+type AudioJsonShape = {
+  buffers?: Array<{ uri?: string; byteLength: number }>;
+  bufferViews?: Array<{ buffer: number; byteLength: number }>;
+  extensionsUsed: string[];
+  extensions: {
+    KHR_audio_emitter: {
+      audio: Array<{ uri?: string; bufferView?: number; mimeType?: string; name?: string }>;
+      sources: Array<{ audio?: number; gain?: number; loop?: boolean; autoplay?: boolean; extensions?: Record<string, unknown> }>;
+      emitters: Array<{ type?: string; gain?: number; sources?: number[]; positional?: Record<string, unknown> }>;
+    };
+  };
+  nodes: Array<{ name?: string; extensions?: { KHR_audio_emitter?: { emitter?: number; emitters?: number[] } } }>;
+};
+
+function clipFixtureDocument(audio: AudioJsonShape["extensions"]["KHR_audio_emitter"]["audio"] = []) {
+  return fixtureDocument({
+    ...fixtureGltfJson(),
+    extensions: {
+      ...(fixtureGltfJson().extensions as Record<string, unknown>),
+      KHR_audio_emitter: { audio, sources: [], emitters: [] }
+    }
+  });
+}
+
+describe("SceneEdit.addAudioClipEmbedded (DOC-066)", () => {
+  it("appends a buffer + bufferView + audio entry, scaffolding extensionsUsed", () => {
+    const doc = clipFixtureDocument();
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    const { command, index } = SceneEdit.addAudioClipEmbedded(doc, { bytes, mimeType: "audio/wav", name: "Beep" });
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    const clip = after.extensions.KHR_audio_emitter.audio[index];
+    expect(clip.mimeType).toBe("audio/wav");
+    expect(clip.name).toBe("Beep");
+    expect(clip.uri).toBeUndefined();
+    expect(typeof clip.bufferView).toBe("number");
+    const bufferView = after.bufferViews![clip.bufferView!];
+    expect(bufferView.byteLength).toBe(4);
+    expect(after.buffers![bufferView.buffer].byteLength).toBe(4);
+    expect(after.extensionsUsed.filter((e) => e === "KHR_audio_emitter").length).toBe(1); // already listed — not duplicated.
+  });
+});
+
+describe("SceneEdit.addAudioClipUri (DOC-066)", () => {
+  it("appends a uri entry verbatim — no buffer/bufferView generated", () => {
+    const doc = clipFixtureDocument();
+    const { command, index } = SceneEdit.addAudioClipUri(doc, { uri: "clips/explosion.mp3", mimeType: "audio/mpeg", name: "Explosion" });
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    const clip = after.extensions.KHR_audio_emitter.audio[index];
+    expect(clip.uri).toBe("clips/explosion.mp3");
+    expect(clip.mimeType).toBe("audio/mpeg");
+    expect(clip.name).toBe("Explosion");
+    expect(clip.bufferView).toBeUndefined();
+    expect(after.buffers ?? []).toHaveLength(0);
+    expect(after.bufferViews ?? []).toHaveLength(0);
+  });
+});
+
+describe("SceneEdit.embedAudioClip (DOC-066)", () => {
+  it("converts a uri clip to a bufferView clip in place, preserving its index", () => {
+    const doc = clipFixtureDocument([{ uri: "clips/beep.wav", mimeType: "audio/wav", name: "Beep" }]);
+    const bytes = new Uint8Array([9, 9, 9]);
+    const command = SceneEdit.embedAudioClip(doc, 0, bytes);
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    const clip = after.extensions.KHR_audio_emitter.audio[0];
+    expect(clip.uri).toBeUndefined();
+    expect(clip.mimeType).toBe("audio/wav");
+    expect(clip.name).toBe("Beep"); // name preserved across the conversion.
+    expect(typeof clip.bufferView).toBe("number");
+    expect(after.bufferViews![clip.bufferView!].byteLength).toBe(3);
+  });
+
+  it("throws when the clip has no uri (already embedded, or missing)", () => {
+    const doc = clipFixtureDocument([{ bufferView: 0, mimeType: "audio/wav" }]);
+    expect(() => SceneEdit.embedAudioClip(doc, 0, new Uint8Array([1]))).toThrow();
+    expect(() => SceneEdit.embedAudioClip(doc, 5, new Uint8Array([1]))).toThrow();
+  });
+});
+
+describe("SceneEdit.removeAudioClip (DOC-066)", () => {
+  it("removes an unused clip and shifts surviving sources[].audio references above it down by one", () => {
+    const doc = fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as Record<string, unknown>),
+        KHR_audio_emitter: {
+          audio: [{ uri: "a.wav" }, { uri: "b.wav" }, { uri: "c.wav" }],
+          sources: [{ audio: 2, gain: 1 }],
+          emitters: [{ type: "positional", sources: [0] }]
+        }
+      }
+    });
+    const command = SceneEdit.removeAudioClip(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    expect(after.extensions.KHR_audio_emitter.audio).toHaveLength(2);
+    expect(after.extensions.KHR_audio_emitter.audio[0].uri).toBe("b.wav");
+    expect(after.extensions.KHR_audio_emitter.audio[1].uri).toBe("c.wav");
+    expect(after.extensions.KHR_audio_emitter.sources[0].audio).toBe(1); // was 2, shifted down by one.
+  });
+
+  it("blocks deletion of a clip still referenced by a source, with an exact usage count", () => {
+    const doc = fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as Record<string, unknown>),
+        KHR_audio_emitter: {
+          audio: [{ uri: "a.wav", name: "A" }],
+          sources: [{ audio: 0, gain: 1 }, { audio: 0, gain: 0.5 }],
+          emitters: [{ type: "positional", sources: [0, 1] }]
+        }
+      }
+    });
+    expect(countAudioClipUsage(doc.json, 0)).toBe(2);
+    let caught: unknown;
+    try {
+      SceneEdit.removeAudioClip(doc, 0);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(AudioClipInUseError);
+    expect((caught as InstanceType<typeof AudioClipInUseError>).usageCount).toBe(2);
+    expect((caught as InstanceType<typeof AudioClipInUseError>).clipIndex).toBe(0);
+  });
+
+  it("throws on a nonexistent clip index", () => {
+    const doc = clipFixtureDocument();
+    expect(() => SceneEdit.removeAudioClip(doc, 0)).toThrow();
+  });
+});
+
+describe("SceneEdit.addSourceToEmitter / removeSourceFromEmitter (DOC-066)", () => {
+  function emitterFixtureDocument() {
+    return fixtureDocument({
+      ...fixtureGltfJson(),
+      extensions: {
+        ...(fixtureGltfJson().extensions as Record<string, unknown>),
+        KHR_audio_emitter: {
+          audio: [{ uri: "a.wav" }],
+          sources: [{ audio: 0, gain: 1 }],
+          emitters: [{ type: "positional", sources: [0] }]
+        }
+      }
+    });
+  }
+
+  it("appends a clip-mode source bound to opts.audioIndex and wires it into the emitter's sources array", () => {
+    const doc = emitterFixtureDocument();
+    const { command, index } = SceneEdit.addSourceToEmitter(doc, 0, { audioIndex: 0 });
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    expect(after.extensions.KHR_audio_emitter.sources[index].audio).toBe(0);
+    expect(after.extensions.KHR_audio_emitter.emitters[0].sources).toEqual([0, index]);
+  });
+
+  it("appends an oscillator-mode source when no audioIndex is given", () => {
+    const doc = emitterFixtureDocument();
+    const { command, index } = SceneEdit.addSourceToEmitter(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    const source = after.extensions.KHR_audio_emitter.sources[index];
+    expect(source.audio).toBeUndefined();
+    expect(source.extensions?.KHR_audio_graph).toBeDefined();
+  });
+
+  it("throws when the target emitter doesn't exist", () => {
+    const doc = emitterFixtureDocument();
+    expect(() => SceneEdit.addSourceToEmitter(doc, 9)).toThrow();
+  });
+
+  it("removeSourceFromEmitter removes only the membership-array entry, leaving the sources[] registry entry untouched", () => {
+    const doc = emitterFixtureDocument();
+    const command = SceneEdit.removeSourceFromEmitter(doc, 0, 0);
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    expect(after.extensions.KHR_audio_emitter.emitters[0].sources).toEqual([]);
+    expect(after.extensions.KHR_audio_emitter.sources).toHaveLength(1); // orphaned, not deleted (DOC-050 precedent).
+  });
+
+  it("removeSourceFromEmitter throws when the emitter doesn't reference that source", () => {
+    const doc = emitterFixtureDocument();
+    expect(() => SceneEdit.removeSourceFromEmitter(doc, 0, 5)).toThrow();
+  });
+});
+
+describe("SceneEdit.addEmitterToNode / removeEmitterFromNode (DOC-066, multi-emitter-per-node)", () => {
+  it("gives a node with no existing binding the singular `.emitter` field (unchanged single-emitter shape)", () => {
+    const doc = fixtureDocument();
+    const { command, emitterIndex } = SceneEdit.addEmitterToNode(doc, 0);
+    const after = expectRoundTrip(doc.json, command) as AudioJsonShape;
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitter).toBe(emitterIndex);
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitters).toBeUndefined();
+  });
+
+  it("upgrades a node with an existing singular `.emitter` to an array-valued `.emitters` on a second add", () => {
+    const doc = fixtureDocument();
+    const first = SceneEdit.addEmitterToNode(doc, 0);
+    const midJson = applyPatches(doc.json, first.command.patches);
+    const midDoc = { ...doc, json: midJson };
+    const second = SceneEdit.addEmitterToNode(midDoc, 0);
+    const after = expectRoundTrip(midDoc.json, second.command) as AudioJsonShape;
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitter).toBeUndefined();
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitters).toEqual([first.emitterIndex, second.emitterIndex]);
+  });
+
+  it("appends to an already-array-valued `.emitters` on a third add", () => {
+    const doc = fixtureDocument();
+    const first = SceneEdit.addEmitterToNode(doc, 0);
+    let json = applyPatches(doc.json, first.command.patches);
+    const second = SceneEdit.addEmitterToNode({ ...doc, json }, 0);
+    json = applyPatches(json, second.command.patches);
+    const third = SceneEdit.addEmitterToNode({ ...doc, json }, 0);
+    const after = expectRoundTrip(json, third.command) as AudioJsonShape;
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitters).toEqual([first.emitterIndex, second.emitterIndex, third.emitterIndex]);
+  });
+
+  it("removeEmitterFromNode deletes the singular field outright", () => {
+    const doc = fixtureDocument();
+    const { command, emitterIndex } = SceneEdit.addEmitterToNode(doc, 0);
+    const midJson = applyPatches(doc.json, command.patches);
+    const midDoc = { ...doc, json: midJson };
+    const removeCommand = SceneEdit.removeEmitterFromNode(midDoc, 0, emitterIndex);
+    const after = expectRoundTrip(midJson, removeCommand) as AudioJsonShape;
+    expect(after.nodes[0].extensions?.KHR_audio_emitter?.emitter).toBeUndefined();
+  });
+
+  it("removeEmitterFromNode splices out of an array-valued `.emitters` without collapsing to singular", () => {
+    const doc = fixtureDocument();
+    const first = SceneEdit.addEmitterToNode(doc, 0);
+    let json = applyPatches(doc.json, first.command.patches);
+    const second = SceneEdit.addEmitterToNode({ ...doc, json }, 0);
+    json = applyPatches(json, second.command.patches);
+    const removeCommand = SceneEdit.removeEmitterFromNode({ ...doc, json }, 0, first.emitterIndex);
+    const after = expectRoundTrip(json, removeCommand) as AudioJsonShape;
+    expect(after.nodes[0].extensions!.KHR_audio_emitter!.emitters).toEqual([second.emitterIndex]);
+  });
+
+  it("removeEmitterFromNode throws when the node has no binding, or references a different emitter", () => {
+    const doc = fixtureDocument();
+    expect(() => SceneEdit.removeEmitterFromNode(doc, 0, 0)).toThrow();
+    const { command } = SceneEdit.addEmitterToNode(doc, 0);
+    const midDoc = { ...doc, json: applyPatches(doc.json, command.patches) };
+    expect(() => SceneEdit.removeEmitterFromNode(midDoc, 0, 999)).toThrow();
   });
 });

@@ -290,3 +290,127 @@ describe("WebAudioHost: KHR_audio_environment topology from freshly-authored doc
     host.dispose();
   });
 });
+
+/** Builds a minimal loadEmitters-ready doc referencing exactly one `audio[0]` clip by `uri`. */
+function uriClipDoc(uri: string) {
+  return {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: "N", extensions: { KHR_audio_emitter: { emitter: 0 } } }],
+    extensions: {
+      KHR_audio_emitter: {
+        audio: [{ uri, mimeType: "audio/wav" }],
+        sources: [{ audio: 0 }],
+        emitters: [{ type: "global", sources: [0] }]
+      }
+    }
+  };
+}
+
+describe("WebAudioHost: uri-referenced clip resolution (clip management PR)", () => {
+  it("resolves a relative uri via the resolveAudioUri constructor callback, and the clip becomes auditionable", async () => {
+    const wav = silentWavBytes();
+    const host = new WebAudioHost({
+      resolveAudioUri: async (uri) => (uri === "clips/beep.wav" ? wav.buffer.slice(0) : null)
+    });
+    await host.init();
+    await host.loadEmitters(uriClipDoc("clips/beep.wav"));
+    expect(host.getUnresolvedAudioUris()).toEqual([]);
+    expect(() => host.auditionEmitter(0)).not.toThrow();
+    host.dispose();
+  });
+
+  it("an unresolvable relative uri (resolver returns null) is listed by getUnresolvedAudioUris, never thrown", async () => {
+    const host = new WebAudioHost({ resolveAudioUri: async () => null });
+    await host.init();
+    await host.loadEmitters(uriClipDoc("clips/missing.wav"));
+    expect(host.getUnresolvedAudioUris()).toEqual(["clips/missing.wav"]);
+    expect(() => host.auditionEmitter(0)).not.toThrow(); // no source decoded -> a safe no-op, not a crash.
+    host.dispose();
+  });
+
+  it("with NO resolveAudioUri callback at all, a relative uri is honestly unresolved (v1 default, no folder granted)", async () => {
+    const host = new WebAudioHost();
+    await host.init();
+    await host.loadEmitters(uriClipDoc("clips/beep.wav"));
+    expect(host.getUnresolvedAudioUris()).toEqual(["clips/beep.wav"]);
+    host.dispose();
+  });
+
+  it("an absolute http(s) uri is fetched directly, never routed through resolveAudioUri", async () => {
+    const wav = silentWavBytes();
+    let resolverCalled = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://example.com/beep.wav");
+      return new Response(wav.buffer.slice(0), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const host = new WebAudioHost({
+        resolveAudioUri: async () => {
+          resolverCalled = true;
+          return null;
+        }
+      });
+      await host.init();
+      await host.loadEmitters(uriClipDoc("https://example.com/beep.wav"));
+      expect(host.getUnresolvedAudioUris()).toEqual([]);
+      expect(resolverCalled).toBe(false);
+      host.dispose();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("a failed fetch (network/CORS) leaves the http(s) clip honestly unresolved rather than throwing", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("network error");
+    }) as typeof fetch;
+    try {
+      const host = new WebAudioHost();
+      await host.init();
+      await host.loadEmitters(uriClipDoc("https://example.com/gone.wav"));
+      expect(host.getUnresolvedAudioUris()).toEqual(["https://example.com/gone.wav"]);
+      host.dispose();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("a successful resolution is cached — the resolver is called only once across two loadEmitters reloads for the same uri", async () => {
+    const wav = silentWavBytes();
+    let callCount = 0;
+    const host = new WebAudioHost({
+      resolveAudioUri: async () => {
+        callCount += 1;
+        return wav.buffer.slice(0);
+      }
+    });
+    await host.init();
+    const doc = uriClipDoc("clips/beep.wav");
+    await host.loadEmitters(doc);
+    await host.loadEmitters(doc); // simulates attachAudioHost's per-HistoryStack.onApply reload.
+    expect(callCount).toBe(1);
+    expect(host.getUnresolvedAudioUris()).toEqual([]);
+    host.dispose();
+  });
+
+  it("getUnresolvedAudioUris is recomputed fresh per reload — resolving mid-session (e.g. after a folder grant) clears a prior unresolved entry", async () => {
+    const wav = silentWavBytes();
+    let shouldResolve = false;
+    const host = new WebAudioHost({
+      resolveAudioUri: async () => (shouldResolve ? wav.buffer.slice(0) : null)
+    });
+    await host.init();
+    const doc = uriClipDoc("clips/beep.wav");
+    await host.loadEmitters(doc);
+    expect(host.getUnresolvedAudioUris()).toEqual(["clips/beep.wav"]);
+
+    shouldResolve = true; // e.g. the user just granted folder access.
+    await host.loadEmitters(doc); // the app re-triggers a reload after granting.
+    expect(host.getUnresolvedAudioUris()).toEqual([]);
+    host.dispose();
+  });
+});

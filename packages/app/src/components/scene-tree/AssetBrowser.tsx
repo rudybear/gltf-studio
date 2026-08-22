@@ -6,6 +6,7 @@ import type { GltfJsonShape } from "../../lib/gltf-scene";
 import { useUsageIndexes } from "../../hooks/use-usage-indexes";
 import { NodeIcon } from "./NodeIcon";
 import { UsageBadge } from "../UsageBadge";
+import { AudioClipsPanel } from "./AudioClipsPanel";
 
 const TABS: Array<{ key: AssetTab; label: string; testid: string }> = [
   { key: "meshes", label: "Meshes", testid: "asset-browser.tab.meshes" },
@@ -15,12 +16,15 @@ const TABS: Array<{ key: AssetTab; label: string; testid: string }> = [
 ];
 
 /**
- * specs/ux-scene-tree.md UX-210/UX-211: the document's actual owned
- * meshes/materials/animations arrays (each entry listed once, never once
- * per referencing scene node). The Audio Clips tab intentionally stays
- * empty/unwired — OPEN(UX-asset-audio-tab-tbd) notes clip assets aren't
- * part of the glTF node/mesh/material/accessor addressing model the Data
- * tab resolves.
+ * specs/ux-scene-tree.md UX-210/UX-211/UX-218..222: the document's actual
+ * owned meshes/materials/animations arrays (each entry listed once, never
+ * once per referencing scene node), PLUS a real Audio Clips tab (clip
+ * management: import/embed/add-by-reference/delete-blocked/preview,
+ * `AudioClipsPanel.tsx`) — closing this file's former OPEN(UX-asset-audio-
+ * tab-tbd): see `specs/ux-scene-tree.md`'s own updated note for why clip
+ * rows still don't force-switch to the Data tab the way a Meshes/Materials/
+ * Animations row does (UX-211) — the Audio Clips tab IS the clip inspector
+ * now, richer than the Data tab's read-only view would be.
  */
 export function AssetBrowser(): JSX.Element {
   const document = useAppStore((s) => s.document);
@@ -32,6 +36,10 @@ export function AssetBrowser(): JSX.Element {
   const showUsageBadges = useAppStore((s) => s.showUsageBadges);
   const jumpUsageRefToGraph = useAppStore((s) => s.jumpUsageRefToGraph);
   const flashTarget = useAppStore((s) => s.flashTarget);
+  const dispatchCommand = useAppStore((s) => s.dispatchCommand);
+  const audioFolderHandle = useAppStore((s) => s.audioFolderHandle);
+  const grantAudioFolder = useAppStore((s) => s.grantAudioFolder);
+  const pushToast = useAppStore((s) => s.pushToast);
   // UX-1116 (specs/ux-usage-mapping.md): shares the SAME toggle state
   // `SceneTree.tsx`'s header button owns — one app-wide "show badges"
   // setting across both surfaces, the same way `showIndices` already has
@@ -73,9 +81,20 @@ export function AssetBrowser(): JSX.Element {
       </div>
       <div className="panel-body">
         {activeAssetTab === "audio" ? (
-          <div className="empty-note" data-testid="asset-browser.audio-clips.empty">
-            Audio clip assets aren't wired up yet.
-          </div>
+          document ? (
+            <AudioClipsPanel
+              document={document}
+              dispatchCommand={dispatchCommand}
+              audioFolderHandle={audioFolderHandle}
+              grantAudioFolder={grantAudioFolder}
+              showIndices={showIndices}
+              pushToast={pushToast}
+            />
+          ) : (
+            <div className="empty-note" data-testid="asset-browser.audio-clips.empty">
+              Import a .glb first.
+            </div>
+          )
         ) : rows.length === 0 ? (
           <div className="empty-note" data-testid={`asset-browser.${activeAssetTab}.empty`}>
             {document ? "None in this document." : "Import a .glb first."}
