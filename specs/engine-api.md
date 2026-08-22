@@ -95,6 +95,20 @@ same "diff satisfied honestly, not routed around" reason as `EA-pickresult-shape
   test.ts`'s local fixture) gained a no-op `setReferenceHighlight` stub alongside their existing
   `setHighlight` one, purely to keep satisfying the widened `RenderHost` interface — no
   `PlayController`/`PC-###` behavior here changed or depends on the new method.
+- Deflaking `test:browser`'s real-Chromium `PlayController` contract run (recurring flake noted on
+  PRs #51/#56/#57): `packages/contract-tests/src/play-controller.ts`'s "pause stops ticking"/"resume
+  continues ticking" assertions used to `await` a fixed real-clock delay and compare
+  `PlayController.inspect().time` against it — under CPU contention, a headless Chromium's
+  `requestAnimationFrame` (or Node's `setTimeout` fallback) isn't guaranteed to fire within an
+  arbitrary wall-clock window, so this occasionally failed with a spurious `0 > 0`. Fixed at the
+  test-harness level only, purely additive: a new `ManualFrameScheduler`/`createManualFrameScheduler`
+  export from `contract-tests` gives the suite direct, synchronous control over `PlayController`'s
+  tick loop (`fireFrame()`, `hasPendingFrame()`), so every precise timing assertion is now
+  deterministic; one deliberately loose smoke test (`expect.poll`, generous deadline) still exercises
+  the real production `createDefaultScheduler()` wiring via a new optional second harness factory
+  (`makeRealSchedulerHarness`) both `packages/play` `contract.test.ts` files now supply. No
+  `PlayController`/`PC-###` behavior changed — `packages/play/src/play-controller.ts` itself is
+  untouched by this fix.
 
 ## Open questions
 
