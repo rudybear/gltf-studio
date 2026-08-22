@@ -19,6 +19,16 @@ Prefix: `UX`. This file owns the `UX-7xx` block.
 - [UX-700] (active) The Script tab renders the current behavior graph's generated code, read-only, with syntax highlighting that visually distinguishes keywords, function calls, string literals, number literals, and comments from each other.
 - [UX-701] (retired) Superseded by UX-707 (M5): the freeze-time pin of the Script tab to a permanently read-only rendering, with graph changes made only in the Behavior graph tab, no longer holds — M5 resolves OPEN(UX-script-editable-tbd) in favor of shipping a real editable surface.
 
+`emit-view.ts`'s `buildEmitView`/`provenanceComment` (the ONE place that turns a graph into this
+tab's displayable code, UX-700's own text) is additionally reachable via a new `./emit-view`
+package.json subpath export (docs/adr/0006-devtools-script-debugging.md), so `@gltf-studio/play`'s
+debug compiled-play pipeline (`specs/engine-api.md` `PC-009`, `specs/ux-debugger.md` `UX-1503`) can
+call the SAME function directly — without pulling in `monaco-editor`/React — to guarantee its debug
+session shows text provably identical to this tab's, not a re-derivation of it. No requirement in
+this file changes: this is the same "narrow subpath, not the whole barrel" precedent
+`@gltfi/parse-ts`'s own `./runtime-lib-dts` export already set, applied to this package's own emit
+logic.
+
 ### Apply → Graph
 
 - [UX-702] (active) An "Apply → Graph" toolbar action re-derives the behavior graph from the current script content and clears any `DIVERGED` state back to `EQUIV`.

@@ -2,6 +2,16 @@ import type { EngineKind } from "./value-types.js";
 
 export interface PlayStartOptions {
   engine: EngineKind;
+  /**
+   * PC-009 (docs/adr/0006-devtools-script-debugging.md): only meaningful when
+   * `engine === "compiled"` — builds the compiled module from the exact
+   * flavor-TS text the Script tab displays, transformed via `esbuild-wasm`
+   * into JS + a real inline source map, loaded under a stable virtual
+   * `sourceURL` so a real DevTools session can show and set breakpoints
+   * against the user's own script. A no-op (identical to omitting/`false`)
+   * when `engine === "interpreter"`.
+   */
+  debug?: boolean;
 }
 
 /**

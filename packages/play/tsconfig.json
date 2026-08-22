@@ -5,6 +5,6 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../editor-core" }, { "path": "../engine-api" }],
+  "references": [{ "path": "../editor-core" }, { "path": "../engine-api" }, { "path": "../script-panel" }],
   "include": ["src/**/*.ts"]
 }

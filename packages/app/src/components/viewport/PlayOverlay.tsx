@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { PlayInspection } from "@gltf-studio/engine-api";
+import { debugVirtualSourceUrl } from "@gltf-studio/play";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
 
 const EMPTY_INSPECTION: PlayInspection = { time: 0, variables: {}, sentEvents: [] };
@@ -35,9 +36,14 @@ function formatPlayValue(value: unknown): string {
  *   - "viewport.play-overlay.events-count" — `sentEvents.length`.
  *   - "viewport.play-overlay.variable.${key}" — one per entry in `variables`,
  *     keyed by that variable's declared id (or numeric index) per PC-002.
+ *   - "viewport.play-overlay.debug-hint" — specs/ux-debugger.md UX-1504:
+ *     shown only for a session started with the compiled engine's Debug
+ *     toggle checked (specs/ux-shell.md UX-130, PC-009's `debug: true`).
  */
 export function PlayOverlay(): JSX.Element | null {
   const playState = useAppStore((s) => s.playState);
+  const playEngine = useAppStore((s) => s.playEngine);
+  const playDebug = useAppStore((s) => s.playDebug);
   const [inspection, setInspection] = useState<PlayInspection>(EMPTY_INSPECTION);
 
   useEffect(() => {
@@ -54,10 +60,16 @@ export function PlayOverlay(): JSX.Element | null {
   if (playState === "stopped") return null;
 
   const variableEntries = Object.entries(inspection.variables);
+  const isDebugSession = playEngine === "compiled" && playDebug;
 
   return (
     <div className="play-overlay" data-testid="viewport.play-overlay">
       <h5>Variables (live)</h5>
+      {isDebugSession && (
+        <div className="play-overlay-row play-overlay-debug-hint" data-testid="viewport.play-overlay.debug-hint" title={debugVirtualSourceUrl(0)}>
+          Debuggable — open DevTools → Sources → gltf-studio://
+        </div>
+      )}
       <div className="play-overlay-row" data-testid="viewport.play-overlay.time">
         <span className="key">Time</span>
         <span className="val">{inspection.time.toFixed(1)}s</span>

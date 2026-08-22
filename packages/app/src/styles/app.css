@@ -641,6 +641,13 @@ input.field {
 .play-overlay-row .val {
   color: var(--text-0);
 }
+.play-overlay-debug-hint {
+  color: var(--accent);
+  white-space: normal;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
 
 /* ---------- bottom dock ---------- */
 #bottom-dock {

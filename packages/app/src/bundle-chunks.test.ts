@@ -36,6 +36,14 @@ import { describe, expect, it } from "vitest";
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_DIR = join(APP_ROOT, "dist");
 const TS_MORPH_MARKER = "getPreEmitDiagnostics";
+// docs/adr/0006-devtools-script-debugging.md / specs/ux-debugger.md UX-1501:
+// `esbuild-wasm`'s own literal error-message text (from its `initialize()`
+// double-call guard) — survives minification the same way TS_MORPH_MARKER
+// does (a string literal, not a renameable identifier), and confirmed
+// against a real `pnpm build` to appear in exactly `esbuild.worker-*.js`,
+// nowhere else (this file's own "confirms the marker really is bundled
+// there" test below is the same double-check TS_MORPH_MARKER already gets).
+const ESBUILD_WASM_MARKER = 'Cannot call "initialize" more than once';
 
 function readMainEntryChunk(): string {
   const html = readFileSync(join(DIST_DIR, "index.html"), "utf8");
@@ -63,6 +71,20 @@ function readParseWorkerChunk(): string {
   return files.map((f) => readFileSync(join(assetsDir, f), "utf8")).join("\n");
 }
 
+function esbuildWorkerChunkFiles(): string[] {
+  const assetsDir = join(DIST_DIR, "assets");
+  return readdirSync(assetsDir).filter((f) => f.startsWith("esbuild.worker-") && f.endsWith(".js"));
+}
+
+function readEsbuildWorkerChunk(): string {
+  const assetsDir = join(DIST_DIR, "assets");
+  const files = esbuildWorkerChunkFiles();
+  if (files.length === 0) {
+    throw new Error(`No built chunk matching "esbuild.worker-*.js" in ${assetsDir} — expected Vite's static \`new Worker(new URL("./esbuild.worker.js", import.meta.url))\` detection (@gltf-studio/play's debug-transform.ts) to emit one.`);
+  }
+  return files.map((f) => readFileSync(join(assetsDir, f), "utf8")).join("\n");
+}
+
 describe.skipIf(!existsSync(DIST_DIR))("built app bundle chunking (specs/ux-script.md UX-707/UX-709; specs/ux-audio-script.md UX-1400)", () => {
   it("keeps ts-morph (via @gltfi/parse-ts AND @gltf-audiograph/parse-ts) OUT of the main app entry chunk", () => {
     expect(readMainEntryChunk()).not.toContain(TS_MORPH_MARKER);
@@ -74,5 +96,22 @@ describe.skipIf(!existsSync(DIST_DIR))("built app bundle chunking (specs/ux-scri
 
   it("emits TWO distinct parse-worker chunks — one for the interactivity Script tab, one for the Audio Script tab (each package's own parse.worker.ts, not a single shared worker)", () => {
     expect(parseWorkerChunkFiles().length).toBe(2);
+  });
+});
+
+describe.skipIf(!existsSync(DIST_DIR))("built app bundle chunking (docs/adr/0006-devtools-script-debugging.md, specs/ux-debugger.md UX-1501)", () => {
+  it("keeps esbuild-wasm OUT of the main app entry chunk", () => {
+    expect(readMainEntryChunk()).not.toContain(ESBUILD_WASM_MARKER);
+  });
+
+  it("confirms esbuild-wasm really is bundled in its own worker chunk (so the assertion above is meaningful, not just a marker that never appears anywhere)", () => {
+    expect(readEsbuildWorkerChunk()).toContain(ESBUILD_WASM_MARKER);
+  });
+
+  it("ships the esbuild-wasm .wasm binary as its own asset, not inlined as a data: URI into any JS chunk (Vite's ?url import — see esbuild.worker.ts)", () => {
+    const assetsDir = join(DIST_DIR, "assets");
+    const wasmFiles = readdirSync(assetsDir).filter((f) => f.startsWith("esbuild-") && f.endsWith(".wasm"));
+    expect(wasmFiles.length).toBe(1);
+    expect(readEsbuildWorkerChunk()).not.toContain("data:application/wasm");
   });
 });

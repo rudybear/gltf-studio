@@ -144,11 +144,32 @@ describe("startPlay / stopPlay state transitions (UX-310)", () => {
   it("startPlay freezes the document, sets playState to playing, and clears selection", async () => {
     useAppStore.setState({ selectedNodeIndex: 0, hoveredNodeIndex: 0 });
     await useAppStore.getState().startPlay();
-    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "interpreter" });
+    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "interpreter", debug: false });
     expect(useAppStore.getState().playState).toBe("playing");
     expect(useAppStore.getState().document!.frozen).toBe(true);
     expect(useAppStore.getState().selectedNodeIndex).toBeNull();
     expect(useAppStore.getState().hoveredNodeIndex).toBeNull();
+  });
+
+  it("startPlay passes debug:true when the compiled engine is selected and the toggle is checked (PC-009, UX-130)", async () => {
+    useAppStore.setState({ playEngine: "compiled", playDebug: true });
+    await useAppStore.getState().startPlay();
+    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "compiled", debug: true });
+  });
+
+  it("startPlay forces debug:false under the interpreter engine even with a stale playDebug:true left over from a prior compiled session (PC-009's own no-op guarantee, defense in depth alongside the toggle's disabled UI state)", async () => {
+    useAppStore.setState({ playEngine: "interpreter", playDebug: true });
+    await useAppStore.getState().startPlay();
+    expect(controllerMocks.start).toHaveBeenCalledWith({ engine: "interpreter", debug: false });
+  });
+
+  it("setPlayDebug updates playDebug only while stopped (UX-130, mirrors setPlayEngine)", () => {
+    useAppStore.getState().setPlayDebug(true);
+    expect(useAppStore.getState().playDebug).toBe(true);
+
+    useAppStore.setState({ playState: "playing" });
+    useAppStore.getState().setPlayDebug(false);
+    expect(useAppStore.getState().playDebug).toBe(true); // unchanged — no-op while not stopped
   });
 
   it("is a no-op when already playing/paused", async () => {
