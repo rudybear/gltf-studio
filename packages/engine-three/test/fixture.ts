@@ -25,6 +25,14 @@ export const FIXTURE_DECOY_NODE_INDEX = 1;
 // KHR_lights_punctual point light node, appended (not replacing 0/1, which
 // several other tests pin) for light-helper/studio-rig coverage.
 export const FIXTURE_LIGHT_NODE_INDEX = 2;
+// Audio viewport helpers (specs/render-host.md RH-035): a positional
+// cone-shaped emitter, a global (non-positional) emitter, a node bound to
+// BOTH (multi-emitter-aware, PR #59's `.emitters` array), and a
+// KHR_audio_environment sphere zone — appended for audio-helper coverage.
+export const FIXTURE_AUDIO_EMITTER_CONE_NODE_INDEX = 3;
+export const FIXTURE_AUDIO_EMITTER_GLOBAL_NODE_INDEX = 4;
+export const FIXTURE_AUDIO_EMITTER_MULTI_NODE_INDEX = 5;
+export const FIXTURE_AUDIO_ZONE_NODE_INDEX = 6;
 
 export function buildFixtureGlb(): ArrayBuffer {
   // 3 vertices: (-1,-1,0), (1,-1,0), (0,1,0) — CCW as viewed from +Z (glTF's
@@ -42,13 +50,21 @@ export function buildFixtureGlb(): ArrayBuffer {
 
   const json = {
     asset: { version: "2.0", generator: "gltf-studio engine-three contract-test fixture" },
-    extensionsUsed: ["KHR_interactivity", "KHR_lights_punctual"],
+    extensionsUsed: ["KHR_interactivity", "KHR_lights_punctual", "KHR_audio_emitter", "KHR_audio_environment"],
     scene: 0,
-    scenes: [{ nodes: [0, 1, 2] }],
+    scenes: [{ nodes: [0, 1, 2, 3, 4, 5, 6] }],
     nodes: [
       { name: "Hit", mesh: 0, translation: [0, 0, 0] },
       { name: "Decoy", mesh: 1, translation: [10, 10, 10] },
-      { name: "Lampy", translation: [0, 0, 2], extensions: { KHR_lights_punctual: { light: 0 } } }
+      { name: "Lampy", translation: [0, 0, 2], extensions: { KHR_lights_punctual: { light: 0 } } },
+      { name: "ConeEmitter", translation: [0, 0, -2], extensions: { KHR_audio_emitter: { emitter: 0 } } },
+      { name: "GlobalEmitter", translation: [3, 0, 0], extensions: { KHR_audio_emitter: { emitter: 1 } } },
+      { name: "MultiEmitter", translation: [-3, 0, 0], extensions: { KHR_audio_emitter: { emitters: [0, 1] } } },
+      {
+        name: "Zone",
+        translation: [0, 3, 0],
+        extensions: { KHR_audio_environment: { environment: 0, shape: { type: "sphere", radius: 3 } } }
+      }
     ],
     meshes: [
       { name: "HitMesh", primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, material: 0 }] },
@@ -105,7 +121,18 @@ export function buildFixtureGlb(): ArrayBuffer {
           }
         ]
       },
-      KHR_lights_punctual: { lights: [{ name: "Lamp", type: "point", color: [1, 1, 1], intensity: 500 }] }
+      KHR_lights_punctual: { lights: [{ name: "Lamp", type: "point", color: [1, 1, 1], intensity: 500 }] },
+      KHR_audio_emitter: {
+        emitters: [
+          {
+            name: "Cone",
+            type: "positional",
+            positional: { shapeType: "cone", refDistance: 1, maxDistance: 5, coneInnerAngle: 0.3, coneOuterAngle: 0.8 }
+          },
+          { name: "Global", type: "global" }
+        ]
+      },
+      KHR_audio_environment: { environments: [{ name: "Reverb" }] }
     }
   };
 

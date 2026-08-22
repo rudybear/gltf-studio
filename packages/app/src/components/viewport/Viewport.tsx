@@ -3,7 +3,7 @@ import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine
 import type { CameraPose, GizmoMode, PickResult } from "@gltf-studio/engine-api";
 import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-studio/editor-core";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
-import { lightNodeIndices, type GltfJsonShape } from "../../lib/gltf-scene";
+import { audioEmitterNodeIndices, audioZoneNodeIndices, lightNodeIndices, type GltfJsonShape } from "../../lib/gltf-scene";
 import { extractBinaryChunk } from "../../lib/audio-container.js";
 import { buildEmptySceneGlb } from "../../lib/empty-scene.js";
 import { PlayOverlay } from "./PlayOverlay";
@@ -234,21 +234,52 @@ export function Viewport(): JSX.Element {
     setStudioLightingEnabledState(next);
   }
 
-  // Full punctual-light control (RH-032, the shared editor-overlay seam):
-  // "show all lights" is a plain viewport-local toggle; the SELECTED light
-  // (if the current selection IS a light node) is always shown in addition,
-  // regardless of the toggle — both unioned into one `setEditorHelpers` call
-  // whenever the selection, the toggle, or the loaded scene itself changes.
-  const [showAllLightHelpers, setShowAllLightHelpers] = useState(false);
+  // Full punctual-light control (RH-032, the shared editor-overlay seam),
+  // generalized by the audio viewport helpers follow-up (RH-035, UX-314):
+  // ONE "show all helpers" toggle governs every kind (light, audio-emitter,
+  // audio-zone) — not a per-kind toggle — so a single boolean drives all
+  // three "all of kind" lookups below. Independent of the toggle, the
+  // CURRENTLY SELECTED node's own helper (whichever kind it is, if any) is
+  // always shown in addition, regardless of the toggle — both unioned into
+  // one `setEditorHelpers` call whenever the selection, the toggle, or the
+  // loaded scene itself changes.
+  const [showAllHelpers, setShowAllHelpers] = useState(false);
   useEffect(() => {
     if (!sceneReady) return;
     const json = document?.json as GltfJsonShape | undefined;
-    const nodeIndices = new Set<number>(showAllLightHelpers ? lightNodeIndices(json) : []);
-    if (selectedNodeIndex !== null && json?.nodes?.[selectedNodeIndex]?.extensions?.KHR_lights_punctual?.light !== undefined) {
-      nodeIndices.add(selectedNodeIndex);
+    const descriptors: Array<{ kind: "light" | "audio-emitter" | "audio-zone"; nodeIndex: number }> = [];
+    const seen = new Set<string>();
+    function addAll(kind: "light" | "audio-emitter" | "audio-zone", nodeIndices: number[]): void {
+      for (const nodeIndex of nodeIndices) {
+        const key = `${kind}:${nodeIndex}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        descriptors.push({ kind, nodeIndex });
+      }
     }
-    hostRef.current?.setEditorHelpers(Array.from(nodeIndices, (nodeIndex) => ({ kind: "light" as const, nodeIndex })));
-  }, [document, selectedNodeIndex, showAllLightHelpers, sceneReady, reloadSeq]);
+    if (showAllHelpers) {
+      addAll("light", lightNodeIndices(json));
+      addAll("audio-emitter", audioEmitterNodeIndices(json));
+      addAll("audio-zone", audioZoneNodeIndices(json));
+    }
+    if (selectedNodeIndex !== null) {
+      const selectedNode = json?.nodes?.[selectedNodeIndex];
+      if (selectedNode?.extensions?.KHR_lights_punctual?.light !== undefined) {
+        addAll("light", [selectedNodeIndex]);
+      }
+      const selectedEmitterExt = selectedNode?.extensions?.KHR_audio_emitter;
+      if (
+        selectedEmitterExt !== undefined &&
+        (typeof selectedEmitterExt.emitter === "number" || (Array.isArray(selectedEmitterExt.emitters) && selectedEmitterExt.emitters.length > 0))
+      ) {
+        addAll("audio-emitter", [selectedNodeIndex]);
+      }
+      if (selectedNode?.extensions?.KHR_audio_environment?.shape !== undefined) {
+        addAll("audio-zone", [selectedNodeIndex]);
+      }
+    }
+    hostRef.current?.setEditorHelpers(descriptors);
+  }, [document, selectedNodeIndex, showAllHelpers, sceneReady, reloadSeq]);
 
   // Mount/dispose lifecycle, once per component instance (RH-004..RH-010
   // make re-mount/dispose safe regardless, e.g. under React StrictMode's
@@ -717,11 +748,15 @@ export function Viewport(): JSX.Element {
               💡
             </button>
             <button
-              className={`btn icon-only${showAllLightHelpers ? " active" : ""}`}
-              data-testid="viewport.light-helpers-toggle"
-              title={showAllLightHelpers ? "Light helpers: showing all lights (click to show only the selection)" : "Light helpers: show all lights"}
-              aria-pressed={showAllLightHelpers}
-              onClick={() => setShowAllLightHelpers((v) => !v)}
+              className={`btn icon-only${showAllHelpers ? " active" : ""}`}
+              data-testid="viewport.helpers-toggle"
+              title={
+                showAllHelpers
+                  ? "Helpers: showing all lights, emitters, and zones (click to show only the selection)"
+                  : "Helpers: show all lights, emitters, and zones"
+              }
+              aria-pressed={showAllHelpers}
+              onClick={() => setShowAllHelpers((v) => !v)}
             >
               ✺
             </button>

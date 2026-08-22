@@ -78,6 +78,16 @@ describe("buildUsageIndex (UX-1100..1105)", () => {
     expect(index.get(1)?.[0]?.pathText).toBe("/extensions/KHR_audio_emitter/emitters/2/gain");
   });
 
+  it("reverse-resolves a KHR_audio_emitter emitter pointer to a MULTI-emitter node's owning scene node too (PR #59's .emitters array, UX-1103)", () => {
+    const json = docWithGraph(
+      [node({ declaration: 0, configuration: { pointer: { value: ["/extensions/KHR_audio_emitter/emitters/2/gain"] } } })],
+      [{ op: "pointer/set" }],
+      { nodes: [{}, { extensions: { KHR_audio_emitter: { emitters: [5, 2] } } }, {}] }
+    );
+    const index = buildUsageIndex(json);
+    expect(index.get(1)?.[0]?.pathText).toBe("/extensions/KHR_audio_emitter/emitters/2/gain");
+  });
+
   it("attributes animation/start to every distinct scene node its clip's channels target, deduplicated (UX-1102)", () => {
     const json = docWithGraph(
       [node({ declaration: 0, values: { animation: { value: [0] } } })],

@@ -92,7 +92,7 @@ export interface UsageAnimation {
 }
 
 export interface UsageDocJson {
-  nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number } } }>;
+  nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number; emitters?: number[] } } }>;
   animations?: UsageAnimation[];
   /** UX-1115: only read for an in-range bounds check (an out-of-range `/materials/{M}` pointer is omitted, UX-1105) — never for content. */
   materials?: Array<unknown>;
@@ -143,11 +143,22 @@ function literalValueNumber(node: UsageGraphNode, socket: string): number | unde
   return typeof raw === "number" ? raw : undefined;
 }
 
+/**
+ * Multi-emitter-aware (PR #59's `.emitters` array upgrade-on-second-add):
+ * a node owns EVERY emitter index it binds, singular `.emitter` or array
+ * `.emitters`, not just a first/singular one — a multi-emitter node's
+ * second/third emitter used to be unreachable here entirely, silently
+ * dropping its own "Used in behavior" rows under UX-1105's "omit rather
+ * than guess" policy even though the pointer itself is perfectly resolvable.
+ */
 function buildEmitterOwners(json: UsageDocJson): Map<number, number> {
   const owners = new Map<number, number>();
   (json.nodes ?? []).forEach((n, sceneNodeIndex) => {
-    const emitter = n.extensions?.KHR_audio_emitter?.emitter;
-    if (typeof emitter === "number" && !owners.has(emitter)) owners.set(emitter, sceneNodeIndex);
+    const ext = n.extensions?.KHR_audio_emitter;
+    const indices = Array.isArray(ext?.emitters) ? ext.emitters : typeof ext?.emitter === "number" ? [ext.emitter] : [];
+    for (const emitter of indices) {
+      if (!owners.has(emitter)) owners.set(emitter, sceneNodeIndex);
+    }
   });
   return owners;
 }

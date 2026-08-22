@@ -664,8 +664,11 @@ export interface AppState {
   /**
    * UX-1118: "On select → Play sound" — only ever offered (`UsageSection.tsx`
    * gates the menu item itself) when `nodeIndex`'s own
-   * `extensions.KHR_audio_emitter.emitter` is set. Wires an `event/onSelect`
-   * into a `pointer/set` targeting that emitter's own first
+   * `extensions.KHR_audio_emitter` binds at least one emitter (singular
+   * `.emitter` or PR #59's array-valued `.emitters`). Targets the FIRST
+   * bound emitter when there's more than one (a v1 simplicity choice — no
+   * chooser UI yet for a genuinely multi-emitter node). Wires an
+   * `event/onSelect` into a `pointer/set` targeting that emitter's own first
    * `sources[]` entry's nonstandard-but-established one-shot trigger pointer,
    * `/extensions/KHR_audio_emitter/sources/{S}/playing`
    * (`specs/engine-api.md`'s `AH-pointer-value-tbd` resolution) — as one
@@ -1892,8 +1895,17 @@ export const useAppStore = create<AppState>((set, get) => {
   attachOnSelectPlaySound(nodeIndex) {
     const { history, dispatchCommand, setActiveDockTab, selectGraphNode, requestGraphNodeFocus, pushToast } = get();
     if (!history) return;
-    const json = history.document.json as { nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number } } }>; extensions?: { KHR_audio_emitter?: { emitters?: Array<{ sources?: number[] }> } } };
-    const emitterIndex = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter?.emitter;
+    const json = history.document.json as {
+      nodes?: Array<{ extensions?: { KHR_audio_emitter?: { emitter?: number; emitters?: number[] } } }>;
+      extensions?: { KHR_audio_emitter?: { emitters?: Array<{ sources?: number[] }> } };
+    };
+    // Multi-emitter-aware (PR #59's `.emitters` array upgrade-on-second-add):
+    // the FIRST bound emitter, singular `.emitter` or array `.emitters[0]` —
+    // same normalization as `UsageSection.tsx`'s own `canPlaySound` gate,
+    // which must agree with this resolution or the menu item could show up
+    // enabled and then find nothing to trigger here.
+    const emitterExt = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter;
+    const emitterIndex = typeof emitterExt?.emitter === "number" ? emitterExt.emitter : emitterExt?.emitters?.[0];
     const sourceIndex = emitterIndex !== undefined ? json.extensions?.KHR_audio_emitter?.emitters?.[emitterIndex]?.sources?.[0] : undefined;
     if (sourceIndex === undefined) {
       pushToast("This node has no audio emitter source to trigger.");

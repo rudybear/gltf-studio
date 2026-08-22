@@ -196,7 +196,7 @@ test.describe("Neutral studio-lighting rig AUTO policy + toggle (specs/ux-viewpo
   });
 });
 
-test.describe("Light helpers: selected-always + all-lights toggle, never exported (RH-032..RH-034, UX-314)", () => {
+test.describe("Light helpers: selected-always + shared all-helpers toggle, never exported (RH-032..RH-034, RH-035, UX-314)", () => {
   test("selecting a light node always shows its helper regardless of the toggle; the 'all lights' toggle additionally shows every light's helper", async ({ page }) => {
     await importLightsFixture(page);
     await page.waitForFunction(() => window.__gltfStudioTest?.isReady() === true);
@@ -216,14 +216,14 @@ test.describe("Light helpers: selected-always + all-lights toggle, never exporte
     await expect.poll(() => page.evaluate(() => window.__gltfStudioTest!.getEditorHelperCount())).toBe(0);
 
     // Toggle "all lights" on: both lights (Spot + Sun) get a helper, with nothing selected.
-    await page.getByTestId("viewport.light-helpers-toggle").click();
-    await expect(page.getByTestId("viewport.light-helpers-toggle")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("viewport.helpers-toggle").click();
+    await expect(page.getByTestId("viewport.helpers-toggle")).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => page.evaluate(() => window.__gltfStudioTest!.getEditorHelperCount())).toBe(2);
 
     // Toggling back off, with a light still selected, drops back to just the selection's own helper.
     await page.getByTestId("scene-tree.row.2").click(); // "Sun".
-    await page.getByTestId("viewport.light-helpers-toggle").click();
-    await expect(page.getByTestId("viewport.light-helpers-toggle")).toHaveAttribute("aria-pressed", "false");
+    await page.getByTestId("viewport.helpers-toggle").click();
+    await expect(page.getByTestId("viewport.helpers-toggle")).toHaveAttribute("aria-pressed", "false");
     await expect.poll(() => page.evaluate(() => window.__gltfStudioTest!.getEditorHelperCount())).toBe(1);
   });
 
@@ -234,7 +234,7 @@ test.describe("Light helpers: selected-always + all-lights toggle, never exporte
     const [download1] = await Promise.all([page.waitForEvent("download"), page.getByTestId("topbar.export").click()]);
     const baseline = readFileSync((await download1.path())!);
 
-    await page.getByTestId("viewport.light-helpers-toggle").click(); // all-lights helpers ON.
+    await page.getByTestId("viewport.helpers-toggle").click(); // all-lights helpers ON.
     await page.getByTestId("scene-tree.row.1").click(); // plus a selection, exercising the "selected always" path too.
     await expect.poll(() => page.evaluate(() => window.__gltfStudioTest!.getEditorHelperCount())).toBe(2);
 

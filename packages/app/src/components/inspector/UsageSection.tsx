@@ -20,7 +20,10 @@ import type { GltfJsonShape } from "../../lib/gltf-scene";
  * `attachOnSelectPointerNode`/`attachOnSelectPlaySound`/
  * `attachOnSelectPlayAnimation`), landing in and focusing the Behavior
  * graph. "Play sound" is only offered when this node's own
- * `extensions.KHR_audio_emitter.emitter` is set; "Play animation…" expands
+ * `extensions.KHR_audio_emitter` binds at least one emitter — singular
+ * `.emitter` or PR #59's array-valued `.emitters` (targets the FIRST bound
+ * emitter's source when there's more than one, a v1 simplicity choice, see
+ * `canPlaySound`'s own doc comment below); "Play animation…" expands
  * a submenu of the document's own animation clips (same submenu-as-one-
  * entry convention `SceneTree.tsx`'s "Mesh ▸" add-menu item already uses).
  */
@@ -39,7 +42,15 @@ export function UsageSection({ nodeIndex, json }: { nodeIndex: number; json: Glt
   const usageIndexes = useUsageIndexes(json);
   const refs: UsageRef[] = usageIndexes.nodes.get(nodeIndex) ?? NO_USAGE_REFS;
 
-  const emitterIndex = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter?.emitter;
+  // Multi-emitter-aware (PR #59's `.emitters` array upgrade-on-second-add):
+  // a node's FIRST bound emitter, singular `.emitter` or array `.emitters[0]`
+  // — the same normalization `Inspector.tsx`/`web-audio-host.ts` already
+  // apply. "On select → Play sound" (UX-1118) targets this first emitter's
+  // own source; a node with a second/third emitter has no chooser here yet
+  // (tracked as a known v1 simplicity gap, not a silent drop — the FIRST
+  // emitter's own sound is still a real, useful default).
+  const emitterExt = json.nodes?.[nodeIndex]?.extensions?.KHR_audio_emitter;
+  const emitterIndex = typeof emitterExt?.emitter === "number" ? emitterExt.emitter : emitterExt?.emitters?.[0];
   const canPlaySound = emitterIndex !== undefined;
   const animations = json.animations ?? [];
 

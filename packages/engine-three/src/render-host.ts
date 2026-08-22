@@ -79,6 +79,197 @@ function buildLightHelper(light: THREE.Light): THREE.Object3D | null {
   return null;
 }
 
+// ---------------------------------------------------------------------
+// Audio viewport helpers (RH-035, specs/render-host.md — the audio
+// viewport helpers follow-up to RH-032..034's shared editor-overlay seam).
+// Minimal local JSON-shape slices (mirrors `documentHasPunctualLights`'s
+// own inline-cast convention above) rather than importing the app's own
+// `GltfJsonShape` — engine-three has no dependency on `@gltf-studio/app`.
+// ---------------------------------------------------------------------
+
+/** Cyan — distinguishes an audio-emitter helper from a light helper's own light-colored wireframe and from an audio-zone helper's violet. */
+const AUDIO_EMITTER_HELPER_COLOR = 0x22d3ee;
+/** Violet — a zone volume is visually a "region", not a "thing at a point", so it gets a distinct hue from the emitter helpers it may overlap in the viewport. */
+const AUDIO_ZONE_HELPER_COLOR = 0x8b5cf6;
+
+interface AudioPositionalJson {
+  shapeType?: string;
+  refDistance?: number;
+  maxDistance?: number;
+  coneInnerAngle?: number;
+  coneOuterAngle?: number;
+}
+
+interface AudioEmitterJson {
+  type?: string;
+  positional?: AudioPositionalJson;
+}
+
+interface AudioZoneShapeJson {
+  type?: string;
+  size?: [number, number, number];
+  radius?: number;
+}
+
+type NodeExtensionsJson = {
+  extensions?: {
+    KHR_audio_emitter?: { emitter?: number; emitters?: number[] };
+    KHR_audio_environment?: { shape?: AudioZoneShapeJson };
+  };
+};
+
+/** Multi-emitter-aware (PR #59's `.emitters` array upgrade-on-second-add, same normalization `web-audio-host.ts`/`Inspector.tsx` already apply): a node's bound emitter REGISTRY indices, singular-or-array. */
+function nodeEmitterIndices(nodeJson: NodeExtensionsJson | undefined): number[] {
+  const ext = nodeJson?.extensions?.KHR_audio_emitter;
+  if (Array.isArray(ext?.emitters)) return ext.emitters;
+  if (typeof ext?.emitter === "number") return [ext.emitter];
+  return [];
+}
+
+/** Resolves a node's bound emitter indices against the document's `extensions.KHR_audio_emitter.emitters[]` registry — every entry that actually resolves, silently dropping any stale/out-of-range index rather than throwing (same tolerance this whole seam already gives an unresolvable `nodeIndex`). */
+function emittersForNode(json: unknown, nodeJson: NodeExtensionsJson | undefined): AudioEmitterJson[] {
+  const registry =
+    (json as { extensions?: { KHR_audio_emitter?: { emitters?: AudioEmitterJson[] } } } | null)?.extensions?.KHR_audio_emitter?.emitters ?? [];
+  const emitters: AudioEmitterJson[] = [];
+  for (const index of nodeEmitterIndices(nodeJson)) {
+    const emitter = registry[index];
+    if (emitter) emitters.push(emitter);
+  }
+  return emitters;
+}
+
+/** A node's `KHR_audio_environment` ZONE shape, if this node carries one (the same extension slot can instead carry a LISTENER binding — `specs/ux-inspector.md` UX-421/422 — which has no `shape` and is not a zone, so returns `null` here). */
+function zoneShapeForNode(nodeJson: NodeExtensionsJson | undefined): AudioZoneShapeJson | null {
+  return nodeJson?.extensions?.KHR_audio_environment?.shape ?? null;
+}
+
+/**
+ * Shared visual language for every "shape volume" helper in this file (range
+ * sphere, cone wedge, zone sphere/box): a translucent, non-depth-writing
+ * fill (so overlapping helpers, or a helper around/behind real geometry,
+ * stay readable rather than fully occluding/being occluded) PAIRED with a
+ * fully-opaque solid-color wireframe outline in the SAME hue — the outline
+ * is what makes the shape's true edges legible (a translucent fill alone on
+ * a convex shape like a sphere reads as a nearly-flat tinted disc from most
+ * angles), and, as a side effect, gives e2e a pixel-exact color to sample
+ * for a "this helper is visible" check (the fill's own blended color shifts
+ * with whatever is behind it, but a wire pixel is always the pure hue).
+ */
+function buildTranslucentVolume(geometry: THREE.BufferGeometry, color: number, fillOpacity: number): THREE.Object3D {
+  const group = new THREE.Group();
+  const fillMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: fillOpacity, depthWrite: false, side: THREE.DoubleSide });
+  group.add(new THREE.Mesh(geometry, fillMaterial));
+  const wireMaterial = new THREE.LineBasicMaterial({ color });
+  group.add(new THREE.LineSegments(new THREE.WireframeGeometry(geometry), wireMaterial));
+  return group;
+}
+
+/** A cone volume whose APEX sits at the local origin and opens along local -Z (this project's own forward convention for an oriented node — see `web-audio-host.ts`'s `quatRotate([0, 0, -1], rotation)` for the emitter-orientation computation this mirrors), sized from a full apex angle in RADIANS (the raw KHR_audio_emitter unit — `AudioSection.tsx` edits `coneInnerAngle`/`coneOuterAngle` as raw radians with no degree conversion, so this helper must not convert either). */
+function buildConeWedge(fullAngleRad: number, height: number, color: number, fillOpacity: number): THREE.Object3D {
+  const clampedAngle = Math.min(Math.max(fullAngleRad, 0.01), Math.PI * 0.98); // keeps tan() finite for a degenerate near-0/near-180 authored angle.
+  const baseRadius = height * Math.tan(clampedAngle / 2);
+  const geometry = new THREE.ConeGeometry(baseRadius, height, 24, 1, true);
+  geometry.rotateX(Math.PI / 2); // stock cone axis is +Y (apex up); this maps apex toward +Z...
+  geometry.translate(0, 0, -height / 2); // ...then this re-centers so the apex lands at the origin and the base extends toward -Z (forward).
+  return buildTranslucentVolume(geometry, color, fillOpacity);
+}
+
+function buildRangeSphere(radius: number, color: number): THREE.Object3D {
+  return buildTranslucentVolume(new THREE.SphereGeometry(radius, 16, 12), color, 0.12);
+}
+
+/** A small stand-in glyph for a `type: "global"` (non-positional) emitter — no distance-model geometry applies (a global emitter has no panner), so it just needs SOME visible marker at the node, in the same visual language (wireframe, emitter-colored) as the positional shapes above. */
+function buildSpeakerGlyph(color: number): THREE.Object3D {
+  const geometry = new THREE.OctahedronGeometry(0.15, 0);
+  const material = new THREE.MeshBasicMaterial({ color, wireframe: true });
+  return new THREE.Mesh(geometry, material);
+}
+
+/**
+ * One emitter's own helper geometry: a range sphere sized from the
+ * positional distance model's ref/maxDistance (falls back to a multiple of
+ * `refDistance` when `maxDistance` is the JSON's own "unbounded" `0`
+ * default, `AudioSection.tsx`'s own fallback — a real 0 or unset max would
+ * otherwise draw a degenerate/invisible sphere), a cone wedge ADDITIONALLY
+ * for a `shapeType: "cone"` emitter (outer angle solid, inner angle a
+ * fainter nested wedge when it's narrower than the outer one), or the
+ * speaker glyph for a `type: "global"` emitter.
+ */
+function buildEmitterShapeHelper(emitter: AudioEmitterJson): THREE.Object3D {
+  const group = new THREE.Group();
+  if (emitter.type !== "positional") {
+    group.add(buildSpeakerGlyph(AUDIO_EMITTER_HELPER_COLOR));
+    return group;
+  }
+  const positional = emitter.positional ?? {};
+  const refDistance = positional.refDistance ?? 1;
+  const maxDistance = positional.maxDistance ?? 0;
+  const rangeRadius = maxDistance > 0 ? maxDistance : refDistance * 4;
+  group.add(buildRangeSphere(rangeRadius, AUDIO_EMITTER_HELPER_COLOR));
+  if (positional.shapeType === "cone") {
+    const outerAngle = positional.coneOuterAngle ?? 0;
+    const innerAngle = positional.coneInnerAngle ?? 0;
+    group.add(buildConeWedge(outerAngle, rangeRadius, AUDIO_EMITTER_HELPER_COLOR, 0.15));
+    if (innerAngle > 0 && innerAngle < outerAngle) {
+      group.add(buildConeWedge(innerAngle, rangeRadius, AUDIO_EMITTER_HELPER_COLOR, 0.25));
+    }
+  }
+  return group;
+}
+
+/** A translucent volume for a zone's own sphere/box shape — `size` is the FULL box extent (`AudioEnvironmentSection.tsx`'s own authoring unit; `BoxGeometry`'s width/height/depth are full extents too, so no halving needed here), matching that section's own radius-5/size-[1,1,1] defaults for an entry missing either field. */
+function buildZoneVolumeHelper(shape: AudioZoneShapeJson): THREE.Object3D {
+  const geometry: THREE.BufferGeometry =
+    shape.type === "box" ? new THREE.BoxGeometry(...(shape.size ?? [1, 1, 1])) : new THREE.SphereGeometry(shape.radius ?? 5, 20, 14);
+  return buildTranslucentVolume(geometry, AUDIO_ZONE_HELPER_COLOR, 0.15);
+}
+
+/**
+ * Wraps a `kind`'s own static shape geometry (built once from the document
+ * JSON, matching `buildEmitterShapeHelper`/`buildZoneVolumeHelper` above)
+ * with a per-frame `update()` that re-copies the REFERENCING node's current
+ * world position/orientation — needed because, unlike a light (whose own
+ * THREE.Light object IS the thing `PointLightHelper`/etc. track directly),
+ * an audio emitter/zone has no live three.js object of its own; this helper
+ * is added as a sibling under `editorHelperGroup` (RH-034's snapshot-hide
+ * group), not as the node's own child, so it must track the node's world
+ * transform explicitly, every frame, the same way `buildLightHelper`'s
+ * stock three.js helpers already do for a light. Node SCALE is deliberately
+ * not applied (only position + orientation) — this project's other editor
+ * overlays (gizmo, highlight boxes) don't inherit a node's own scale into
+ * their own visual size either, and doing so here would distort a sphere
+ * into an ellipsoid for a non-uniformly-scaled node, which reads as a bug,
+ * not a feature.
+ */
+class AudioHelperObject extends THREE.Group {
+  constructor(private readonly trackedNode: THREE.Object3D) {
+    super();
+  }
+
+  update(): void {
+    this.trackedNode.updateWorldMatrix(true, false);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    this.trackedNode.matrixWorld.decompose(position, quaternion, scale);
+    this.position.copy(position);
+    this.quaternion.copy(quaternion);
+  }
+
+  /** Disposes every descendant mesh/line's own geometry + material — RH-033's leak-discipline bar, same as `buildLightHelper`'s stock helpers' own native `dispose()`. */
+  dispose(): void {
+    this.traverse((child) => {
+      const drawable = child as unknown as { geometry?: { dispose?: () => void }; material?: THREE.Material | THREE.Material[] };
+      drawable.geometry?.dispose?.();
+      if (Array.isArray(drawable.material)) {
+        for (const material of drawable.material) material.dispose();
+      } else {
+        drawable.material?.dispose?.();
+      }
+    });
+  }
+}
+
 function isEffectivelyVisible(object: THREE.Object3D): boolean {
   let current: THREE.Object3D | null = object;
   while (current) {
@@ -174,13 +365,17 @@ export class ThreeRenderHost implements RenderHost {
     for (const helper of this.referenceHighlightHelpers) {
       helper.update();
     }
-    // RH-032: PointLightHelper/SpotLightHelper/DirectionalLightHelper each
-    // rebuild their own wireframe geometry from the live light's CURRENT
-    // color/cone/etc on `.update()` — called every frame here (same
+    // RH-032/RH-035: PointLightHelper/SpotLightHelper/DirectionalLightHelper
+    // each rebuild their own wireframe geometry from the live light's
+    // CURRENT color/cone/etc on `.update()`; `AudioHelperObject.update()`
+    // re-copies its referencing node's current world position/orientation
+    // instead (its own shape geometry is static once built — a document
+    // change rebuilds it fresh via a whole new `setEditorHelpers` call, see
+    // that method's own doc comment). Called every frame here (same
     // convention as the highlight/hover/reference-highlight helpers just
-    // above) so a `patchScene`/`applyPointer` light-property write shows up
-    // in the helper's own shape immediately, with no separate "refresh the
-    // helpers" call needed from `applyNonStructuralPatch`.
+    // above) so a live gizmo drag or `patchScene`/`applyPointer` write shows
+    // up in the helper immediately, with no separate "refresh the helpers"
+    // call needed from `applyNonStructuralPatch`.
     for (const helper of this.editorHelperObjects.values()) {
       (helper as { update?: () => void }).update?.();
     }
@@ -811,11 +1006,14 @@ export class ThreeRenderHost implements RenderHost {
    * and unresolvable `nodeIndex`es are silently skipped, never thrown —
    * same tolerance `setHighlight`/`attachGizmo` already establish for a
    * `nodeIndex` that doesn't (yet) exist in the currently loaded scene.
-   * v1 only draws `"light"` (a `PointLightHelper`/`SpotLightHelper`/
+   * Draws `"light"` (a `PointLightHelper`/`SpotLightHelper`/
    * `DirectionalLightHelper` per the live light's own current type,
-   * `buildLightHelper`) — every other `kind` (e.g. a future
-   * `"audio-emitter"`/`"audio-listener"`) is ignored today, forward-
-   * compatible with `EditorHelperKind`'s own "open string union" design.
+   * `buildLightHelper`), `"audio-emitter"` (range/cone/speaker-glyph per
+   * the node's own bound emitter(s), `buildEmitterShapeHelper`), and
+   * `"audio-zone"` (a translucent sphere/box volume per the node's own
+   * `KHR_audio_environment` zone shape, `buildZoneVolumeHelper`) — RH-035.
+   * Every other `kind` is ignored, forward-compatible with
+   * `EditorHelperKind`'s own "open string union" design.
    */
   setEditorHelpers(descriptors: EditorHelperDescriptor[]): void {
     if (!this.scene || !this.editorHelperGroup) {
@@ -826,20 +1024,49 @@ export class ThreeRenderHost implements RenderHost {
       return; // no scene loaded yet — nothing resolvable, same as setHighlight's own no-tables early return.
     }
     for (const descriptor of descriptors) {
-      if (descriptor.kind !== "light") {
-        continue;
-      }
-      const light = this.lightObjectForNode(descriptor.nodeIndex);
-      if (!light) {
-        continue;
-      }
-      const helper = buildLightHelper(light);
+      const helper = this.buildEditorHelper(descriptor);
       if (!helper) {
         continue;
       }
       this.editorHelperGroup.add(helper);
       this.editorHelperObjects.set(`${descriptor.kind}:${descriptor.nodeIndex}`, helper);
     }
+  }
+
+  /** Dispatches one descriptor to its own kind's builder, resolving both the live node object (for position tracking) and the current document JSON (for shape/property data) — `null` for an unrecognized kind, an unresolvable `nodeIndex`, or a resolvable node that simply carries no matching data (e.g. an `"audio-emitter"` descriptor for a node with no `KHR_audio_emitter` binding at all). */
+  private buildEditorHelper(descriptor: EditorHelperDescriptor): THREE.Object3D | null {
+    if (descriptor.kind === "light") {
+      const light = this.lightObjectForNode(descriptor.nodeIndex);
+      return light ? buildLightHelper(light) : null;
+    }
+    if (descriptor.kind === "audio-emitter" || descriptor.kind === "audio-zone") {
+      const node = this.tables?.nodeByIndex[descriptor.nodeIndex];
+      const nodeJson = (this.currentJson as { nodes?: NodeExtensionsJson[] } | null)?.nodes?.[descriptor.nodeIndex];
+      if (!node || !nodeJson) {
+        return null;
+      }
+      if (descriptor.kind === "audio-emitter") {
+        const emitters = emittersForNode(this.currentJson, nodeJson);
+        if (emitters.length === 0) {
+          return null;
+        }
+        const helper = new AudioHelperObject(node);
+        for (const emitter of emitters) {
+          helper.add(buildEmitterShapeHelper(emitter));
+        }
+        helper.update();
+        return helper;
+      }
+      const shape = zoneShapeForNode(nodeJson);
+      if (!shape) {
+        return null;
+      }
+      const helper = new AudioHelperObject(node);
+      helper.add(buildZoneVolumeHelper(shape));
+      helper.update();
+      return helper;
+    }
+    return null;
   }
 
   /**

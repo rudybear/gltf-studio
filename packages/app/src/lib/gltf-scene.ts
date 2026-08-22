@@ -258,6 +258,44 @@ export function lightNodeIndices(json: GltfJsonShape | undefined): number[] {
 }
 
 /**
+ * Audio viewport helpers (specs/render-host.md RH-035): every node index
+ * bound to at least one `KHR_audio_emitter` entry — singular `.emitter` or
+ * PR #59's array-valued `.emitters`, either counts (mirrors `Inspector.tsx`/
+ * `web-audio-host.ts`'s own dual-shape normalization). Same "all lights"-
+ * toggle role `lightNodeIndices` plays for the "light" kind, `Viewport.tsx`'s
+ * generalized helpers toggle (`UX-314`).
+ */
+export function audioEmitterNodeIndices(json: GltfJsonShape | undefined): number[] {
+  const nodes = json?.nodes ?? [];
+  const indices: number[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const ext = nodes[i]?.extensions?.KHR_audio_emitter;
+    if (ext !== undefined && (typeof ext.emitter === "number" || (Array.isArray(ext.emitters) && ext.emitters.length > 0))) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+/**
+ * Audio viewport helpers (specs/render-host.md RH-035): every node index
+ * carrying a `KHR_audio_environment` ZONE binding — `shape` set (a reverb
+ * zone, UX-421) — as opposed to a LISTENER binding on the same extension
+ * slot (`listener` set, no `shape`, typically a camera node, UX-422), which
+ * is not a zone and gets no volume helper.
+ */
+export function audioZoneNodeIndices(json: GltfJsonShape | undefined): number[] {
+  const nodes = json?.nodes ?? [];
+  const indices: number[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i]?.extensions?.KHR_audio_environment?.shape !== undefined) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
+/**
  * Flattens the default scene's node graph into a depth-first row list
  * (UX-200): each row knows its depth (for 16px/level indent) and whether it
  * has children (for the twisty vs. spacer, UX-200). Does not itself apply
