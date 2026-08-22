@@ -27,7 +27,8 @@ export const playControllerContractObligations: string[] = [
   "stop() after stop() (already stopped) does not throw",
   "inspect() reports time/variables/sentEvents consistent with ticks that have occurred",
   "onDiagnostic handlers fire for diagnostics raised during play",
-  "the unsubscribe function returned by onDiagnostic stops further delivery"
+  "the unsubscribe function returned by onDiagnostic stops further delivery",
+  "production default scheduler (real requestAnimationFrame/setTimeout) ticks the engine eventually (smoke)"
 ];
 
 /**
@@ -157,10 +158,92 @@ export interface PlayControllerHarness {
   renderHost: RenderHostSpy;
   /** The exact document JSON the harness configured the controller's `getDocumentJson()` to return — tests compare this against `renderHost.loadSceneCalls` entries. */
   documentJson: unknown;
+  /**
+   * The `ManualFrameScheduler` (see below) `controller` was constructed
+   * with. Every PRECISE timing assertion in this contract (pause/resume's
+   * "ticking did/didn't happen") drives ticks explicitly through this
+   * rather than depending on real `requestAnimationFrame`/`setTimeout`
+   * cadence — see `createManualFrameScheduler`'s doc comment for why.
+   */
+  scheduler: ManualFrameScheduler;
 }
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * A structural match for `@gltf-studio/play`'s own `FrameScheduler`
+ * interface (this package cannot import it — see `contractGraphJson`'s doc
+ * comment above on the one-way dependency direction — but TypeScript's
+ * structural typing makes an object of this shape assignable to
+ * `PlayControllerDeps.scheduler` regardless), plus one test-only control
+ * method (`fireFrame`) and one test-only observer (`hasPendingFrame`)
+ * neither real implementation has.
+ */
+export interface ManualFrameScheduler {
+  now(): number;
+  requestFrame(callback: (now: number) => void): number;
+  cancelFrame(handle: number): void;
+  /** True while a `requestFrame` callback is queued and not yet fired or cancelled. */
+  hasPendingFrame(): boolean;
+  /**
+   * Advances the manual clock by `dtMs` (default: one 60fps frame interval)
+   * and synchronously invokes the currently-pending `requestFrame` callback
+   * with the new `now()`. Throws if nothing is pending (a test asserting
+   * "no more ticks should happen" should check `hasPendingFrame()` instead
+   * of calling this and expecting it to silently no-op).
+   */
+  fireFrame(dtMs?: number): void;
+}
+
+/**
+ * Real-Chromium/browser-mode (`packages/play/test/contract.test.ts`) and
+ * plain-Node (`packages/play/src/contract.test.ts`) contract runs both
+ * flaked under CPU contention before this scheduler existed: the contract
+ * used to `await` a fixed real-clock delay (e.g. 80ms) and then assert
+ * either equality ("no tick happened") or `toBeGreaterThan` ("a tick did
+ * happen") against `PlayController.inspect().time`. Under load, a headless
+ * Chromium's `requestAnimationFrame` (and Node's `setTimeout` scheduler
+ * fallback) can simply not fire within an arbitrary wall-clock window —
+ * that isn't a bug in `PlayController`, just an environment that got busy —
+ * so `toBeGreaterThan(pausedTime)` failed with `0 > 0` under contention (see
+ * this fix's PR description for the exact reproduction). Root cause is
+ * READINESS/DETERMINISM, not a wider tolerance or a retry: this manual
+ * scheduler lets every precise assertion below drive the exact tick it
+ * needs via `fireFrame()` and check `hasPendingFrame()` for "did
+ * pause()/resume() (de)schedule the next frame" instead of inferring it
+ * from real elapsed time. The one remaining real-scheduler assertion
+ * (`makeRealSchedulerHarness`, below) is deliberately loose: "ticks happen
+ * at all, eventually" via `expect.poll` with a generous deadline, proving
+ * the production `createDefaultScheduler()` wiring for real without
+ * depending on hitting a fixed window.
+ */
+export function createManualFrameScheduler(): ManualFrameScheduler {
+  let now = 0;
+  let nextHandle = 1;
+  let pending: { handle: number; callback: (now: number) => void } | null = null;
+  return {
+    now: () => now,
+    requestFrame(callback) {
+      const handle = nextHandle++;
+      pending = { handle, callback };
+      return handle;
+    },
+    cancelFrame(handle) {
+      if (pending?.handle === handle) {
+        pending = null;
+      }
+    },
+    hasPendingFrame() {
+      return pending !== null;
+    },
+    fireFrame(dtMs = 1000 / 60) {
+      if (!pending) {
+        throw new Error("createManualFrameScheduler: fireFrame() called with no pending requestFrame() callback.");
+      }
+      now += dtMs;
+      const { callback } = pending;
+      pending = null;
+      callback(now);
+    }
+  };
 }
 
 /**
@@ -206,7 +289,20 @@ function canResolveRuntimeLibImportMap(): boolean {
   }
 }
 
-export function describePlayControllerContract(makeHarness: () => PlayControllerHarness): void {
+export function describePlayControllerContract(
+  makeHarness: () => PlayControllerHarness,
+  /**
+   * Builds a controller using the REAL production `FrameScheduler`
+   * (`createDefaultScheduler()` — real `requestAnimationFrame` in a
+   * browser, a ~60fps `setTimeout` fallback in Node) for exactly ONE loose
+   * smoke assertion ("ticks happen at all, eventually"); every other
+   * assertion in this suite drives ticks through `makeHarness()`'s
+   * `ManualFrameScheduler` instead (see that type's doc comment for why).
+   * Optional so a consumer that hasn't wired a second harness factory yet
+   * degrades to skipping the smoke test rather than hard-failing.
+   */
+  makeRealSchedulerHarness?: () => Pick<PlayControllerHarness, "controller">
+): void {
   // Node can't do this at all (ERR_UNSUPPORTED_ESM_URL_SCHEME) — a DOM is a
   // prerequisite — but a DOM alone isn't sufficient: only run this
   // obligation for real when the current document's import map can actually
@@ -239,24 +335,39 @@ export function describePlayControllerContract(makeHarness: () => PlayController
     );
 
     it("pause stops ticking until resume is called", async () => {
-      const { controller } = makeHarness();
+      const { controller, scheduler } = makeHarness();
       await controller.start({ engine: "interpreter" });
-      await wait(80);
+      scheduler.fireFrame();
+      const beforePause = controller.inspect().time;
       controller.pause();
-      const pausedTime = controller.inspect().time;
-      await wait(80);
-      expect(controller.inspect().time).toBe(pausedTime);
+      // Direct proof no more ticks will happen: pause() must not leave a
+      // frame request in flight, rather than inferring "no ticking" from
+      // the ABSENCE of a time change over an arbitrary real-clock wait
+      // (that inference is sound either way, but the real-clock wait it
+      // used to depend on is what flaked under CPU contention pre-fix —
+      // see createManualFrameScheduler's doc comment).
+      expect(scheduler.hasPendingFrame()).toBe(false);
+      expect(controller.inspect().time).toBe(beforePause);
       await controller.stop();
     });
 
     it("resume continues ticking from where pause left off", async () => {
-      const { controller } = makeHarness();
+      const { controller, scheduler } = makeHarness();
       await controller.start({ engine: "interpreter" });
-      await wait(80);
+      scheduler.fireFrame();
       controller.pause();
       const pausedTime = controller.inspect().time;
       controller.resume();
-      await wait(80);
+      // resume() must immediately re-arm ticking — assert the scheduler has
+      // a pending frame request queued (proof ticking resumed) before
+      // manually driving it, rather than depending on real rAF/setTimeout
+      // cadence firing within an arbitrary wall-clock window (the exact
+      // mechanism behind this suite's recurring real-Chromium CI flake:
+      // under CPU contention, zero ticks could land within the old fixed
+      // wait, so `inspect().time` stayed equal to `pausedTime` and
+      // `toBeGreaterThan` failed with "0 > 0").
+      expect(scheduler.hasPendingFrame()).toBe(true);
+      scheduler.fireFrame();
       expect(controller.inspect().time).toBeGreaterThan(pausedTime);
       await controller.stop();
     });
@@ -278,9 +389,9 @@ export function describePlayControllerContract(makeHarness: () => PlayController
     });
 
     it("stop() contractually reloads the scene snapshot (PC-003)", async () => {
-      const { controller, renderHost, documentJson } = makeHarness();
+      const { controller, renderHost, documentJson, scheduler } = makeHarness();
       await controller.start({ engine: "interpreter" });
-      await wait(20);
+      scheduler.fireFrame();
       const before = renderHost.loadSceneCalls.length;
       await controller.stop();
       expect(renderHost.loadSceneCalls.length).toBe(before + 1);
@@ -342,5 +453,26 @@ export function describePlayControllerContract(makeHarness: () => PlayController
       expect(callCount).toBe(countAtUnsubscribe);
       await controller.stop();
     });
+
+    // it.skip (not it.todo): a consumer that hasn't wired a
+    // makeRealSchedulerHarness second factory yet just skips this one
+    // instead of failing — every consumer as of this fix (both
+    // packages/play contract.test.ts files) does provide it. Deliberately
+    // loose (expect.poll with a generous deadline, "greater than 0" rather
+    // than an exact tick count or dt value) — this is the ONE assertion in
+    // the suite allowed to depend on real requestAnimationFrame/setTimeout
+    // cadence, proving createDefaultScheduler()'s production wiring
+    // actually ticks the engine for real. Every assertion that needs
+    // PRECISE tick timing uses makeHarness()'s ManualFrameScheduler instead
+    // (see that type's doc comment for the CI flake this split fixes).
+    (makeRealSchedulerHarness ? it : it.skip)(
+      "production default scheduler (real requestAnimationFrame/setTimeout) ticks the engine eventually (smoke)",
+      async () => {
+        const { controller } = makeRealSchedulerHarness!();
+        await controller.start({ engine: "interpreter" });
+        await expect.poll(() => controller.inspect().time, { timeout: 4000, interval: 25 }).toBeGreaterThan(0);
+        await controller.stop();
+      }
+    );
   });
 }
