@@ -107,6 +107,57 @@ test.describe("audio authoring: emitter positional physics + sources (specs/ux-i
     expect(json.extensions.KHR_audio_emitter.emitters[0].gain).toBe(0.8); // emitter's own gain untouched -- separate root array.
   });
 
+  test("Sources sub-list: Source Type toggle switches source 0 between Clip and Oscillator, authoring/clearing extensions.KHR_audio_graph.oscillator (r2, specs/ux-inspector.md UX-424)", async ({
+    page
+  }) => {
+    await expect(page.getByTestId("inspector.audio.source.0.type-select")).toHaveValue("clip");
+    await expect(page.getByTestId("inspector.audio.source.0.clip")).toBeVisible();
+    await expect(page.getByTestId("inspector.audio.source.0.playback-rate")).toBeVisible();
+    await expect(page.getByTestId("inspector.audio.source.0.oscillator.frequency")).toHaveCount(0);
+
+    await page.getByTestId("inspector.audio.source.0.type-select").selectOption("oscillator");
+
+    // r2: switching to Oscillator drops `audio`, hides Playback Rate/Loop (declared-ignored for an
+    // oscillator source), and reveals the oscillator payload fields, schema-valid immediately (a
+    // sensible default waveform/frequency, no forced-in `periodicWave`).
+    await expect(page.getByTestId("inspector.audio.source.0.clip")).toHaveCount(0);
+    await expect(page.getByTestId("inspector.audio.source.0.playback-rate")).toHaveCount(0);
+    await expect(page.getByTestId("inspector.audio.source.0.loop")).toHaveCount(0);
+    await expect(page.getByTestId("inspector.audio.source.0.oscillator.type")).toHaveValue("sine");
+    await expect(page.getByTestId("inspector.audio.source.0.oscillator.frequency")).toHaveValue("440");
+    await expect(page.getByTestId("inspector.audio.source.0.oscillator.periodicWave.real")).toHaveCount(0); // hidden until type is "custom"
+
+    type OscillatorSourceDoc = {
+      extensions: { KHR_audio_emitter: { sources: Array<{ audio?: number; extensions?: { KHR_audio_graph?: { oscillator?: { type?: string; frequency?: number; periodicWave?: unknown } } } }> } };
+    };
+    let json = (await documentJson(page)) as OscillatorSourceDoc;
+    let oscillator = json.extensions.KHR_audio_emitter.sources[0].extensions?.KHR_audio_graph?.oscillator;
+    expect(json.extensions.KHR_audio_emitter.sources[0].audio).toBeUndefined();
+    expect(oscillator).toEqual({ type: "sine", frequency: 440, detune: 0, pulseWidth: 0.5 });
+
+    // Editing frequency and switching the waveform to "custom" reveals the periodicWave real/imag textareas.
+    await page.getByTestId("inspector.audio.source.0.oscillator.frequency").fill("880");
+    await page.getByTestId("inspector.audio.source.0.oscillator.type").selectOption("custom");
+    await expect(page.getByTestId("inspector.audio.source.0.oscillator.periodicWave.real")).toBeVisible();
+    await page.getByTestId("inspector.audio.source.0.oscillator.periodicWave.real").fill("0, 1");
+    await page.getByTestId("inspector.audio.source.0.oscillator.periodicWave.imag").fill("0, 0");
+    await page.getByTestId("inspector.audio.source.0.oscillator.periodicWave.imag").blur();
+
+    json = (await documentJson(page)) as OscillatorSourceDoc;
+    oscillator = json.extensions.KHR_audio_emitter.sources[0].extensions?.KHR_audio_graph?.oscillator;
+    expect(oscillator?.frequency).toBe(880);
+    expect(oscillator?.type).toBe("custom");
+    expect(oscillator?.periodicWave).toEqual({ real: [0, 1], imag: [0, 0] });
+
+    // Switching back to Clip restores the clip-shaped fields and drops the oscillator extension entirely.
+    await page.getByTestId("inspector.audio.source.0.type-select").selectOption("clip");
+    await expect(page.getByTestId("inspector.audio.source.0.clip")).toBeVisible();
+    json = (await documentJson(page)) as OscillatorSourceDoc;
+    const clipSource = json.extensions.KHR_audio_emitter.sources[0];
+    expect(clipSource.audio).toBe(0);
+    expect(clipSource.extensions?.KHR_audio_graph?.oscillator).toBeUndefined();
+  });
+
   test("Audition stays real (gesture-gates AudioHost.init(), reports an active emitter) after editing positional physics", async ({ page }) => {
     await page.getByTestId("inspector.audio.distance-model").selectOption("linear");
     await page.getByTestId("inspector.audio.gain").fill("0.3");

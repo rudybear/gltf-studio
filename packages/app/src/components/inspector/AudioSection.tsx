@@ -1,11 +1,25 @@
 import { useState } from "react";
 import { SceneEdit, type EditorDocument } from "@gltf-studio/editor-core";
+import { OSCILLATOR_SOURCE_FIELDS, defaultOscillatorSourceParams, isOscillatorSourceFieldVisible } from "@gltf-studio/audio-canvas";
 import { useAppStore } from "../../store/app-store";
-import type { GltfJsonShape } from "../../lib/gltf-scene";
+import type { GltfAudioSourceJson, GltfJsonShape } from "../../lib/gltf-scene";
 import { PointerButton } from "./PointerButton";
 
 const DISTANCE_MODELS = ["linear", "inverse", "exponential"] as const;
 const SHAPE_TYPES = ["omnidirectional", "cone"] as const;
+
+/** r2: a source is an oscillator when it declares the payload AND has no `audio` index — the same discriminator `@gltf-audiograph`'s `importAudioGraph`/`audio-canvas`'s `map-audio-graph.ts` use (a source can't be both a clip and an oscillator, `AudioGraphJsHost`'s upstream `lintLayeredGraph` flags that as `audio-and-oscillator` if it ever happens). */
+function isOscillatorSource(source: GltfAudioSourceJson): boolean {
+  return source.extensions?.KHR_audio_graph?.oscillator !== undefined && typeof source.audio !== "number";
+}
+
+/** Whole-source replacement for the Clip <-> Oscillator toggle (UX-420): preserves the playback-scheduling fields both shapes share (`gain`/`autoplay`, r2's `SOURCE_SCHEDULE_KEYS`), drops whichever shape-specific fields don't apply to the new mode. Switching to Clip picks audio clip 0 when one exists (this section has no clip-picker UI yet — same "no clip replacement/upload" scope as UX-420's original read-only clip display). */
+function toOscillatorSource(source: GltfAudioSourceJson): GltfAudioSourceJson {
+  return { name: source.name, gain: source.gain, autoplay: source.autoplay, extensions: { KHR_audio_graph: { oscillator: defaultOscillatorSourceParams() } } };
+}
+function toClipSource(source: GltfAudioSourceJson, audioClipCount: number): GltfAudioSourceJson {
+  return { name: source.name, gain: source.gain, autoplay: source.autoplay, loop: false, playbackRate: 1, ...(audioClipCount > 0 ? { audio: 0 } : {}) };
+}
 
 /**
  * specs/ux-inspector.md UX-406/UX-419/UX-420: an emitter's own gain/type/
@@ -252,16 +266,65 @@ export function AudioSection({
             <h5>Sources</h5>
             {sourceIndices.map((sourceIndex) => {
               const source = sources[sourceIndex] ?? {};
+              const oscillatorMode = isOscillatorSource(source);
               const clip = typeof source.audio === "number" ? audioClips[source.audio] : undefined;
               const clipLabel = clip ? (clip.name ?? clip.uri ?? clip.mimeType ?? `audio #${source.audio}`) : "no clip";
+              const oscillator = source.extensions?.KHR_audio_graph?.oscillator ?? {};
+              function setOscillatorProp(key: string, value: unknown): void {
+                setSourceProp(sourceIndex, ["extensions", "KHR_audio_graph", "oscillator", key], value);
+              }
               return (
                 <div className="audio-source-row" data-testid={`inspector.audio.source.${sourceIndex}`} key={sourceIndex}>
                   <div className="field-row">
-                    <label>Clip</label>
-                    <span className="mono dim" data-testid={`inspector.audio.source.${sourceIndex}.clip`}>
-                      {clipLabel}
-                    </span>
+                    <label>Source Type</label>
+                    <select
+                      className="field"
+                      data-testid={`inspector.audio.source.${sourceIndex}.type-select`}
+                      value={oscillatorMode ? "oscillator" : "clip"}
+                      onChange={(e) =>
+                        setSourceProp(
+                          sourceIndex,
+                          [],
+                          e.target.value === "oscillator" ? toOscillatorSource(source) : toClipSource(source, audioClips.length)
+                        )
+                      }
+                    >
+                      <option value="clip">Clip</option>
+                      <option value="oscillator">Oscillator</option>
+                    </select>
                   </div>
+                  {/* r2: an oscillator source's `loop`/`playbackRate` are declared-but-ignored per spec (see this file's
+                      `toOscillatorSource` comment) — hidden here rather than shown-but-inert. */}
+                  {!oscillatorMode && (
+                    <>
+                      <div className="field-row">
+                        <label>Clip</label>
+                        <span className="mono dim" data-testid={`inspector.audio.source.${sourceIndex}.clip`}>
+                          {clipLabel}
+                        </span>
+                      </div>
+                      <div className="field-row">
+                        <label>Playback Rate</label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          min="0.01"
+                          value={source.playbackRate ?? 1}
+                          data-testid={`inspector.audio.source.${sourceIndex}.playback-rate`}
+                          onChange={(e) => setSourceProp(sourceIndex, ["playbackRate"], Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="field-row">
+                        <label>Loop</label>
+                        <input
+                          type="checkbox"
+                          checked={source.loop ?? false}
+                          data-testid={`inspector.audio.source.${sourceIndex}.loop`}
+                          onChange={(e) => setSourceProp(sourceIndex, ["loop"], e.target.checked)}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div className="field-row">
                     <label>Gain</label>
                     <input
@@ -275,26 +338,6 @@ export function AudioSection({
                     />
                   </div>
                   <div className="field-row">
-                    <label>Playback Rate</label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0.01"
-                      value={source.playbackRate ?? 1}
-                      data-testid={`inspector.audio.source.${sourceIndex}.playback-rate`}
-                      onChange={(e) => setSourceProp(sourceIndex, ["playbackRate"], Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="field-row">
-                    <label>Loop</label>
-                    <input
-                      type="checkbox"
-                      checked={source.loop ?? false}
-                      data-testid={`inspector.audio.source.${sourceIndex}.loop`}
-                      onChange={(e) => setSourceProp(sourceIndex, ["loop"], e.target.checked)}
-                    />
-                  </div>
-                  <div className="field-row">
                     <label>Autoplay</label>
                     <input
                       type="checkbox"
@@ -303,6 +346,51 @@ export function AudioSection({
                       onChange={(e) => setSourceProp(sourceIndex, ["autoplay"], e.target.checked)}
                     />
                   </div>
+                  {oscillatorMode &&
+                    OSCILLATOR_SOURCE_FIELDS.filter((field) => isOscillatorSourceFieldVisible(field, oscillator as Record<string, unknown>)).map((field) => {
+                      const testId = `inspector.audio.source.${sourceIndex}.oscillator.${field.key}`;
+                      const value = (oscillator as Record<string, unknown>)[field.key] ?? field.default;
+                      if (field.type === "enum") {
+                        return (
+                          <div className="field-row" key={field.key}>
+                            <label>{field.label}</label>
+                            <select className="field" data-testid={testId} value={String(value)} onChange={(e) => setOscillatorProp(field.key, e.target.value)}>
+                              {(field.options ?? []).map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      }
+                      if (field.type === "periodic-wave") {
+                        const current = (value ?? {}) as { real?: number[]; imag?: number[] };
+                        return (
+                          <OscillatorPeriodicWaveFields
+                            key={field.key}
+                            testId={testId}
+                            real={current.real ?? []}
+                            imag={current.imag ?? []}
+                            onCommit={(real, imag) => setOscillatorProp(field.key, { real, imag })}
+                          />
+                        );
+                      }
+                      return (
+                        <div className="field-row" key={field.key}>
+                          <label>{field.label}</label>
+                          <input
+                            type="number"
+                            step={field.step ?? "any"}
+                            min={field.min}
+                            max={field.max}
+                            value={typeof value === "number" ? value : Number(value) || 0}
+                            data-testid={testId}
+                            onChange={(e) => setOscillatorProp(field.key, e.target.valueAsNumber)}
+                          />
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })}
@@ -319,6 +407,55 @@ export function AudioSection({
           ▶ Audition
         </button>
       </div>
+    </div>
+  );
+}
+
+/** `periodicWave`'s `{real: number[], imag: number[]}` Fourier-coefficient pair — two comma/whitespace-separated-number textareas committed together on blur, mirroring `audio-canvas`'s `audio-param-panel.tsx` `PeriodicWaveField` (not reused directly: that component is driven by `audioNodeSpec`'s NODE-kind lookup, which an oscillator SOURCE has no entry in — see audio-node-registry.ts's header comment). */
+function OscillatorPeriodicWaveFields({
+  testId,
+  real,
+  imag,
+  onCommit
+}: {
+  testId: string;
+  real: number[];
+  imag: number[];
+  onCommit: (real: number[], imag: number[]) => void;
+}): JSX.Element {
+  const format = (values: number[]): string => values.join(", ");
+  const parse = (text: string): number[] =>
+    text
+      .split(/[,\s]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0)
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+  const [realText, setRealText] = useState(() => format(real));
+  const [imagText, setImagText] = useState(() => format(imag));
+  function commit(nextRealText: string, nextImagText: string): void {
+    onCommit(parse(nextRealText), parse(nextImagText));
+  }
+  return (
+    <div className="field-row">
+      <label htmlFor={`${testId}.real`}>real</label>
+      <textarea
+        id={`${testId}.real`}
+        data-testid={`${testId}.real`}
+        rows={2}
+        value={realText}
+        onChange={(e) => setRealText(e.target.value)}
+        onBlur={() => commit(realText, imagText)}
+      />
+      <label htmlFor={`${testId}.imag`}>imag</label>
+      <textarea
+        id={`${testId}.imag`}
+        data-testid={`${testId}.imag`}
+        rows={2}
+        value={imagText}
+        onChange={(e) => setImagText(e.target.value)}
+        onBlur={() => commit(realText, imagText)}
+      />
     </div>
   );
 }

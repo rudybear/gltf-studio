@@ -67,8 +67,8 @@ export function AudioGraphCanvas({
   );
 
   const diagnosticsByNode: Map<number, GraphDiagnostic[]> = useMemo(
-    () => (graph ? buildAudioDiagnosticsByNode(graph, graphIndex, lintResults) : new Map()),
-    [graph, graphIndex, lintResults]
+    () => (graph ? buildAudioDiagnosticsByNode(graph, graphIndex, lintResults, mapped) : new Map()),
+    [graph, graphIndex, lintResults, mapped]
   );
 
   const violations = lintResults.filter((r) => r.graphIndex === graphIndex || r.graphIndex === -1);

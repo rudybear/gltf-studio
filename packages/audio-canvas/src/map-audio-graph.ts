@@ -10,7 +10,12 @@
 // (`serialization/parse-layered.ts`) builds its runtime `GraphSpec`:
 //   - a synthetic `audio-buffer-source` node per `graph.inputs[]` entry (the
 //     KHR_audio_emitter source feeding this graph) — kind
-//     "audio-buffer-source", zero inputs;
+//     "audio-buffer-source", zero inputs. r2: this ONE synthetic kind covers
+//     BOTH an ordinary audio-clip source (`source.audio` set) and an
+//     oscillator source (`source.audio` absent,
+//     `source.extensions.KHR_audio_graph.oscillator` set — never a
+//     `graph.nodes[]` "oscillator" kind any more) — the subtitle below tells
+//     them apart;
 //   - a synthetic `emitter` node per `graph.outputs[]` entry (specs/ux-audio-
 //     graph.md's UX-607 terminal node), labeled with the target emitter's
 //     name/index — zero outputs.
@@ -41,48 +46,45 @@ function portName(indices: Set<number>, index: number): string {
 
 /**
  * M7 audio-graph editing: a freshly-`AudioGraphEdit.addNode`-ed node has no
- * `connections[]`/`inputs[]`/`outputs[]` entry touching it yet, so the OLD
- * purely-wiring-derived port sets (scanning `graph.connections` etc. below)
- * would give it ZERO ports — nothing to drag a new connection onto or from,
- * a chicken-and-egg dead end for a brand new node. Every node kind's single
- * ALWAYS-present side gets its "slot 0" seeded by default: 1 input + 1
- * output for the common case (gain/delay/waveshaper/the 8 filter kinds),
- * 0 input + 1 output for the pure-source `oscillator`.
- *
- * UX-615 (Track 1 gap closure, supersedes this comment's earlier "known v1
- * gap" note): `splitter`'s output count and `channelmerger`'s input count
- * are NOT declared by the ratified schema (`KHR_audio_graph.splitter
- * .schema.json`/`.channelmerger.schema.json` have no explicit count param —
- * see `@gltf-studio/audio-graph`'s `validators.ts` header comment), but
- * `audio-node-registry.ts` now carries an implementation-defined
- * `numberOfOutputs`/`numberOfInputs` params key each (the vendored runtime
- * already reads exactly these — `createChannelSplitter`/`createChannelMerger`
- * in `audio-graph-js`), so THIS is read as the declared fan-port count —
- * seeding that many ports EVEN BEFORE any connection uses them, the fix for
- * "fan-out only reachable/addressable at slot 0". A document authored
- * before this PR (no `numberOfOutputs`/`numberOfInputs` param set) falls
- * back to 2, matching `audio-node-registry.ts`'s own field default; real
- * `connections[]` usage (below, in the caller) can still grow the rendered
- * port set past the declared count for an already-authored document using
- * more (the union of "declared" and "used" always wins, never a hard cap).
+ * `connections[]`/`inputs[]`/`outputs[]` entry touching it yet, so a purely
+ * wiring-derived port set would give it ZERO ports — nothing to drag a new
+ * connection onto or from, a chicken-and-egg dead end for a brand new node.
+ * Every node kind's single ALWAYS-present side gets its "slot 0" seeded by
+ * default: 1 input + 1 output (the common case — gain/delay/waveshaper/the
+ * 8 filter kinds/splitter/channelmerger/channelmixer/audiomixer/compressor;
+ * r2 removed the pure-source `oscillator` node kind entirely — see this
+ * file's header comment — so there is no longer a 0-input case here).
  * `audiomixer`'s "many inputs summed" Web Audio semantics still collapses
  * to one input slot 0 here — `AudioGraphEdit.connectAudio`'s "last write
  * wins" per-input-slot overwrite policy (DOC-059) means only ONE producer
  * is representable per slot regardless, a deliberate v1 simplification (see
- * that factory's own doc comment) unrelated to the splitter/channelmerger
- * fan-port fix above.
+ * that factory's own doc comment).
+ *
+ * r2 (supersedes UX-615's authored-arity fix): `splitter`'s output count
+ * and `channelmerger`'s input count are no longer authorable at all (no
+ * `numberOfOutputs`/`numberOfInputs` params — spec rules 9/10 derive both
+ * from the highest port index referenced in `connections[]`/`inputs[]`,
+ * `@gltf-audiograph/kernel`'s `ports.ts` reports both as `Infinity`). This
+ * function only seeds slot 0; growing a splitter's/channelmerger's fan port
+ * count past whatever wiring already uses is `growFanPorts`'s job, below —
+ * it adds exactly one extra, not-yet-wired "next" slot after the highest
+ * used index so the canvas stays draggable-to-grow instead of needing an
+ * authored count to unlock a new port.
  */
-function defaultPortSlots(kind: string, params: Record<string, unknown> | undefined): { inputs: number[]; outputs: number[] } {
-  if (kind === "oscillator") return { inputs: [], outputs: [0] };
+function defaultPortSlots(): { inputs: number[]; outputs: number[] } {
+  return { inputs: [0], outputs: [0] };
+}
+
+/** r2 fan-port growth (see `defaultPortSlots`'s doc comment): called once ALL real wiring (`connections[]`/`inputs[]`/`outputs[]`) has already been unioned into `entry.inputs`/`entry.outputs`, so `Math.max` sees the true highest used index. A `splitter` always gets one spare, unused OUTPUT past its highest-used one; a `channelmerger` always gets one spare, unused INPUT past its highest-used one — never the reverse (a splitter's single input and a channelmerger's single output are both fixed, ordinary slot-0 sides, not derived). */
+function growFanPorts(kind: string, entry: LogicalNode): void {
   if (kind === "splitter") {
-    const count = Math.max(1, Number(params?.numberOfOutputs ?? 2));
-    return { inputs: [0], outputs: Array.from({ length: count }, (_, i) => i) };
+    const maxOutput = entry.outputs.size > 0 ? Math.max(...entry.outputs) : -1;
+    entry.outputs.add(maxOutput + 1);
   }
   if (kind === "channelmerger") {
-    const count = Math.max(1, Number(params?.numberOfInputs ?? 2));
-    return { inputs: Array.from({ length: count }, (_, i) => i), outputs: [0] };
+    const maxInput = entry.inputs.size > 0 ? Math.max(...entry.inputs) : -1;
+    entry.inputs.add(maxInput + 1);
   }
-  return { inputs: [0], outputs: [0] };
 }
 
 /** Extracts, per this graph's lint results, the set of node LABELS implicated in a "cycle" violation. */
@@ -121,7 +123,7 @@ export function mapAudioGraph(
   graph.nodes.forEach((node, i) => {
     const label = node.label ?? `node_${i}`;
     labelOfRawIndex.set(i, label);
-    const defaults = defaultPortSlots(node.kind, node.params);
+    const defaults = defaultPortSlots();
     ensure(`node:${i}`, () => ({
       id: `node:${i}`,
       kind: node.kind,
@@ -139,10 +141,17 @@ export function mapAudioGraph(
 
   for (const input of graph.inputs ?? []) {
     const sourceId = `source:${input.source}`;
+    const source = sources[input.source];
+    const oscillator = source?.extensions?.KHR_audio_graph?.oscillator;
+    // r2: a source with no `audio` index and an `extensions.KHR_audio_graph
+    // .oscillator` payload is an oscillator source (never a graph node kind
+    // any more — see this file's header comment); every other source is an
+    // ordinary audio clip.
+    const isOscillator = oscillator !== undefined && typeof source?.audio !== "number";
     ensure(sourceId, () => ({
       id: sourceId,
       kind: "audio-buffer-source",
-      subtitle: `KHR_audio_emitter source #${input.source}`,
+      subtitle: isOscillator ? `oscillator source #${input.source} (${oscillator.type ?? "sine"})` : `KHR_audio_emitter source #${input.source}`,
       // UX-617 (Track 1 gap closure): carries the SOURCE entity's own
       // `extras` through so `graph-view.tsx`'s generic `node.raw.extras
       // ?.gltfi` position convention (DOC-058's doc comment) picks up a
@@ -170,6 +179,14 @@ export function mapAudioGraph(
     }));
     byId.get(`node:${output.node}`)?.outputs.add(output.output ?? 0);
   }
+
+  // r2 fan-port growth (see `growFanPorts`'s doc comment): runs LAST, once
+  // every real wiring source (`connections[]`/`inputs[]`/`outputs[]` above)
+  // has already been unioned into each node's `inputs`/`outputs` sets.
+  graph.nodes.forEach((node, i) => {
+    const entry = byId.get(`node:${i}`);
+    if (entry) growFanPorts(node.kind, entry);
+  });
 
   const indexOf = new Map<string, number>();
   order.forEach((id, index) => indexOf.set(id, index));

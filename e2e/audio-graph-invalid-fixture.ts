@@ -32,7 +32,8 @@ function buildAudioGraphInvalidFixtureJson(): Record<string, unknown> {
             // banner names).
             nodes: [
               { kind: "gain", label: AUDIO_GRAPH_CYCLE_NODE_LABELS[0], params: { gain: 0.5 } },
-              { kind: "biquadFilter", label: AUDIO_GRAPH_CYCLE_NODE_LABELS[1], params: { type: "lowpass", frequency: 800 } }
+              // r2: the KIND itself is the filter type (no separate "biquadFilter" kind + `type` param).
+              { kind: "lowpass", label: AUDIO_GRAPH_CYCLE_NODE_LABELS[1], params: { frequency: 800 } }
             ],
             connections: [
               { from: { node: 0 }, to: { node: 1 } },

@@ -53,54 +53,53 @@ async function getAudioEmitterExtension(page: Page): Promise<{
   return (json as { extensions: { KHR_audio_emitter: { sources: unknown[]; emitters: unknown[] } } }).extensions.KHR_audio_emitter as never;
 }
 
-test.describe("Fan ports: splitter numberOfOutputs param addresses/connects channel 2 (UX-615)", () => {
-  test("adding a splitter, raising numberOfOutputs to 3, and connecting a new gain node to its THIRD output writes the correct connections[] entry", async ({ page }) => {
+test.describe("Fan ports: splitter output arity derives from wiring, growable one port at a time (r2, supersedes UX-615)", () => {
+  test("a fresh splitter renders 2 output ports (slot 0 seeded + one spare 'next' port); connecting the spare grows a NEW spare past it, reachable without any authored count field", async ({
+    page
+  }) => {
     await importFixture(page);
     const audioCanvas = page.getByTestId("acanvas.root");
 
-    // Add a splitter (raw/mapped index 1 — gain is 0) and raise its declared
-    // output count from the registry default (2) to 3.
+    // Add a splitter (raw/mapped index 1 — gain is 0). r2 removed the
+    // authored `numberOfOutputs` param entirely — there is no field to raise
+    // any more (`audio-node-registry.ts`'s splitter spec only has
+    // `channelInterpretation`); arity is purely derived from wiring
+    // (`map-audio-graph.ts`'s `growFanPorts`).
     await page.getByTestId("acanvas.palette.search").fill("splitter");
     await page.getByTestId("acanvas.palette.op.splitter").click();
     await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(4);
     await waitForNodesSettled(page, AUDIO_HOOK_KEY);
 
     await clickNodeHeader(audioCanvas, 1);
-    const countField = page.getByTestId("acanvas.param.splitter.numberOfOutputs");
-    await expect(countField).toBeVisible();
-    await countField.fill("3");
-    await countField.blur();
-    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.numberOfOutputs).toBe(3);
+    await expect(page.getByTestId("acanvas.param.splitter.numberOfOutputs")).toHaveCount(0);
+    // Seeded slot 0 + one spare "next" port — reachable/addressable before any wiring exists at all.
+    await expect(page.getByTestId("gcanvas.handle.1.value-out:out0")).toBeVisible();
+    await expect(page.getByTestId("gcanvas.handle.1.value-out:out1")).toBeVisible();
 
-    // Raising the count re-lays-out the canvas (the splitter card now has 3
-    // output handles) — settle before the next add/connect.
-    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
-
-    // Add a plain gain node to receive the splitter's THIRD (index-2) output
-    // — mapped/raw index 2.
+    // Add a plain gain node to receive the splitter's spare (index-1) output — mapped/raw index 2.
     await page.getByTestId("acanvas.palette.search").fill("");
     await page.getByTestId("acanvas.palette.search").fill("gain");
     await page.getByTestId("acanvas.palette.op.gain").click();
     await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(5);
     await waitForNodesSettled(page, AUDIO_HOOK_KEY);
 
-    // Connect splitter (node 1) output index 2 -> the new gain (node 2)
-    // input — only reachable/addressable at all because numberOfOutputs=3
-    // seeded a THIRD rendered port (UX-615's fix; before this pass, a fresh
-    // splitter always rendered exactly one output port regardless of any
-    // param).
+    // Connect splitter (node 1) output index 1 (the spare) -> the new gain (node 2) input.
     await page.evaluate(() =>
       window.__gltfStudioAudioGraphCanvasTest!.simulateConnect({
         source: "1",
-        sourceHandle: "value-out:out2",
+        sourceHandle: "value-out:out1",
         target: "2",
         targetHandle: "value-in:in"
       })
     );
-
     await expect.poll(async () => (await getAudioGraphJson(page)).connections).toEqual(
-      expect.arrayContaining([{ from: { node: 1, output: 2 }, to: { node: 2, input: 0 } }])
+      expect.arrayContaining([{ from: { node: 1, output: 1 }, to: { node: 2, input: 0 } }])
     );
+
+    // Growth keeps going: wiring index 1 derives a NEW spare at index 2 — the splitter
+    // now renders THREE output ports (0 used-seed, 1 now-wired, 2 the fresh spare).
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+    await expect(page.getByTestId("gcanvas.handle.1.value-out:out2")).toBeVisible();
   });
 });
 

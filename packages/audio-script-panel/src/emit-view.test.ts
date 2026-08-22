@@ -28,7 +28,7 @@ describe("buildAudioEmitView (specs/ux-audio-script.md UX-1400)", () => {
     expect(() => buildAudioEmitView(badGraph, 0)).not.toThrow();
   });
 
-  it("surfaces an r2 diagnostic (not a throw) for a legacy oscillator-as-node-kind graph — the canvas reconciliation gap (specs/ux-audio-script.md Implementation notes)", () => {
+  it("surfaces an r2 diagnostic (not a throw) for a legacy oscillator-as-node-kind graph — a foreign/malformed-document shape, no longer producible via this app's own canvas/palette (specs/ux-audio-script.md Implementation notes)", () => {
     const legacyGraph = { nodes: [{ kind: "oscillator", params: { type: "sine", frequency: 440 } }], connections: [], outputs: [] };
     const view = buildAudioEmitView(legacyGraph, 0);
     expect(view.diagnostics.some((d) => d.severity === "error")).toBe(true);

@@ -103,7 +103,16 @@ export interface GltfImageJson {
   mimeType?: string;
 }
 
-/** `extensions.KHR_audio_emitter.sources[N]` — a playable clip binding (specs/ux-inspector.md UX-420), addressed by SOURCE index (an emitter only stores `sources: number[]` indices into this array, never the objects themselves). */
+/** `source.extensions.KHR_audio_graph.oscillator` (r2): present only on a source with no `audio` index — the waveform payload for an oscillator source, authored via the Sources sub-list's Oscillator mode (specs/ux-inspector.md UX-420) instead of `audio-canvas`'s node palette (r2 removed `oscillator` as a graph node kind entirely). */
+export interface GltfAudioSourceOscillatorJson {
+  type?: string;
+  frequency?: number;
+  detune?: number;
+  pulseWidth?: number;
+  periodicWave?: { real: number[]; imag: number[] };
+}
+
+/** `extensions.KHR_audio_emitter.sources[N]` — either a playable clip binding (`audio` set) or, per r2, an oscillator source (`audio` absent, `extensions.KHR_audio_graph.oscillator` set) (specs/ux-inspector.md UX-420), addressed by SOURCE index (an emitter only stores `sources: number[]` indices into this array, never the objects themselves). */
 export interface GltfAudioSourceJson {
   name?: string;
   audio?: number;
@@ -111,6 +120,7 @@ export interface GltfAudioSourceJson {
   playbackRate?: number;
   loop?: boolean;
   autoplay?: boolean;
+  extensions?: { KHR_audio_graph?: { oscillator?: GltfAudioSourceOscillatorJson } };
 }
 
 /** `extensions.KHR_audio_emitter.audio[N]` — a raw clip reference (bufferView-embedded or `data:`/external URI), read-only in this Inspector (specs/ux-inspector.md UX-420's "no clip replacement/upload" scope, mirroring UX-416's texture-slot precedent). */

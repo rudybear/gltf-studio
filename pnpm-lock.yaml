@@ -228,6 +228,9 @@ importers:
 
   packages/audio-canvas:
     dependencies:
+      '@gltf-audiograph/kernel':
+        specifier: file:../../vendor/gltf-audiograph-kernel-0.0.1.tgz
+        version: file:vendor/gltf-audiograph-kernel-0.0.1.tgz
       '@gltf-studio/editor-core':
         specifier: workspace:*
         version: link:../editor-core
@@ -1387,7 +1390,7 @@ packages:
     engines: {node: '>=12'}
 
   audio-graph-js@file:vendor/audio-graph-js-0.1.0.tgz:
-    resolution: {integrity: sha512-Tb/GJ4TswmtWICRIljlJMN7Qx2+QrhKV4CDqXOAw+RYWPhXwIHDBO7evXbdCDQNem6GNvDGQfKebOcjD1QVCGg==, tarball: file:vendor/audio-graph-js-0.1.0.tgz}
+    resolution: {integrity: sha512-qjX7aq0w12A42UxrFbgMTU6f21Jh6YPKsAf5W04LMDC5vzNh1dhj2+Wl2iuLH+Xp7gO5EpNsqQVVEUeXSJclAA==, tarball: file:vendor/audio-graph-js-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=18'}
 
