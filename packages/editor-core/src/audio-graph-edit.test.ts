@@ -20,7 +20,7 @@ function audioGraph0(json: unknown): AudioGraphSpec {
   return (json as { extensions: { KHR_audio_graph: { graphs: AudioGraphSpec[] } } }).extensions.KHR_audio_graph.graphs[0];
 }
 
-/** A document with a small, real KHR_audio_graph: source(0) -> gain(0) -> filter(1) -> emitter(0), plus a spare unwired oscillator(2). */
+/** A document with a small, real KHR_audio_graph: source(0) -> gain(0) -> filter(1) -> emitter(0), plus a spare unwired waveshaper(2). */
 function docWithAudioGraph(): EditorDocument {
   const base = fixtureGltfJson() as Record<string, unknown>;
   return fixtureDocument({
@@ -34,7 +34,7 @@ function docWithAudioGraph(): EditorDocument {
             nodes: [
               { kind: "gain", label: "gainA", params: { gain: 0.5 } },
               { kind: "lowpass", label: "filterB", params: { frequency: 800 } },
-              { kind: "oscillator", label: "oscC", params: { type: "sine", frequency: 440 } }
+              { kind: "waveshaper", label: "shaperC", params: { amount: 0.5 } }
             ],
             connections: [{ from: { node: 0, output: 0 }, to: { node: 1, input: 0 } }],
             inputs: [{ source: 0, node: 0, input: 0 }],
@@ -91,7 +91,7 @@ describe("AudioGraphEdit.removeNode (DOC-057)", () => {
     const command = AudioGraphEdit.removeNode(doc, 0, 0);
     const after = expectRoundTrip(before, command);
     const g = audioGraph0(after);
-    expect(g.nodes.map((n) => n.label)).toEqual(["filterB", "oscC"]);
+    expect(g.nodes.map((n) => n.label)).toEqual(["filterB", "shaperC"]);
     expect(g.connections).toEqual([]);
     expect(g.inputs).toEqual([]);
     expect(g.outputs).toEqual([{ node: 0, output: 0, emitter: 0 }]);
@@ -100,7 +100,7 @@ describe("AudioGraphEdit.removeNode (DOC-057)", () => {
   it("removing an unreferenced node only shifts indices strictly above it", () => {
     const doc = docWithAudioGraph();
     const before = doc.json;
-    // Remove node 2 ("oscC", unwired): nothing references index 2, and nothing above it exists to shift.
+    // Remove node 2 ("shaperC", unwired): nothing references index 2, and nothing above it exists to shift.
     const command = AudioGraphEdit.removeNode(doc, 0, 2);
     const after = expectRoundTrip(before, command);
     const g = audioGraph0(after);
@@ -122,7 +122,7 @@ describe("AudioGraphEdit.connectAudio / disconnectAudio (DOC-059)", () => {
   it("connects node -> node, overwriting any prior connection into the same input", () => {
     const doc = docWithAudioGraph();
     const before = doc.json;
-    // Rewire filterB's input from gainA to oscC instead.
+    // Rewire filterB's input from gainA to shaperC instead.
     const command = AudioGraphEdit.connectAudio(doc, 0, { kind: "node", index: 2 }, { kind: "node", index: 1, input: 0 });
     const after = expectRoundTrip(before, command);
     expect(audioGraph0(after).connections).toEqual([{ from: { node: 2, output: 0 }, to: { node: 1, input: 0 } }]);
@@ -261,7 +261,7 @@ describe("AudioGraphEdit.replaceAudioGraph (DOC-064)", () => {
 
 describe("AudioGraphEdit property: add/connect/param/remove sequences undo back to the initial document", () => {
   it("any sequence of edits, undone in reverse via each command's own inverse, restores the exact original JSON", () => {
-    const kinds = ["gain", "lowpass", "delay", "oscillator"] as const;
+    const kinds = ["gain", "lowpass", "delay", "waveshaper"] as const;
     const editArb = fc.oneof(
       fc.record({ tag: fc.constant("add" as const), kind: fc.constantFrom(...kinds), gain: fc.float({ min: 0, max: 2, noNaN: true }) }),
       fc.record({ tag: fc.constant("param" as const), nodeIndex: fc.nat(2), value: fc.float({ min: -10, max: 10, noNaN: true }) }),

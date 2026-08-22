@@ -117,6 +117,26 @@ export function AudioScriptPanel({
   /** Kept fresh every render (not just on mount) so the e2e `getDocumentJson()` hook below always reads the LATEST document, not whichever one was current when the hook-install effect (mount-only) last ran. */
   const documentRef = useRef(document);
   documentRef.current = document;
+  /**
+   * Bug fix (r2 migration's canvas -> script round-trip e2e, "round trip: a
+   * graph built purely via the canvas palette..."): the parse-worker
+   * `onResult` callback below lives inside a MOUNT-ONCE effect (`[]` deps)
+   * — without these two refs it closes over `rawGraph`/`mode` from
+   * whichever render happened to be current when the panel FIRST mounted,
+   * not the CURRENT one. This tab stays mounted-but-hidden across tab
+   * switches (UX-1408), so any later external edit to the document's audio
+   * graph (e.g. via the Audio graph canvas, while this tab isn't even
+   * visible) left `onResult` comparing a freshly-reparsed buffer against
+   * that STALE original graph the instant a parse happened to resolve —
+   * spuriously flipping the EQUIV badge to DIVERGED with a real (but
+   * meaningless) diff, and never correcting itself since nothing re-runs
+   * that effect afterward. Kept fresh every render, exactly like
+   * `documentRef` immediately above.
+   */
+  const rawGraphRef = useRef(rawGraph);
+  rawGraphRef.current = rawGraph;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const isProgrammaticContentSetRef = useRef(false);
   const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   const loggedErrorKeyRef = useRef<string>("");
@@ -213,8 +233,13 @@ export function AudioScriptPanel({
         const derived = namesForAudioModule(result.module);
         setNames(derived.names);
         setSourceNames(derived.sourceNames);
-        if (rawGraph && documentModuleRef.current) {
-          setEquiv(checkAudioEquivalence(rawGraph, documentModuleRef.current, result.module));
+        // See rawGraphRef/modeRef's doc comment above: both read fresh
+        // (never stale-closed) values, and `mode === "edit"` guards against
+        // a parse that was in flight when the tab flipped back to "view" —
+        // that mode's own `[document, graphIndex, mode]` effect already
+        // owns EQUIV in that case (always "equiv" while merely viewing).
+        if (modeRef.current === "edit" && rawGraphRef.current && documentModuleRef.current) {
+          setEquiv(checkAudioEquivalence(rawGraphRef.current, documentModuleRef.current, result.module));
         }
       },
       onError: (message) => {
@@ -262,6 +287,20 @@ export function AudioScriptPanel({
           const value = editor.getValue();
           codeRef.current = value;
           setCode(value);
+          // Bug fix (r2 migration, surfaced by e2e/audio-script.spec.ts's
+          // canvas-authored-graph round-trip test): a PROGRAMMATIC `editor
+          // .setValue(code)` call (the "keep buffer in sync with the view-
+          // mode `code` state" effect below) fires this same event — without
+          // this guard, every view-mode document change (e.g. building a
+          // graph on the Audio graph canvas while this tab sits mounted-but-
+          // hidden, UX-1408) ALSO scheduled a background parse+EQUIV
+          // comparison against `documentModuleRef.current`, whose async
+          // result could resolve AFTER a LATER document change and briefly
+          // (or, with no further doc change, permanently) show a bogus
+          // DIVERGED badge over a document the view path itself already
+          // reported as EQUIV. `isProgrammaticContentSetRef` already existed
+          // for exactly this purpose but was never consulted here.
+          if (isProgrammaticContentSetRef.current) return;
           scheduleParse(value);
         });
         setMonacoReady(true);

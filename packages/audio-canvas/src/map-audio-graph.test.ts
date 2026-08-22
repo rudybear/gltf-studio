@@ -74,12 +74,24 @@ describe("mapAudioGraph", () => {
     expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
   });
 
-  it("M7 audio-graph editing: a fresh unconnected oscillator has an output but no input (pure source)", () => {
-    const graph: KHRGraph = { nodes: [{ kind: "oscillator", label: "freshOsc", params: { type: "sine" } }], connections: [] };
-    const mapped = mapAudioGraph(graph, 0);
-    const node = mapped.nodes[0];
-    expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(0);
-    expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
+  it("r2: an oscillator SOURCE (no graph.nodes[] kind any more) projects as a synthetic audio-buffer-source terminal with an output but no input, subtitled as an oscillator", () => {
+    const graph: KHRGraph = { nodes: [{ kind: "gain", label: "vol" }], connections: [], inputs: [{ source: 0, node: 0 }] };
+    const sources = [{ extensions: { KHR_audio_graph: { oscillator: { type: "sine", frequency: 440 } } } }];
+    const mapped = mapAudioGraph(graph, 0, [], [], sources as never);
+    const sourceNode = mapped.nodes.find((n) => n.op === "audio-buffer-source")!;
+    expect(sourceNode).toBeDefined();
+    expect(sourceNode.ports.filter((p) => p.kind === "value-in")).toHaveLength(0);
+    expect(sourceNode.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
+    expect(sourceNode.subtitle).toContain("oscillator");
+    expect(sourceNode.subtitle).toContain("sine");
+  });
+
+  it("r2: an ordinary audio-clip source (has `audio`, no oscillator ext) keeps the plain subtitle", () => {
+    const graph: KHRGraph = { nodes: [{ kind: "gain", label: "vol" }], connections: [], inputs: [{ source: 0, node: 0 }] };
+    const sources = [{ audio: 0 }];
+    const mapped = mapAudioGraph(graph, 0, [], [], sources as never);
+    const sourceNode = mapped.nodes.find((n) => n.op === "audio-buffer-source")!;
+    expect(sourceNode.subtitle).not.toContain("oscillator");
   });
 
   it("does not mark edges invalid when there is no cycle violation", () => {
@@ -91,42 +103,43 @@ describe("mapAudioGraph", () => {
     expect(mapped.edges.every((e) => !e.invalid)).toBe(true);
   });
 
-  describe("UX-615: splitter/channelmerger fan ports seeded from their declared channel-count param", () => {
-    it("a fresh, unconnected splitter with numberOfOutputs=4 renders 4 output ports (not just slot 0)", () => {
-      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split", params: { numberOfOutputs: 4 } }], connections: [] };
+  describe("r2: splitter/channelmerger fan ports are DERIVED from wiring, not an authored channel-count param (supersedes UX-615)", () => {
+    it("a fresh, unconnected splitter renders 1 input + 2 output ports (slot 0 seeded, plus one spare 'next' port to drag a connection into)", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split", params: {} }], connections: [] };
       const mapped = mapAudioGraph(graph, 0);
       const node = mapped.nodes[0];
       expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(1);
-      expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(4);
-      expect(node.ports.filter((p) => p.kind === "value-out").map((p) => p.name).sort()).toEqual(["out0", "out1", "out2", "out3"]);
+      expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(2);
+      expect(node.ports.filter((p) => p.kind === "value-out").map((p) => p.name).sort()).toEqual(["out0", "out1"]);
     });
 
-    it("a fresh, unconnected channelmerger with numberOfInputs=3 renders 3 input ports", () => {
-      const graph: KHRGraph = { nodes: [{ kind: "channelmerger", label: "merge", params: { numberOfInputs: 3 } }], connections: [] };
+    it("a fresh, unconnected channelmerger renders 2 input ports (slot 0 seeded, plus one spare) + 1 output port", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "channelmerger", label: "merge", params: {} }], connections: [] };
       const mapped = mapAudioGraph(graph, 0);
       const node = mapped.nodes[0];
-      expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(3);
+      expect(node.ports.filter((p) => p.kind === "value-in")).toHaveLength(2);
       expect(node.ports.filter((p) => p.kind === "value-out")).toHaveLength(1);
     });
 
-    it("falls back to 2 fan ports when numberOfOutputs/numberOfInputs is absent (matching the registry's own field default)", () => {
-      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split" }], connections: [] };
+    it("ignores a legacy numberOfOutputs/numberOfInputs param if a document still carries one — arity comes purely from wiring now", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "splitter", label: "split", params: { numberOfOutputs: 6 } }], connections: [] };
       const mapped = mapAudioGraph(graph, 0);
       expect(mapped.nodes[0].ports.filter((p) => p.kind === "value-out")).toHaveLength(2);
     });
 
-    it("real connections[] usage beyond the declared count still shows up (union, never a hard cap)", () => {
+    it("wiring to a high output index grows the rendered port set (union of seeded slot 0 + real usage + one spare 'next' slot)", () => {
       const graph: KHRGraph = {
         nodes: [
-          { kind: "splitter", label: "split", params: { numberOfOutputs: 2 } },
+          { kind: "splitter", label: "split", params: {} },
           { kind: "gain", label: "g" }
         ],
         connections: [{ from: { node: 0, output: 5 }, to: { node: 1, input: 0 } }]
       };
       const mapped = mapAudioGraph(graph, 0);
       const splitNode = mapped.nodes.find((n) => n.op === "splitter")!;
-      // Declared 0,1 plus the actually-wired index 5 — 3 distinct output ports.
-      expect(splitNode.ports.filter((p) => p.kind === "value-out")).toHaveLength(3);
+      // Seeded 0, actually-wired 5, plus one spare "next" slot at 6 — 3 distinct output ports (sparse, not a dense 0..6 range).
+      const outNames = splitNode.ports.filter((p) => p.kind === "value-out").map((p) => p.name).sort();
+      expect(outNames).toEqual(["out0", "out5", "out6"]);
     });
   });
 

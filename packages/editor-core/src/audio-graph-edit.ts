@@ -158,7 +158,22 @@ export const AudioGraphEdit = {
     return { id: makeCommandId("ensure-audio-graph"), label: "Ensure audio graph", patches: combined.patches, inverse: combined.inverse };
   },
 
-  /** DOC-057: appends a new audio-graph node (`kind` + `params`, per `KHR_audio_graph.node.schema.json`'s per-kind `oneOf`), optionally labeled and positioned (DOC-058). */
+  /**
+   * DOC-057: appends a new audio-graph node (`kind` + `params`, per
+   * `KHR_audio_graph.node.schema.json`'s per-kind `oneOf`), optionally
+   * labeled and positioned (DOC-058). r2: `kind` is one of the 16 remaining
+   * node kinds (`"oscillator"` was removed from the `oneOf` — an oscillator
+   * is now a `KHR_audio_emitter` SOURCE, authored via `SceneEdit
+   * .setAudioSourceProperty`, never through this factory). This layer takes
+   * no position on WHICH kinds are legal — `kind`/`params` shapes are the
+   * caller's (`@gltf-studio/audio-canvas`'s `audio-node-registry.ts`,
+   * itself derived from `@gltf-audiograph/kernel`'s registry) responsibility
+   * entirely; passing a legacy/unknown `kind` string still round-trips
+   * mechanically (this factory does not validate against the registry) and
+   * surfaces as an honest lint error at build/audition time instead
+   * (`@gltf-studio/audio-graph`'s `AudioGraphJsHost`, forwarding the
+   * vendored runtime's own `parseLayeredExtensions` rejection).
+   */
   addNode(
     document: EditorDocument,
     graphIndex: number,

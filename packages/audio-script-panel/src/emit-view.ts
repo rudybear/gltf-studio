@@ -14,7 +14,7 @@ export type AudioEmitView = {
   names: Record<number, string>;
   sourceNames: Record<number, string>;
   module: AudioIRModule;
-  /** Diagnostics from `importAudioGraph` itself (a malformed graph, or — per r2's reconciliation with this app's canvas — an oscillator authored as a NODE kind, which r2 no longer allows: see specs/ux-audio-script.md's Implementation notes). Distinct from parse-side diagnostics, which only apply to hand-edited code. */
+  /** Diagnostics from `importAudioGraph` itself — normally empty, since the canvas's own `audio-canvas` node registry is now r2-shaped end-to-end (no more legacy `oscillator` node kind, no more authored splitter/channelmerger arity — see audio-node-registry.ts's header comment). Only non-empty for a genuinely malformed/foreign document (e.g. one imported from outside this app, or hand-edited into an illegal shape): a dangling node/source reference, an unknown node kind, or a legacy pre-r2 `oscillator` NODE. Distinct from parse-side diagnostics, which only apply to hand-edited code. */
   diagnostics: Diagnostic[];
 };
 
@@ -24,21 +24,24 @@ export function provenanceComment(graphIndex: number): string {
 }
 
 /**
- * r2/canvas-reconciliation tolerance (specs/ux-audio-script.md's
- * Implementation notes): unlike @gltfi/ir's `importGraph` (defensive enough
- * that a malformed graph's `emitModule` call never throws), a structurally
- * invalid `AudioIRModule` — e.g. one `importAudioGraph` flagged with an
- * `oscillator-node-kind` error (a legacy oscillator-as-NODE-kind graph,
- * exactly the shape this app's own `audio-canvas` node registry still
- * authors — see this package's own top-of-tree reconciliation note) or a
- * dangling node/source reference — can make `emitAudioModule` itself throw.
- * Rather than let that surface as an unhandled panel crash, an ERROR-
- * severity `importAudioGraph` diagnostic short-circuits emission entirely:
- * the Emit view falls back to a diagnostics-only placeholder, same "honest,
- * bounded-effort" posture as everywhere else UX-1400 documents a fidelity
- * gap. A WARNING-only diagnostic set still emits normally (e.g. r2's
- * `arity-param-ignored` for an authored `numberOfOutputs`/`numberOfInputs`
- * — see audio-node-registry's own reconciliation note).
+ * Malformed-graph tolerance (specs/ux-audio-script.md's Implementation
+ * notes, UX-1409 — narrowed in scope now that `audio-canvas`'s registry is
+ * r2-shaped: this can no longer be reached by anything the palette itself
+ * authors, only by a foreign/legacy document): unlike @gltfi/ir's
+ * `importGraph` (defensive enough that a malformed graph's `emitModule`
+ * call never throws), a structurally invalid `AudioIRModule` — e.g. one
+ * `importAudioGraph` flagged with an `oscillator-node-kind` error (a legacy
+ * pre-r2 oscillator-as-NODE-kind graph — no longer producible via this
+ * app's own canvas/palette, but a real shape an imported foreign asset or a
+ * hand-edited document can still carry) or a dangling node/source reference
+ * — can make `emitAudioModule` itself throw. Rather than let that surface
+ * as an unhandled panel crash, an ERROR-severity `importAudioGraph`
+ * diagnostic short-circuits emission entirely: the Emit view falls back to
+ * a diagnostics-only placeholder, same "honest, bounded-effort" posture as
+ * everywhere else UX-1400 documents a fidelity gap. A WARNING-only
+ * diagnostic set still emits normally (e.g. r2's `arity-param-ignored` for
+ * a legacy document that still authors `numberOfOutputs`/`numberOfInputs`
+ * — accepted and dropped, not rejected).
  */
 export function buildAudioEmitView(graph: unknown, graphIndex: number, emitter?: EmitterBlockLike): AudioEmitView {
   const { module, diagnostics } = importAudioGraph(graph, emitter ? { emitter } : undefined);

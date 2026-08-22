@@ -57,32 +57,32 @@ async function getAudioGraphJson(page: Page): Promise<RawAudioGraph> {
 }
 
 test.describe("audio-graph editing: palette, connect, param edit, undo (UX-608/610/611)", () => {
-  test("adding an oscillator from the palette, editing its waveform enum and the gain node's number param, and rewiring the output are all undoable document edits", async ({
+  test("adding a waveshaper from the palette (r2 kind — oscillator is no longer a node kind), editing its oversample enum and the gain node's number param, and rewiring the output are all undoable document edits", async ({
     page
   }) => {
     await importFixture(page);
     const audioCanvas = page.getByTestId("acanvas.root");
 
-    // --- palette: search + add an oscillator (UX-608) ---
-    await page.getByTestId("acanvas.palette.search").fill("oscillator");
-    await expect(page.getByTestId("acanvas.palette.op.oscillator")).toBeVisible();
-    await page.getByTestId("acanvas.palette.op.oscillator").click();
+    // --- palette: search + add a waveshaper (UX-608) ---
+    await page.getByTestId("acanvas.palette.search").fill("waveshaper");
+    await expect(page.getByTestId("acanvas.palette.op.waveshaper")).toBeVisible();
+    await page.getByTestId("acanvas.palette.op.waveshaper").click();
 
     // The new node is the second REAL graph.nodes[] entry (raw/mapped index 1
     // — gain is 0), selected automatically on add.
     await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(4);
     let graph = await getAudioGraphJson(page);
     expect(graph.nodes).toHaveLength(2);
-    expect(graph.nodes[1]!.kind).toBe("oscillator");
+    expect(graph.nodes[1]!.kind).toBe("waveshaper");
 
-    // --- typed param edit: enum (oscillator waveform, UX-610) ---
-    await expect(page.getByTestId("acanvas.param.oscillator.type")).toBeVisible();
-    await page.getByTestId("acanvas.param.oscillator.type").selectOption("square");
-    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.type).toBe("square");
+    // --- typed param edit: enum (waveshaper oversample, UX-610) ---
+    await expect(page.getByTestId("acanvas.param.waveshaper.oversample")).toBeVisible();
+    await page.getByTestId("acanvas.param.waveshaper.oversample").selectOption("4x");
+    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.oversample).toBe("4x");
 
     // --- typed param edit: number (the fixture's existing gain node, UX-610) ---
     // Bug-fix note (deflake, see graph-canvas-test-helpers.ts's own doc
-    // comment): the oscillator add above re-lays-out every node's card via
+    // comment): the waveshaper add above re-lays-out every node's card via
     // `GraphView`'s `elkPositions` effect (packages/graph-canvas/src/graph-
     // view.tsx), not just the new node's — waiting AND clicking node 0's
     // header (not its own testid, whose geometric CENTER can land on this
@@ -97,8 +97,8 @@ test.describe("audio-graph editing: palette, connect, param edit, undo (UX-608/6
     await gainField.blur();
     await expect.poll(async () => (await getAudioGraphJson(page)).nodes[0]!.params?.gain).toBe(0.25);
 
-    // --- connect: rewire the emitter's producer from gain to the new oscillator (UX-611) ---
-    // Mapped indices after the add above: 0 = gain, 1 = oscillator (both
+    // --- connect: rewire the emitter's producer from gain to the new waveshaper (UX-611) ---
+    // Mapped indices after the add above: 0 = gain, 1 = waveshaper (both
     // real), 2 = source terminal, 3 = emitter terminal.
     await page.evaluate(() =>
       window.__gltfStudioAudioGraphCanvasTest!.simulateConnect({
@@ -122,7 +122,7 @@ test.describe("audio-graph editing: palette, connect, param edit, undo (UX-608/6
     await page.getByTestId("topbar.undo").click(); // undoes the gain-param edit
     await expect.poll(async () => (await getAudioGraphJson(page)).nodes[0]!.params?.gain).toBe(0.6);
 
-    await page.getByTestId("topbar.undo").click(); // undoes the oscillator-type edit
+    await page.getByTestId("topbar.undo").click(); // undoes the waveshaper-oversample edit
     await page.getByTestId("topbar.undo").click(); // undoes the add-node
 
     await expect(audioCanvas.locator('[data-testid^="gcanvas.node."]')).toHaveCount(3);

@@ -100,7 +100,7 @@ export class AudioGraphJsHost implements AudioGraphHost {
     graphExt.graphs.forEach((raw, graphIndex) => {
       const spec = parsed.graphs[graphIndex];
       this.parsedGraphs.push({ graphIndex, spec, raw });
-      this.lintResults.push(...validateGraph(graphIndex, raw));
+      this.lintResults.push(...validateGraph(graphIndex, raw, doc.extensions!.KHR_audio_emitter!.sources ?? []));
       const upstream = lintLayeredGraph(raw, doc.extensions!.KHR_audio_emitter!);
       for (const message of upstream.errors) {
         if (/cycle/i.test(message)) {

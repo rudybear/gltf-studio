@@ -109,16 +109,22 @@ Prefix: `UX`. This file owns the `UX-14xx` block.
 ### r2 / canvas reconciliation tolerance
 
 - [UX-1409] (active) `@gltf-audiograph`'s transpiler tracks `KHR_audio_graph` spec "r2" (see the
-  Implementation notes for what changed), which this app's own `audio-canvas` node registry predates
-  — most concretely, `audio-canvas` still authors an `oscillator` NODE kind, a shape r2's
-  `importAudioGraph` rejects outright (`oscillator-node-kind`, an ERROR-severity diagnostic, not a
-  crash). Rather than silently rewriting `audio-canvas`'s registry in this pass (out of scope — see
-  Open questions), this tab is TOLERANT of that mismatch: `buildAudioEmitView` treats any
-  ERROR-severity `importAudioGraph` diagnostic as "cannot emit" and falls back to a diagnostics-only
-  placeholder (a one-line comment) instead of calling `emitAudioModule` at all — which, empirically,
-  can itself throw on a structurally r2-invalid module rather than degrade gracefully. The Edit mode
-  is unaffected: a user can still hand-author a fully r2-shaped script from scratch (or fix a flagged
-  graph node-by-node from the Audio graph tab) and Apply it normally.
+  Implementation notes for what changed). **r2 resolved (was: tolerance for a predating registry)**:
+  this requirement originally documented a REAL shape conflict — `audio-canvas` authored a legacy
+  `oscillator` NODE kind and splitter/channelmerger arity params r2 no longer allows/reads — and this
+  tab's own tolerance mechanism for it (below). A later pass (resolving
+  `OPEN(UX-audio-script-registry-r2-tbd)`, see the Implementation notes) migrated `audio-canvas`'s
+  registry to derive directly from `@gltf-audiograph/kernel`, closing the conflict at the source: the
+  palette can no longer author either shape at all. The tolerance mechanism itself stays in place
+  (this is error handling for a genuinely malformed/foreign document, not a scope reduction) but is
+  now reached only via a document this app's own canvas could never have produced — an imported
+  foreign/legacy asset, or a hand-edited buffer — not anything the palette itself authors:
+  `buildAudioEmitView` treats any ERROR-severity `importAudioGraph` diagnostic (e.g.
+  `oscillator-node-kind`) as "cannot emit" and falls back to a diagnostics-only placeholder (a
+  one-line comment) instead of calling `emitAudioModule` at all — which, empirically, can itself throw
+  on a structurally invalid module rather than degrade gracefully. The Edit mode is unaffected: a user
+  can still hand-author a fully r2-shaped script from scratch (or fix a flagged graph node-by-node
+  from the Audio graph tab, which is itself r2-shaped now) and Apply it normally.
 
 ## Implementation notes
 
@@ -185,21 +191,24 @@ Prefix: `UX`. This file owns the `UX-14xx` block.
   than its interactivity-side analogue, not a hidden subset of it.
 
 - **r2 reconciliation findings** (`@gltf-audiograph`'s `docs/design/spec-discrepancies.md`/
-  `-review-response.md`), concretely, against this app's pre-existing `packages/audio-canvas
-  /audio-node-registry.ts`:
+  `-review-response.md`), concretely, against this app's `packages/audio-canvas
+  /audio-node-registry.ts` — **both RESOLVED** by the pass that closed
+  `OPEN(UX-audio-script-registry-r2-tbd)` (migrated the registry onto
+  `@gltf-audiograph/kernel`, see `specs/ux-audio-graph.md`'s r2 updates to `UX-608`/`UX-610`/`UX-615`/
+  `UX-618`/`UX-619` and `specs/ux-inspector.md`'s new `UX-424` for where oscillator authoring moved):
   1. **Oscillator relocation** — r2 removed `oscillator` as a graph NODE kind entirely; it is now
      declared on a `KHR_audio_emitter` source (`source.extensions.KHR_audio_graph.oscillator`,
-     entering the graph via `inputs[]` like any other source). `audio-canvas`'s registry still
-     authors `oscillator` as a node kind — a REAL shape conflict, handled per `UX-1409` above
-     (tolerant emit-side short-circuit, not a canvas rewrite in this pass — see Open questions).
+     entering the graph via `inputs[]` like any other source). `audio-canvas`'s registry no longer
+     authors `oscillator` as a node kind at all — oscillator authoring moved to the Audio Emitter
+     inspector's Sources sub-list (`UX-424`). `UX-1409`'s tolerance mechanism stays, but is now
+     reachable only via a foreign/legacy document, never anything the palette itself can author.
   2. **Splitter/merger arity is derived, not authored** — r2 removed `numberOfOutputs`/
      `numberOfInputs` as authored `params` for `splitter`/`channelmerger`; arity is now derived from
      the highest port index actually referenced in `connections`/`inputs`. `audio-canvas`'s registry
-     still authors these as regular numeric params. This is the MILDER of the two mismatches: r2
-     treats an authored value here as an `arity-param-ignored` WARNING (the param is silently
-     dropped, not an error), so it does not break `buildAudioEmitView`'s tolerance check above and
-     was left as-is — noted, not fixed, per the task's "only fix minimally if it actually breaks the
-     round trip" rule.
+     no longer authors either param; the audio-graph canvas grows a splitter's/channelmerger's fan
+     ports purely from wiring (`map-audio-graph.ts`'s `growFanPorts`). A legacy document that still
+     carries one of these params still round-trips (import accepts and drops it, `arity-param-ignored`
+     WARNING, not an error).
   3. Other r2 changes (`gain.interpolation:"custom"` requiring `curve` at schema level; a
      stabilized-cycle diagnostic downgrade) surfaced no shape conflict against this app's canvas and
      needed no reconciliation note.
@@ -213,13 +222,14 @@ Prefix: `UX`. This file owns the `UX-14xx` block.
 
 ## Open questions
 
-- OPEN(UX-audio-script-registry-r2-tbd): `audio-canvas`'s node registry/canvas authoring UI still
-  predates r2 (oscillator-as-node-kind; authored splitter/merger arity params — see the
-  Implementation notes' reconciliation findings). A future pass should decide whether to migrate the
-  canvas's oscillator authoring UX onto `KHR_audio_emitter` source data (matching r2 and this tab's
-  own tolerance ceiling) and drop the now-ignored arity params from the registry — left open rather
-  than done speculatively in this PR, which scoped to the Audio Script tab itself, not a canvas
-  rewrite.
+- RESOLVED (was OPEN(UX-audio-script-registry-r2-tbd)): `audio-canvas`'s node registry/canvas
+  authoring UI predated r2 (oscillator-as-node-kind; authored splitter/merger arity params — see the
+  Implementation notes' reconciliation findings). A later pass migrated the registry to derive
+  directly from `@gltf-audiograph/kernel`, moved oscillator authoring onto `KHR_audio_emitter` source
+  data (`specs/ux-inspector.md`'s `UX-424`), and made splitter/channelmerger arity purely
+  wiring-derived — closing this tab's tolerance mechanism (`UX-1409`) down to foreign/legacy documents
+  only, exactly the "matching r2 and this tab's own tolerance ceiling" outcome this question left
+  open.
 - OPEN(UX-audio-script-jump-fidelity-tbd): whether `UX-1406`'s plain select+reveal cross-highlight
   should eventually gain `ux-script.md` `UX-715`'s persistent-decoration/fade-timer/regen-survival
   treatment. Left open as a documented, real fidelity gap rather than ported speculatively.

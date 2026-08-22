@@ -23,6 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@gltf-audiograph/kernel": "0.0.1",
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",
     "@gltf-studio/graph-canvas": "workspace:*",

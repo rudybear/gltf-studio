@@ -2,7 +2,9 @@
 // vendored AudioGraphJS's own `lintGraph`/`lintLayeredGraph` (which only
 // report a generic "Graph contains a cycle" boolean-ish message with no
 // node names). These encode the DAG-only decision and several other
-// concrete, checkable gaps from /glTF-audio/03-gap-analysis-audio-graph.md:
+// concrete, checkable gaps from /glTF-audio/03-gap-analysis-audio-graph.md,
+// updated for spec r2 (rudybear/glTF@KHR_audio_graph PR #2632 @ c0042d7f —
+// see audio-node-registry.ts's header comment for the full r2 delta list):
 //
 //  - G3 (DAG-only): a cycle is named by its actual node path
 //    (specs/ux-audio-graph.md UX-602's "cycle detected (gain → biquadFilter
@@ -17,61 +19,39 @@
 //    either, but unlike G4 a document author could plausibly add an
 //    `envelope`/`adsr` key that a naive implementation silently ignores).
 //  - G2 (`custom` oscillator/interpolation has no defined data model):
-//    RESOLVED upstream since the gap analysis was written — the vendored
-//    ratified schema (glTF-audio/AudioGraphJS/spec-repo's `KHR_audio_graph
-//    .oscillator.schema.json`/`.gain.schema.json`, refreshed with PR #2572's
-//    review fixes) now defines `periodicWave`/`curve` payloads for both.
-//    What's flagged here now is the RUNTIME half of the gap instead: this
-//    project's vendored `audio-graph-js@0.1.0` predates that schema
-//    refresh — its `createOscillator` never reads a `periodicWave` param at
-//    all (`custom` silently falls back to plain sine), so authoring one is
-//    accepted by the schema but has no audible effect through this host yet.
-//  - G1 (no DynamicsCompressor node): also RESOLVED upstream — the same
-//    schema refresh added a `compressor` node kind
-//    (`KHR_audio_graph.compressor.schema.json`, threshold/knee/ratio/
-//    attack/release) that `audio-node-registry.ts`'s palette now offers.
-//    But `audio-graph-js@0.1.0`'s `NodeKind` union / `buildGraph`'s switch
-//    (`runtime/buildGraph.js`) has no `'compressor'` case at all — it is
-//    authorable and schema-valid, but this vendored runtime cannot build
-//    real Web Audio nodes for it (`AudioGraphJsHost.audition()` degrades
-//    gracefully rather than throwing — see that file's own doc comment).
-//    Both are genuine RUNTIME/implementation gaps now, not spec gaps —
-//    distinct in kind from G3/G4/G5, which are actual `KHR_audio_graph`
-//    document-model limits no runtime upgrade could route around.
+//    RESOLVED upstream — the ratified schema defines `periodicWave`/`curve`
+//    payloads for both. r2 moved the oscillator payload OFF `graph.nodes[]`
+//    entirely (a `KHR_audio_emitter` source's `extensions.KHR_audio_graph
+//    .oscillator`, never a node `kind` any more — see `custom-oscillator-
+//    undefined` below, which now inspects SOURCES a graph's `inputs[]`
+//    references instead of a node). The oscillator half of the runtime gap
+//    this comment used to describe (`audio-graph-js@0.1.0`'s
+//    `createOscillator` ignoring `periodicWave`) is also RESOLVED: the
+//    vendored runtime now builds a real `PeriodicWave` from it
+//    (`nodes/oscillator.ts`), so no lint warning is needed for that case
+//    any more — an authored `periodicWave` is genuinely audible.
+//  - G1 (no DynamicsCompressor node): schema-RESOLVED (`compressor` is one
+//    of the 16 `KHR_audio_graph.node.schema.json` `oneOf` kinds,
+//    threshold/knee/ratio/attack/release) but still a genuine RUNTIME gap —
+//    `audio-graph-js`'s `NodeKind` union / `buildGraph`'s switch
+//    (`runtime/buildGraph.js`) has no `'compressor'` case at all, so this
+//    vendored runtime cannot build real Web Audio nodes for it
+//    (`AudioGraphJsHost.audition()` degrades gracefully rather than
+//    throwing — see that file's own doc comment). Distinct in kind from
+//    G3/G4/G5, which are actual `KHR_audio_graph` document-model limits no
+//    runtime upgrade could route around.
+//
+// r2 also removed `splitter`'s/`channelmerger`'s authored channel-count
+// params (`numberOfOutputs`/`numberOfInputs`) — arity is now DERIVED from
+// the highest port index referenced in `connections[]`/`inputs[]` (spec
+// rules 9/10; `audio-graph-js`'s `parse-layered.ts` performs this exact
+// derivation when building the runtime graph). There is no longer a
+// "declared count" a connection could exceed, so the old `channel-port-
+// out-of-bounds` bounds check this file used to run is gone — a splitter's
+// output arity (a channelmerger's input arity) is unbounded by
+// construction now.
 import type { AudioGraphLintResult } from "@gltf-studio/engine-api";
-import type { KHRGraph, KHRGraphNodeSpec } from "audio-graph-js";
-
-// `splitter`'s `numberOfOutputs`/`channelmerger`'s `numberOfInputs` are NOT
-// part of the ratified `KHR_audio_graph.splitter.schema.json`/
-// `.channelmerger.schema.json` (neither declares an explicit channel-count
-// param — specs/ux-audio-graph.md's own M7 implementation note calls this
-// out) but the vendored AudioGraphJS runtime's `createChannelSplitter`/
-// `createChannelMerger` DO read them (`numberOfOutputs ?? 6`/
-// `numberOfInputs ?? 2`), and `audio-node-registry.ts` accepted
-// `channelmerger`'s `numberOfInputs` as an implementation-defined `params`
-// key even before this PR — params objects have no `additionalProperties:
-// false`, so an extra runtime-meaningful key is schema-legal. This PR adds
-// the missing symmetric `numberOfOutputs` splitter field (UX-615) and this
-// bounds check: a connection whose `output`/`input` index exceeds the
-// node's declared count would fail at real Web Audio `connect()` time.
-const SPLITTER_KIND = "splitter";
-const CHANNELMERGER_KIND = "channelmerger";
-
-/** Every `connections[]` entry's `output` (for a `splitter`) or `input` (for a `channelmerger`) index at `nodeIndex` that is `>= declaredCount`, sorted ascending and de-duplicated. */
-function channelPortsOutOfBounds(graph: KHRGraph, nodeIndex: number, kind: string, declaredCount: number): number[] {
-  const bad = new Set<number>();
-  for (const connection of graph.connections) {
-    if (kind === SPLITTER_KIND && connection.from.node === nodeIndex) {
-      const output = connection.from.output ?? 0;
-      if (output >= declaredCount) bad.add(output);
-    }
-    if (kind === CHANNELMERGER_KIND && connection.to.node === nodeIndex) {
-      const input = connection.to.input ?? 0;
-      if (input >= declaredCount) bad.add(input);
-    }
-  }
-  return [...bad].sort((a, b) => a - b);
-}
+import type { AudioEmitterSource, KHRGraph, KHRGraphNodeSpec } from "audio-graph-js";
 
 function nodeLabel(graph: KHRGraph, index: number): string {
   return graph.nodes[index]?.label ?? `node_${index}`;
@@ -130,7 +110,27 @@ function findEnvelopeLikeParams(node: KHRGraphNodeSpec): string[] {
   return Object.keys(node.params ?? {}).filter((key) => ENVELOPE_KEY_PATTERN.test(key));
 }
 
-export function validateGraph(graphIndex: number, graph: KHRGraph): AudioGraphLintResult[] {
+/** r2: an oscillator is never a `graph.nodes[]` entry — it is a `KHR_audio_emitter` source with no `audio` and an `extensions.KHR_audio_graph.oscillator` payload, reached only via a graph's `inputs[]`. `custom-oscillator-undefined` (gap-analysis G2's authoring half) now inspects those SOURCES, keyed by the `source:{index}` id `map-audio-graph.ts` already uses for its synthetic source terminal, so the canvas can highlight the right node. */
+function findCustomOscillatorSourceIssues(graphIndex: number, graph: KHRGraph, sources: readonly AudioEmitterSource[]): AudioGraphLintResult[] {
+  const results: AudioGraphLintResult[] = [];
+  for (const input of graph.inputs ?? []) {
+    const source = sources[input.source];
+    const oscillator = source?.extensions?.KHR_audio_graph?.oscillator;
+    if (oscillator && oscillator.type === "custom" && !oscillator.periodicWave) {
+      const label = `source:${input.source}`;
+      results.push({
+        graphIndex,
+        severity: "warning",
+        code: "custom-oscillator-undefined",
+        message: `source #${input.source} is an oscillator with type "custom" but no "periodicWave" data — the custom waveform has no defined payload (gap-analysis G2)`,
+        nodeIds: [label]
+      });
+    }
+  }
+  return results;
+}
+
+export function validateGraph(graphIndex: number, graph: KHRGraph, sources: readonly AudioEmitterSource[] = []): AudioGraphLintResult[] {
   const results: AudioGraphLintResult[] = [];
 
   const cycle = findCyclePath(graph);
@@ -144,6 +144,8 @@ export function validateGraph(graphIndex: number, graph: KHRGraph): AudioGraphLi
     });
   }
 
+  results.push(...findCustomOscillatorSourceIssues(graphIndex, graph, sources));
+
   graph.nodes.forEach((node, index) => {
     const label = nodeLabel(graph, index);
     const envelopeKeys = findEnvelopeLikeParams(node);
@@ -156,36 +158,12 @@ export function validateGraph(graphIndex: number, graph: KHRGraph): AudioGraphLi
         nodeIds: [label]
       });
     }
-    if (node.kind === "oscillator" && node.params?.type === "custom" && !node.params?.periodicWave) {
-      results.push({
-        graphIndex,
-        severity: "warning",
-        code: "custom-oscillator-undefined",
-        message: `node "${label}" is an oscillator with type "custom" but no "periodicWave" data — the custom waveform has no defined payload (gap-analysis G2)`,
-        nodeIds: [label]
-      });
-    }
     if (node.kind === "gain" && node.params?.interpolation === "custom" && !node.params?.curve) {
       results.push({
         graphIndex,
         severity: "warning",
         code: "custom-interpolation-undefined",
         message: `node "${label}" is a gain node with interpolation "custom" but no "curve" data — the custom curve has no defined payload (gap-analysis G2)`,
-        nodeIds: [label]
-      });
-    }
-    // G2 RESOLVED-in-schema / runtime-not-yet-caught-up: once periodicWave/
-    // curve IS authored (schema-valid), this project's vendored
-    // audio-graph-js@0.1.0 still doesn't apply it — a distinct, more
-    // specific warning than the "undefined payload" ones above (which stop
-    // firing once the payload exists) so the author isn't left thinking a
-    // correctly-authored curve/periodicWave is silently broken by THEM.
-    if (node.kind === "oscillator" && node.params?.type === "custom" && node.params?.periodicWave) {
-      results.push({
-        graphIndex,
-        severity: "warning",
-        code: "oscillator-periodicwave-runtime-unimplemented",
-        message: `node "${label}" has oscillator "periodicWave" data (schema-valid) but this project's vendored AudioGraphJS runtime (audio-graph-js@0.1.0) doesn't build a PeriodicWave from it yet — audition falls back to a plain sine for this node until the vendored runtime is upgraded`,
         nodeIds: [label]
       });
     }
@@ -199,35 +177,28 @@ export function validateGraph(graphIndex: number, graph: KHRGraph): AudioGraphLi
       });
     }
     // G1 RESOLVED-in-schema / runtime-not-yet-caught-up: `compressor` is a
-    // valid KHR_audio_graph node kind (the ratified schema's PR #2572
-    // review-fixes refresh added it — see this file's header comment), but
-    // audio-graph-js@0.1.0's NodeKind union / buildGraph() switch has no
-    // 'compressor' case, so this vendored runtime cannot build one.
-    // AudioGraphHost.audition() degrades gracefully (see its own doc
-    // comment) rather than throwing, but no sound comes out of this node.
+    // valid KHR_audio_graph node kind (16-kind r2 oneOf, threshold/knee/
+    // ratio/attack/release), but audio-graph-js's `NodeKind` union /
+    // `buildGraph()` switch has no `'compressor'` case, so this vendored
+    // runtime cannot build one. `AudioGraphHost.audition()` degrades
+    // gracefully (see its own doc comment) rather than throwing, but no
+    // sound comes out of this node.
     if (node.kind === "compressor") {
       results.push({
         graphIndex,
         severity: "warning",
         code: "compressor-runtime-unimplemented",
-        message: `node "${label}" is a "compressor" — valid per the ratified KHR_audio_graph schema (gap-analysis G1 is resolved upstream), but this project's vendored AudioGraphJS runtime (audio-graph-js@0.1.0) doesn't implement it yet — auditioning a graph reaching this node will not throw, but this node's processing is skipped`,
+        message: `node "${label}" is a "compressor" — valid per the ratified KHR_audio_graph schema (gap-analysis G1 is resolved upstream), but this project's vendored AudioGraphJS runtime doesn't implement it yet — auditioning a graph reaching this node will not throw, but this node's processing is skipped`,
         nodeIds: [label]
       });
     }
-    if (node.kind === SPLITTER_KIND || node.kind === CHANNELMERGER_KIND) {
-      const declared = node.kind === SPLITTER_KIND ? Number(node.params?.numberOfOutputs ?? 2) : Number(node.params?.numberOfInputs ?? 2);
-      const bad = channelPortsOutOfBounds(graph, index, node.kind, declared);
-      if (bad.length > 0) {
-        const portWord = node.kind === SPLITTER_KIND ? "output" : "input";
-        results.push({
-          graphIndex,
-          severity: "error",
-          code: "channel-port-out-of-bounds",
-          message: `node "${label}" is a ${node.kind === SPLITTER_KIND ? "splitter" : "channel merger"} declared with ${declared} ${portWord}${declared === 1 ? "" : "s"}, but ${bad.length === 1 ? "a connection references" : "connections reference"} ${portWord} index ${bad.join(", ")} — increase its "${node.kind === SPLITTER_KIND ? "numberOfOutputs" : "numberOfInputs"}" param or rewire the out-of-range connection`,
-          nodeIds: [label]
-        });
-      }
-    }
+    // r2: an authored "oscillator" node `kind` is no longer legal at all
+    // (removed from the node oneOf — see this file's header comment) —
+    // this is now a genuinely malformed/legacy-shaped document, not a
+    // resolvable v1 gap. The vendored runtime's own `parseLayeredExtensions`
+    // already reports it (`"oscillator" is not a graph node kind (found at
+    // index N)"`), forwarded by `AudioGraphJsHost.buildGraph` as an
+    // `"upstream"` error — no duplicate check needed here.
   });
 
   return results;

@@ -1,10 +1,13 @@
 // validateGraph (AGH-001) tests: the cycle-path naming already covered via
 // audio-graph-host.test.ts's browser-mode suite gets its own direct
 // coverage here for the newer checks this file doesn't exercise yet —
-// G1/G2 runtime-vs-schema messaging (validators.ts's header comment) and
-// the splitter/channelmerger channel-port bounds check (UX-615).
+// G1/G2 runtime-vs-schema messaging (validators.ts's header comment), now
+// updated for spec r2: oscillators are `KHR_audio_emitter` SOURCES (never a
+// `graph.nodes[]` kind), and splitter/channelmerger arity is derived from
+// wiring (no more authored `numberOfOutputs`/`numberOfInputs` params, so no
+// more "declared count" bounds check).
 import { describe, expect, it } from "vitest";
-import type { KHRGraph } from "audio-graph-js";
+import type { AudioEmitterSource, KHRGraph } from "audio-graph-js";
 import { validateGraph } from "./validators.js";
 
 describe("validateGraph: compressor (gap-analysis G1, resolved-in-schema/runtime-not-yet-caught-up)", () => {
@@ -22,24 +25,52 @@ describe("validateGraph: compressor (gap-analysis G1, resolved-in-schema/runtime
   });
 });
 
-describe("validateGraph: oscillator periodicWave / gain curve (gap-analysis G2, resolved-in-schema/runtime-not-yet-caught-up)", () => {
-  it("still flags an undefined custom-oscillator payload when periodicWave is absent", () => {
-    const graph: KHRGraph = { nodes: [{ kind: "oscillator", label: "osc", params: { type: "custom" } }], connections: [] };
-    const results = validateGraph(0, graph);
-    expect(results.find((r) => r.code === "custom-oscillator-undefined")).toBeDefined();
-    expect(results.find((r) => r.code === "oscillator-periodicwave-runtime-unimplemented")).toBeUndefined();
+describe("validateGraph: custom-oscillator source payload (gap-analysis G2, r2 source-data shape)", () => {
+  const graphWithOneOscillatorInput = (): KHRGraph => ({
+    nodes: [{ kind: "gain", label: "vol", params: { gain: 0.5 } }],
+    connections: [],
+    inputs: [{ source: 0, node: 0 }]
   });
 
-  it("switches to the runtime-unimplemented warning once periodicWave IS authored (schema-valid, not yet audible)", () => {
-    const graph: KHRGraph = {
-      nodes: [{ kind: "oscillator", label: "osc", params: { type: "custom", periodicWave: { real: [0, 1], imag: [0, 0] } } }],
-      connections: []
-    };
-    const results = validateGraph(0, graph);
-    expect(results.find((r) => r.code === "custom-oscillator-undefined")).toBeUndefined();
-    const hit = results.find((r) => r.code === "oscillator-periodicwave-runtime-unimplemented");
+  it("flags an undefined custom-oscillator payload when the referenced source's periodicWave is absent", () => {
+    const graph = graphWithOneOscillatorInput();
+    const sources: AudioEmitterSource[] = [{ extensions: { KHR_audio_graph: { oscillator: { type: "custom" } } } }];
+    const results = validateGraph(0, graph, sources);
+    const hit = results.find((r) => r.code === "custom-oscillator-undefined");
     expect(hit).toBeDefined();
     expect(hit!.severity).toBe("warning");
+    expect(hit!.nodeIds).toEqual(["source:0"]);
+  });
+
+  it("does not flag once the source's periodicWave IS authored — the vendored runtime now builds a real PeriodicWave from it", () => {
+    const graph = graphWithOneOscillatorInput();
+    const sources: AudioEmitterSource[] = [
+      { extensions: { KHR_audio_graph: { oscillator: { type: "custom", periodicWave: { real: [0, 1], imag: [0, 0] } } } } }
+    ];
+    const results = validateGraph(0, graph, sources);
+    expect(results.find((r) => r.code === "custom-oscillator-undefined")).toBeUndefined();
+    // r2: periodicWave IS audible now (nodes/oscillator.ts builds a real PeriodicWave) — no runtime-unimplemented warning exists for this any more.
+    expect(results.some((r) => r.code === "oscillator-periodicwave-runtime-unimplemented")).toBe(false);
+  });
+
+  it("does not flag a non-custom oscillator source even with no periodicWave", () => {
+    const graph = graphWithOneOscillatorInput();
+    const sources: AudioEmitterSource[] = [{ extensions: { KHR_audio_graph: { oscillator: { type: "sine", frequency: 440 } } } }];
+    const results = validateGraph(0, graph, sources);
+    expect(results.find((r) => r.code === "custom-oscillator-undefined")).toBeUndefined();
+  });
+
+  it("does nothing when no sources are passed (default [])", () => {
+    const graph = graphWithOneOscillatorInput();
+    expect(() => validateGraph(0, graph)).not.toThrow();
+  });
+});
+
+describe("validateGraph: gain curve (gap-analysis G2)", () => {
+  it("flags an undefined custom-interpolation payload when curve is absent", () => {
+    const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g", params: { interpolation: "custom" } }], connections: [] };
+    const results = validateGraph(0, graph);
+    expect(results.find((r) => r.code === "custom-interpolation-undefined")).toBeDefined();
   });
 
   it("switches to the runtime-unimplemented warning once a gain curve IS authored", () => {
@@ -55,65 +86,32 @@ describe("validateGraph: oscillator periodicWave / gain curve (gap-analysis G2, 
   });
 });
 
-describe("validateGraph: splitter/channelmerger channel-port bounds (UX-615)", () => {
-  it("flags a splitter connection whose output index exceeds its declared numberOfOutputs", () => {
+describe("validateGraph: r2 splitter/channelmerger arity is derived, not authored", () => {
+  it("never flags channel-port-out-of-bounds any more — arity is unbounded/derived from wiring", () => {
     const graph: KHRGraph = {
       nodes: [
-        { kind: "splitter", label: "split", params: { numberOfOutputs: 2 } },
+        { kind: "splitter", label: "split", params: {} },
         { kind: "gain", label: "g0", params: {} },
         { kind: "gain", label: "g1", params: {} }
       ],
       connections: [
         { from: { node: 0, output: 0 }, to: { node: 1, input: 0 } },
-        { from: { node: 0, output: 3 }, to: { node: 2, input: 0 } }
+        { from: { node: 0, output: 7 }, to: { node: 2, input: 0 } }
       ]
-    };
-    const results = validateGraph(0, graph);
-    const hit = results.find((r) => r.code === "channel-port-out-of-bounds");
-    expect(hit).toBeDefined();
-    expect(hit!.severity).toBe("error");
-    expect(hit!.message).toContain("split");
-    expect(hit!.message).toContain("3");
-    expect(hit!.message).toContain("numberOfOutputs");
-  });
-
-  it("flags a channelmerger connection whose input index exceeds its declared numberOfInputs", () => {
-    const graph: KHRGraph = {
-      nodes: [
-        { kind: "gain", label: "g0", params: {} },
-        { kind: "channelmerger", label: "merge", params: { numberOfInputs: 2 } }
-      ],
-      connections: [{ from: { node: 0, output: 0 }, to: { node: 1, input: 5 } }]
-    };
-    const results = validateGraph(0, graph);
-    const hit = results.find((r) => r.code === "channel-port-out-of-bounds");
-    expect(hit).toBeDefined();
-    expect(hit!.severity).toBe("error");
-    expect(hit!.message).toContain("merge");
-    expect(hit!.message).toContain("numberOfInputs");
-  });
-
-  it("does not flag a splitter/channelmerger whose connections stay within the declared count", () => {
-    const graph: KHRGraph = {
-      nodes: [
-        { kind: "splitter", label: "split", params: { numberOfOutputs: 4 } },
-        { kind: "gain", label: "g", params: {} }
-      ],
-      connections: [{ from: { node: 0, output: 3 }, to: { node: 1, input: 0 } }]
     };
     const results = validateGraph(0, graph);
     expect(results.find((r) => r.code === "channel-port-out-of-bounds")).toBeUndefined();
   });
 
-  it("falls back to the default declared count (2) when numberOfOutputs/numberOfInputs is absent", () => {
+  it("does not read numberOfOutputs/numberOfInputs params at all (legacy params, if present, are simply ignored by this validator)", () => {
     const graph: KHRGraph = {
       nodes: [
-        { kind: "splitter", label: "split", params: {} },
+        { kind: "channelmerger", label: "merge", params: { numberOfInputs: 2 } },
         { kind: "gain", label: "g", params: {} }
       ],
-      connections: [{ from: { node: 0, output: 2 }, to: { node: 1, input: 0 } }]
+      connections: [{ from: { node: 1, output: 0 }, to: { node: 0, input: 5 } }]
     };
     const results = validateGraph(0, graph);
-    expect(results.find((r) => r.code === "channel-port-out-of-bounds")).toBeDefined();
+    expect(results.find((r) => r.code === "channel-port-out-of-bounds")).toBeUndefined();
   });
 });
