@@ -43,8 +43,17 @@ function currentValue(field: AudioParamField, params: Record<string, unknown>): 
   return params[field.key] ?? field.default;
 }
 
-/** Parses a comma/whitespace/newline-separated number list, dropping anything that doesn't parse to a finite number (a stray trailing comma while typing, e.g.). */
-function parseNumberList(text: string): number[] {
+/**
+ * Parses a comma/whitespace/newline-separated number list, dropping
+ * anything that doesn't parse to a finite number (a stray trailing comma
+ * while typing, e.g.). Exported (code review — was previously duplicated
+ * verbatim in `packages/app`'s `AudioSection.tsx`'s
+ * `OscillatorPeriodicWaveFields`, the oscillator SOURCE's own real/imag
+ * textarea pair, since that component has no `AudioParamField`+node-kind
+ * lookup to drive `PeriodicWaveField` below with) so both call sites share
+ * one implementation.
+ */
+export function parseNumberList(text: string): number[] {
   return text
     .split(/[,\s]+/)
     .map((token) => token.trim())
@@ -53,7 +62,8 @@ function parseNumberList(text: string): number[] {
     .filter((n) => Number.isFinite(n));
 }
 
-function formatNumberList(value: unknown): string {
+/** See `parseNumberList`'s doc comment — exported for the same reason. */
+export function formatNumberList(value: unknown): string {
   return Array.isArray(value) ? value.join(", ") : "";
 }
 

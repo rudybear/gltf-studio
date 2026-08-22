@@ -73,6 +73,13 @@ describe("defaultParamsFor", () => {
     expect(defaultParamsFor("lowpass")).toMatchObject({ frequency: 350 });
     expect(defaultParamsFor("channelmixer")).toMatchObject({ outputChannels: 2 });
   });
+
+  it("keeps a UI-only max bound the kernel's schema-derived spec doesn't declare (regression, code review: this was silently lost when the registry was rebased onto @gltf-audiograph/kernel)", () => {
+    const spec = audioNodeSpec("channelmixer")!;
+    const field = spec.params.find((f) => f.key === "outputChannels")!;
+    expect(field.min).toBe(1); // from the kernel's own schema-derived spec
+    expect(field.max).toBe(32); // this file's own UI-only overlay (Web Audio's real channelCount ceiling)
+  });
 });
 
 describe("r2: splitter/channelmerger have NO authored arity param any more", () => {

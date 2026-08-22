@@ -110,13 +110,37 @@ function findEnvelopeLikeParams(node: KHRGraphNodeSpec): string[] {
   return Object.keys(node.params ?? {}).filter((key) => ENVELOPE_KEY_PATTERN.test(key));
 }
 
-/** r2: an oscillator is never a `graph.nodes[]` entry — it is a `KHR_audio_emitter` source with no `audio` and an `extensions.KHR_audio_graph.oscillator` payload, reached only via a graph's `inputs[]`. `custom-oscillator-undefined` (gap-analysis G2's authoring half) now inspects those SOURCES, keyed by the `source:{index}` id `map-audio-graph.ts` already uses for its synthetic source terminal, so the canvas can highlight the right node. */
+/**
+ * r2: an oscillator is never a `graph.nodes[]` entry — it is a
+ * `KHR_audio_emitter` source with no `audio` and an
+ * `extensions.KHR_audio_graph.oscillator` payload, reached only via a
+ * graph's `inputs[]`. `custom-oscillator-undefined` (gap-analysis G2's
+ * authoring half) now inspects those SOURCES, keyed by the `source:{index}`
+ * id `map-audio-graph.ts` already uses for its synthetic source terminal,
+ * so the canvas can highlight the right node.
+ *
+ * Bug fix (code review, r2 migration): this predicate MUST require `typeof
+ * source.audio !== "number"` the same way `map-audio-graph.ts`'s
+ * `isOscillator`/`AudioSection.tsx`'s `isOscillatorSource` both already do —
+ * a malformed source declaring BOTH `audio` and `oscillator` is a clip
+ * everywhere else in this app (and the vendored runtime's own
+ * `lintLayeredGraph` already flags that combination as its own
+ * `"audio-and-oscillator"` error), so this check must not additionally
+ * label it "an oscillator" too, which would contradict every other
+ * rendering of the same source and confuse the author. Three independent
+ * copies of this exact discriminator exist (here, `map-audio-graph.ts`,
+ * `AudioSection.tsx`) rather than one shared export, since the three
+ * packages involved (`audio-graph`, `audio-canvas`, `app`) don't otherwise
+ * share a dependency edge that could host it without a layering change —
+ * keep all three in sync if this condition ever changes again.
+ */
 function findCustomOscillatorSourceIssues(graphIndex: number, graph: KHRGraph, sources: readonly AudioEmitterSource[]): AudioGraphLintResult[] {
   const results: AudioGraphLintResult[] = [];
   for (const input of graph.inputs ?? []) {
     const source = sources[input.source];
     const oscillator = source?.extensions?.KHR_audio_graph?.oscillator;
-    if (oscillator && oscillator.type === "custom" && !oscillator.periodicWave) {
+    const isOscillatorSource = oscillator !== undefined && typeof source?.audio !== "number";
+    if (isOscillatorSource && oscillator.type === "custom" && !oscillator.periodicWave) {
       const label = `source:${input.source}`;
       results.push({
         graphIndex,

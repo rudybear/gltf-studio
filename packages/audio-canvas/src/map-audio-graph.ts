@@ -146,7 +146,12 @@ export function mapAudioGraph(
     // r2: a source with no `audio` index and an `extensions.KHR_audio_graph
     // .oscillator` payload is an oscillator source (never a graph node kind
     // any more — see this file's header comment); every other source is an
-    // ordinary audio clip.
+    // ordinary audio clip. Kept in sync with two other independent copies
+    // of this exact discriminator — `@gltf-studio/audio-graph`'s
+    // `validators.ts` (`findCustomOscillatorSourceIssues`) and
+    // `packages/app`'s `AudioSection.tsx` (`isOscillatorSource`) — see
+    // `validators.ts`'s doc comment for why these three aren't unified into
+    // one shared export.
     const isOscillator = oscillator !== undefined && typeof source?.audio !== "number";
     ensure(sourceId, () => ({
       id: sourceId,

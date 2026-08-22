@@ -64,6 +64,16 @@ describe("validateGraph: custom-oscillator source payload (gap-analysis G2, r2 s
     const graph = graphWithOneOscillatorInput();
     expect(() => validateGraph(0, graph)).not.toThrow();
   });
+
+  it("does not flag a malformed source declaring BOTH audio and an oscillator payload as an oscillator (regression, code review: this discriminator must match map-audio-graph.ts's/AudioSection.tsx's, which both require audio to be absent)", () => {
+    const graph = graphWithOneOscillatorInput();
+    const sources: AudioEmitterSource[] = [{ audio: 0, extensions: { KHR_audio_graph: { oscillator: { type: "custom" } } } }];
+    const results = validateGraph(0, graph, sources);
+    // A source with `audio` set is a CLIP everywhere else in this app (the vendored runtime's own
+    // lintLayeredGraph flags the both-set case as its own "audio-and-oscillator" error) — this
+    // check must not additionally call it "an oscillator" too, contradicting every other rendering.
+    expect(results.find((r) => r.code === "custom-oscillator-undefined")).toBeUndefined();
+  });
 });
 
 describe("validateGraph: gain curve (gap-analysis G2)", () => {
