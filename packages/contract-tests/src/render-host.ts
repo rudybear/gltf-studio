@@ -595,19 +595,25 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       teardown(host, container);
     });
 
-    // Full punctual-light control (specs/render-host.md RH-032/RH-033): the
-    // shared editor-overlay seam. This fixture has no light node at all —
-    // deliberately so, since the portable cross-implementation contract can
-    // only assert the "never throws" half; the REAL per-kind rendering
-    // behavior (a light node actually growing a PointLightHelper/etc, RH-034's
-    // snapshot exclusion) is engine-three's own implementation-specific
-    // coverage (packages/engine-three/test/render-host.light-helpers.test.ts),
-    // not assertable against an arbitrary future RenderHost implementation.
-    test("setEditorHelpers(descriptors) does not throw, including for an unknown kind or an unresolvable nodeIndex (RH-032)", async () => {
+    // Full punctual-light control (specs/render-host.md RH-032/RH-033) and
+    // its audio viewport helpers follow-up (RH-035): the shared editor-
+    // overlay seam. This fixture has no light node and no
+    // KHR_audio_emitter/KHR_audio_environment binding at all — deliberately
+    // so, since the portable cross-implementation contract can only assert
+    // the "never throws" half; the REAL per-kind rendering behavior (a light
+    // node actually growing a PointLightHelper/etc, an emitter/zone node
+    // growing its own shape helper, RH-034's snapshot exclusion) is engine-
+    // three's own implementation-specific coverage
+    // (packages/engine-three/test/render-host.light-helpers.test.ts and
+    // render-host.audio-helpers.test.ts), not assertable against an
+    // arbitrary future RenderHost implementation.
+    test("setEditorHelpers(descriptors) does not throw, including for a kind with no matching data, a wholly unknown kind, or an unresolvable nodeIndex (RH-032)", async () => {
       const { host, container } = await mountedHost(makeHost);
       await loadFixture(host);
       expect(() => host.setEditorHelpers([{ kind: "light", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // a real node, but not a light — resolves to "skip, don't throw".
-      expect(() => host.setEditorHelpers([{ kind: "audio-emitter", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // unknown kind.
+      expect(() => host.setEditorHelpers([{ kind: "audio-emitter", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // a real node, but no KHR_audio_emitter binding.
+      expect(() => host.setEditorHelpers([{ kind: "audio-zone", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // a real node, but no KHR_audio_environment zone shape.
+      expect(() => host.setEditorHelpers([{ kind: "some-future-kind", nodeIndex: FIXTURE_HIT_NODE_INDEX }])).not.toThrow(); // wholly unknown kind.
       expect(() => host.setEditorHelpers([{ kind: "light", nodeIndex: 999 }])).not.toThrow(); // unresolvable nodeIndex.
       teardown(host, container);
     });

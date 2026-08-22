@@ -22,13 +22,18 @@
 //                     "Attach behavior…" live-menu target) — also carries a
 //                     real KHR_audio_emitter (source 0), so "On select ->
 //                     Play sound" has something real to gate on/trigger.
+//   2 "Prop_Multi"  — zero graph refs, multi-emitter-bound via PR #59's
+//                     array-valued `.emitters` (audio viewport helpers task:
+//                     the attach flow must target the FIRST bound emitter,
+//                     `emitters[0]` = registry emitter 1 / source 1, not
+//                     node 1's singular-`.emitter` shape).
 import { writeContainer, type Container } from "@gltfi/gltf";
 import { sineBeepWavBytes } from "./wav-fixture.js";
 
 const CHUNK_TYPE_JSON = 0x4e4f534a;
 
 export const USAGE_P2_FIXTURE_NAME = "usage-mapping-p2-fixture.glb";
-export const USAGE_P2_NODE = { TARGET: 0, ZERO: 1 } as const;
+export const USAGE_P2_NODE = { TARGET: 0, ZERO: 1, MULTI: 2 } as const;
 export const USAGE_P2_GRAPH_NODE = { MATERIAL_POINTER_SET: 0, ANIMATION_START: 1, ON_START: 2 } as const;
 export const USAGE_P2_MATERIAL_INDEX = 0;
 export const USAGE_P2_ANIMATION_INDEX = 0;
@@ -62,10 +67,11 @@ function buildUsageMappingP2FixtureJson(): Record<string, unknown> {
   return {
     asset: { version: "2.0", generator: "gltf-studio e2e usage-mapping-p2 fixture" },
     scene: 0,
-    scenes: [{ nodes: [0, 1] }],
+    scenes: [{ nodes: [0, 1, 2] }],
     nodes: [
       { name: "Prop_Target", mesh: 0, translation: [-2, 0, 0] },
-      { name: "Prop_Zero", mesh: 0, translation: [2, 0, 0], extensions: { KHR_audio_emitter: { emitter: 0 } } }
+      { name: "Prop_Zero", mesh: 0, translation: [2, 0, 0], extensions: { KHR_audio_emitter: { emitter: 0 } } },
+      { name: "Prop_Multi", mesh: 0, translation: [0, -2, 0], extensions: { KHR_audio_emitter: { emitters: [1, 0] } } }
     ],
     meshes: [{ name: "TriMesh", primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }],
     materials: [{ name: "Mat_Green", pbrMetallicRoughness: { baseColorFactor: [0.2, 0.8, 0.3, 1] } }],
@@ -94,8 +100,11 @@ function buildUsageMappingP2FixtureJson(): Record<string, unknown> {
     extensions: {
       KHR_audio_emitter: {
         audio: [{ bufferView: 2, mimeType: "audio/wav" }],
-        sources: [{ audio: 0, gain: 1, loop: false, autoplay: false }],
-        emitters: [{ type: "positional", gain: 1, sources: [0] }]
+        sources: [
+          { audio: 0, gain: 1, loop: false, autoplay: false },
+          { audio: 0, gain: 1, loop: false, autoplay: false }
+        ],
+        emitters: [{ type: "positional", gain: 1, sources: [0] }, { type: "positional", gain: 1, sources: [1] }]
       },
       KHR_interactivity: {
         graph: 0,

@@ -88,8 +88,8 @@ test.describe("Usage Mapping Phase 2: live Attach-behavior menu (UX-1118)", () =
     await importFixture(page);
   });
 
-  async function openAttachMenu(page: Page): Promise<void> {
-    await page.getByTestId(`scene-tree.row.${USAGE_P2_NODE.ZERO}`).click();
+  async function openAttachMenu(page: Page, nodeIndex: number = USAGE_P2_NODE.ZERO): Promise<void> {
+    await page.getByTestId(`scene-tree.row.${nodeIndex}`).click();
     await expect(page.getByTestId("inspector.usage.section")).toContainText("Not referenced in behavior");
     await page.getByTestId("inspector.usage.attach").click();
     await expect(page.getByTestId("inspector.usage.attach-menu")).toHaveClass(/open/);
@@ -136,6 +136,19 @@ test.describe("Usage Mapping Phase 2: live Attach-behavior menu (UX-1118)", () =
     await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
     await expect(graphNodeCount(page)).resolves.toBe(BASE_GRAPH_NODE_COUNT + 2);
     await expect(page.getByTestId("gcanvas.details")).toContainText("/extensions/KHR_audio_emitter/sources/0/playing");
+  });
+
+  test('"On select → Play sound" on a MULTI-emitter node (PR #59\'s .emitters array) targets the FIRST bound emitter\'s own source, not the singular-.emitter shape', async ({ page }) => {
+    await openAttachMenu(page, USAGE_P2_NODE.MULTI);
+    const playSound = page.getByTestId("inspector.usage.attach-menu.play-sound");
+    await expect(playSound).toBeVisible(); // offered even though this node has no singular `.emitter` at all.
+
+    await playSound.click();
+
+    await expect(page.getByTestId("dock.tab.graph")).toHaveClass(/active/);
+    await expect(graphNodeCount(page)).resolves.toBe(BASE_GRAPH_NODE_COUNT + 2);
+    // Prop_Multi's `.emitters` is [1, 0] — the FIRST entry (registry emitter 1, sources: [1]) wins.
+    await expect(page.getByTestId("gcanvas.details")).toContainText("/extensions/KHR_audio_emitter/sources/1/playing");
   });
 
   test('"On select → Play animation ▸" opens a clip submenu; choosing "Spin" creates an event/onSelect + animation/start node pair', async ({ page }) => {

@@ -164,6 +164,14 @@ process.
 
 ## Implementation notes
 
+- Audio viewport helpers + multi-emitter attach fix (the substance lives in
+  `specs/render-host.md`'s `RH-035` and `specs/ux-viewport.md`'s `UX-314`/`UX-1103`/`UX-1118`
+  in `specs/ux-usage-mapping.md`; this file's own `packages/app/**` catch-all is what makes
+  touching `Viewport.tsx`/`UsageSection.tsx`/`lib/gltf-scene.ts`/`app-store.ts` also a
+  `specs/ux-shell.md` change): generalizes the light-only viewport helpers toggle into one
+  toggle governing light/audio-emitter/audio-zone helpers together, and fixes the "On select →
+  Play sound" attach flow to read a node's multi-emitter `.emitters` array, not just the legacy
+  singular `.emitter` field. No `UX-1xx`-owned shell requirement itself changed.
 - Clip management + source/emitter lifecycle (Track A audio task — the substance lives in
   `specs/document-model.md`'s `DOC-066`, `specs/ux-inspector.md`'s `UX-425`..`428`, and
   `specs/ux-scene-tree.md`'s `UX-218`..`222`; this file's own `packages/app/**` catch-all is what

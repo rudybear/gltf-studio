@@ -64,11 +64,11 @@ export interface PickOptions {
  * `RenderHost.setEditorHelpers` uses — a generic, kind-tagged list of
  * scene-node indices the implementation may render an EDITOR-ONLY visual
  * aid for (never written to the document; RH-034 guarantees export never
- * sees them). Deliberately minimal: one shared method for every future
- * helper family (lights today; audio-emitter/listener are a real,
- * anticipated follow-up for `@gltf-studio/audio-webaudio`'s own editor work)
- * rather than a per-domain method each new family would otherwise add to
- * this interface. `kind` is an open string (not a closed union) so a
+ * sees them). Deliberately minimal: one shared method for every helper
+ * family (lights, and — per the audio viewport helpers follow-up, RH-035 —
+ * audio emitters and `KHR_audio_environment` zones) rather than a
+ * per-domain method each new family would otherwise add to this interface.
+ * `kind` is an open string (not a closed union) so a
  * `RenderHost` implementation that doesn't yet recognize a given `kind` can
  * simply ignore those descriptors rather than the type system forcing every
  * implementation to keep this file's own union in lock-step with every
@@ -82,17 +82,20 @@ export interface EditorHelperDescriptor {
 
 /**
  * Known helper-kind tags. An implementation encountering a `kind` it
- * doesn't recognize (e.g. a future "audio-emitter"/"audio-listener" tag
- * reaching an older `RenderHost` build) silently ignores those descriptors
- * rather than throwing — the same "unknown gets skipped, not rejected"
- * tolerance this file's `PickOptions`/RH-031's unresolvable-index handling
- * already establishes elsewhere in this interface. `engine-three`'s v1
- * implementation only draws `"light"` (RH-032..RH-034); this union stays
- * open (a plain `string` fallback via the union's last member) specifically
- * so `@gltf-studio/audio-webaudio`'s own follow-up can add its own kinds
- * without a breaking change here.
+ * doesn't recognize (e.g. a future domain-specific tag reaching an older
+ * `RenderHost` build) silently ignores those descriptors rather than
+ * throwing — the same "unknown gets skipped, not rejected" tolerance this
+ * file's `PickOptions`/RH-031's unresolvable-index handling already
+ * establishes elsewhere in this interface. `engine-three` draws `"light"`
+ * (RH-032..RH-034) and, per the audio viewport helpers follow-up,
+ * `"audio-emitter"` and `"audio-zone"` (RH-035 — a range/cone/speaker-glyph
+ * visual per node-bound `KHR_audio_emitter` entry, and a translucent
+ * sphere/box volume per node-bound `KHR_audio_environment` zone shape,
+ * respectively). This union stays open (a plain `string` fallback via the
+ * union's last member) specifically so a future helper family can add its
+ * own kind without a breaking change here.
  */
-export type EditorHelperKind = "light" | (string & {});
+export type EditorHelperKind = "light" | "audio-emitter" | "audio-zone" | (string & {});
 
 /** SP-011 (see specs/storage-provider.md): thumbnail is the only optional field. */
 export interface ProjectMeta {
