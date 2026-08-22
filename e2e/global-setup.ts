@@ -180,7 +180,20 @@ function buildBaseSceneJson(interactivityGraph: unknown): Record<string, unknown
       }
     ],
     extensions: {
-      KHR_lights_punctual: { lights: [{ type: "point" }] },
+      // Full punctual-light control (specs/ux-viewport.md UX-313): a real
+      // document light now turns the neutral studio rig OFF automatically
+      // (AUTO policy — authored lighting becomes the visible truth), so
+      // KeyLight — previously a bare `{type:"point"}` with three.js's own
+      // default intensity of 1, which rendered adequately ONLY because the
+      // (now-disabled-for-this-fixture) studio rig was doing the real
+      // illumination work — needs a real, non-trivial intensity of its own
+      // so every pixel-based e2e test against this shared fixture (most
+      // notably e2e/viewport-real-click.spec.ts's DEFAULT-camera, no-fixed-
+      // pose "find the rendered object by scanning pixels" tests) still
+      // finds Widget clearly lit. KeyLight's own POSITION stays at the
+      // origin, unchanged (`e2e/scene-tree-reparent-world-position.spec.ts`
+      // asserts it starts there) — intensity is the only lever available.
+      KHR_lights_punctual: { lights: [{ type: "point", intensity: 200 }] },
       KHR_interactivity: { graphs: [interactivityGraph] },
       // M7: a real KHR_audio_emitter (sineBeepWavBytes' bufferView-embedded
       // WAV, resolved by @gltf-studio/audio-webaudio's WebAudioHost) plus a

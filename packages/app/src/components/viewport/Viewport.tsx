@@ -3,7 +3,7 @@ import { createThreeRenderHost, type ThreeRenderHost } from "@gltf-studio/engine
 import type { CameraPose, GizmoMode, PickResult } from "@gltf-studio/engine-api";
 import { SceneEdit, type EditorDocument, type TransformFields } from "@gltf-studio/editor-core";
 import { useAppStore, getActivePlayController } from "../../store/app-store";
-import type { GltfJsonShape } from "../../lib/gltf-scene";
+import { lightNodeIndices, type GltfJsonShape } from "../../lib/gltf-scene";
 import { extractBinaryChunk } from "../../lib/audio-container.js";
 import { buildEmptySceneGlb } from "../../lib/empty-scene.js";
 import { PlayOverlay } from "./PlayOverlay";
@@ -86,6 +86,8 @@ export interface GltfStudioTestHook {
   pick(x: number, y: number): PickResult | null;
   /** Test-only passthrough to `ThreeRenderHost.hitTestGizmoHandle` — lets e2e locate a real gizmo handle's screen position deterministically instead of by trial-and-error real drags (see e2e/viewport-gizmo-camera-lock.spec.ts's own doc comment on why that matters). */
   hitTestGizmoHandle(ndcX: number, ndcY: number): string | null;
+  /** Full punctual-light control: test-only passthrough to `ThreeRenderHost.getEditorHelperCount` (RH-032) — lets e2e assert the light-helper toggle's/selected-always behavior directly. */
+  getEditorHelperCount(): number;
 }
 
 declare global {
@@ -99,7 +101,16 @@ declare global {
  * UX-3xx): mounts the real `ThreeRenderHost` (specs/render-host.md) into
  * `#viewport-mount`, keeps it in sync with the store's document/selection/
  * hover/gizmo-mode state, and turns a committed gizmo drag into exactly one
- * undoable `SceneEdit.setTransform` command (UX-305, RH-003).
+ * undoable `SceneEdit.setTransform` command (UX-305, RH-003). Full
+ * punctual-light control adds two more toolbar toggles (UX-313/UX-314): a
+ * studio-lighting toggle mirroring `ThreeRenderHost`'s own AUTO policy (full
+ * strength when the document has no authored lights, DIMMED — never fully
+ * hidden — when it does, see `setStudioLightingEnabled`'s doc comment for
+ * both the dim-not-hide rationale and why a manual override doesn't survive
+ * a reload), and an "all lights" helper-visibility toggle
+ * feeding `RenderHost.setEditorHelpers` (RH-032) alongside the current
+ * selection (a selected light's helper is always shown, independent of the
+ * toggle).
  */
 export function Viewport(): JSX.Element {
   const document = useAppStore((s) => s.document);
@@ -201,6 +212,44 @@ export function Viewport(): JSX.Element {
   // get a reactive reason to re-run against the fresh node table.
   const [reloadSeq, setReloadSeq] = useState(0);
 
+  // Full punctual-light control: the studio-lighting AUTO policy is computed
+  // and applied INSIDE `ThreeRenderHost.loadScene` itself (engine-three's own
+  // concern, specs/render-host.md), not here — this state is purely a
+  // display mirror of `host.getStudioLightingEnabled()` so the toolbar toggle
+  // (below) can show the CURRENT actual state (which may have just changed
+  // automatically on a reload) and so clicking it can flip a local boolean
+  // for the `active` CSS class. Re-read every time a load/reload completes
+  // (`sceneReady`/`reloadSeq`) since a reload silently re-evaluates AUTO
+  // regardless of any earlier manual override (`ThreeRenderHost.
+  // setStudioLightingEnabled`'s own doc comment).
+  const [studioLightingEnabled, setStudioLightingEnabledState] = useState(true);
+  useEffect(() => {
+    if (!sceneReady) return;
+    setStudioLightingEnabledState(hostRef.current?.getStudioLightingEnabled() ?? true);
+  }, [sceneReady, reloadSeq]);
+
+  function onToggleStudioLighting(): void {
+    const next = !studioLightingEnabled;
+    hostRef.current?.setStudioLightingEnabled(next);
+    setStudioLightingEnabledState(next);
+  }
+
+  // Full punctual-light control (RH-032, the shared editor-overlay seam):
+  // "show all lights" is a plain viewport-local toggle; the SELECTED light
+  // (if the current selection IS a light node) is always shown in addition,
+  // regardless of the toggle — both unioned into one `setEditorHelpers` call
+  // whenever the selection, the toggle, or the loaded scene itself changes.
+  const [showAllLightHelpers, setShowAllLightHelpers] = useState(false);
+  useEffect(() => {
+    if (!sceneReady) return;
+    const json = document?.json as GltfJsonShape | undefined;
+    const nodeIndices = new Set<number>(showAllLightHelpers ? lightNodeIndices(json) : []);
+    if (selectedNodeIndex !== null && json?.nodes?.[selectedNodeIndex]?.extensions?.KHR_lights_punctual?.light !== undefined) {
+      nodeIndices.add(selectedNodeIndex);
+    }
+    hostRef.current?.setEditorHelpers(Array.from(nodeIndices, (nodeIndex) => ({ kind: "light" as const, nodeIndex })));
+  }, [document, selectedNodeIndex, showAllLightHelpers, sceneReady, reloadSeq]);
+
   // Mount/dispose lifecycle, once per component instance (RH-004..RH-010
   // make re-mount/dispose safe regardless, e.g. under React StrictMode's
   // dev-only double-invoke).
@@ -215,7 +264,8 @@ export function Viewport(): JSX.Element {
       simulateGizmoDrag: (delta) => host.simulateGizmoDrag(delta),
       isReady: () => host.isReady(),
       pick: (x, y) => host.pick(x, y),
-      hitTestGizmoHandle: (ndcX, ndcY) => host.hitTestGizmoHandle(ndcX, ndcY)
+      hitTestGizmoHandle: (ndcX, ndcY) => host.hitTestGizmoHandle(ndcX, ndcY),
+      getEditorHelperCount: () => host.getEditorHelperCount()
     };
     return () => {
       delete window.__gltfStudioTest;
@@ -657,6 +707,24 @@ export function Viewport(): JSX.Element {
             ))}
           </div>
           <div className="vp-toolbar-right">
+            <button
+              className={`btn icon-only${studioLightingEnabled ? " active" : ""}`}
+              data-testid="viewport.studio-light-toggle"
+              title={studioLightingEnabled ? "Studio lighting: full strength (click to dim)" : "Studio lighting: dimmed (click to restore)"}
+              aria-pressed={studioLightingEnabled}
+              onClick={onToggleStudioLighting}
+            >
+              💡
+            </button>
+            <button
+              className={`btn icon-only${showAllLightHelpers ? " active" : ""}`}
+              data-testid="viewport.light-helpers-toggle"
+              title={showAllLightHelpers ? "Light helpers: showing all lights (click to show only the selection)" : "Light helpers: show all lights"}
+              aria-pressed={showAllLightHelpers}
+              onClick={() => setShowAllLightHelpers((v) => !v)}
+            >
+              ✺
+            </button>
             <button className="btn icon-only" data-testid="viewport.camera-frame" title="Frame selected" onClick={onFrameSelected}>
               ⛶
             </button>

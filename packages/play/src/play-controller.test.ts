@@ -25,6 +25,7 @@ function makeFakeRenderHost(overrides: Partial<RenderHost> = {}): RenderHost {
     applyPointer: () => {},
     setHighlight: () => {},
     setReferenceHighlight: () => {},
+    setEditorHelpers: () => {},
     snapshot: async () => new Blob()
   };
   return { ...base, ...overrides };

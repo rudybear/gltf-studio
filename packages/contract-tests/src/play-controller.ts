@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   CameraPose,
+  EditorHelperDescriptor,
   GizmoChangeEvent,
   GizmoMode,
   JsonPatchOp,
@@ -147,6 +148,7 @@ export function createFakeRenderHost(options?: { throwOnPointer?: string }): Ren
     },
     setHighlight(_nodeIndices: number[]): void {},
     setReferenceHighlight(_nodeIndices: number[]): void {},
+    setEditorHelpers(_descriptors: EditorHelperDescriptor[]): void {},
     async snapshot(): Promise<Blob> {
       return new Blob([], { type: "image/png" });
     }

@@ -264,8 +264,10 @@ test.describe("inspector (specs/ux-inspector.md UX-4xx)", () => {
     await page.getByTestId("scene-tree.row.2").click(); // Lamp
     await expect(page.getByTestId("inspector.transform.section")).toBeVisible();
     await expect(page.getByTestId("inspector.light.section")).toBeVisible();
-    await expect(page.getByTestId("inspector.light.type")).toHaveText("point");
-    await expect(page.getByTestId("inspector.light.note")).toContainText("later iteration"); // type is still read-only
+    // Full punctual-light control (UX-417 r2): type is a real editable
+    // dropdown now, not read-only text — see e2e/lights.spec.ts for the
+    // dedicated type-conversion coverage.
+    await expect(page.getByTestId("inspector.light.type")).toHaveValue("point");
     await expect(page.getByTestId("inspector.mesh.section")).toHaveCount(0);
 
     await page.getByTestId("scene-tree.row.3").click(); // Cam

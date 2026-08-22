@@ -84,16 +84,27 @@ export function materialPropPath(materialIndex: number, propKey: string, compInd
 }
 
 /**
- * Richer inspector (specs/ux-inspector.md UX-417): the scalar
- * `KHR_lights_punctual` light properties the Inspector's Light section gives
- * a `◈` pointer-shortcut to (color is a picker, like `baseColorFactor`/
- * `emissiveFactor` — no `◈`, matching this codebase's established
- * "scalars get the shortcut, color pickers don't" convention). `range`/
- * `spot/innerConeAngle`/`spot/outerConeAngle` are only ever SHOWN by the
- * Light section for a point/spot (range) or spot-only (cone angles) light in
- * the first place — this table doesn't itself gate that, the section does.
+ * Richer inspector (specs/ux-inspector.md UX-417) + full punctual-light
+ * control's pointer-picker reach (UX-901 r2, UX-909): the
+ * `KHR_lights_punctual` light properties addressable as pointer targets.
+ * `intensity`/`range`/`spot/innerConeAngle`/`spot/outerConeAngle` are the
+ * four the Inspector's Light section gives a `◈` pointer-shortcut to
+ * (`range`/the cone angles are only ever SHOWN there for a point/spot
+ * (range) or spot-only (cone angles) light in the first place — this table
+ * doesn't itself gate that, the section does, and the pointer-picker's own
+ * property list, `PointerPickerDialog.tsx`, mirrors the same per-type gating
+ * so it never offers a field the light's CURRENT type doesn't have). `color`
+ * is additionally listed here (as a `float3`, like `MATERIAL_PROPS`'s own
+ * `baseColorFactor`/`emissiveFactor`) purely for the pointer-picker dialog's
+ * property browser — it stays deliberately excluded from the Inspector's own
+ * `◈` shortcut set (a native `<input type="color">` already covers editing
+ * it there, matching this codebase's established "scalars get the shortcut,
+ * color pickers don't" convention) but IS a real, valid pointer/graph target
+ * a user should be able to reach by browsing rather than only via the
+ * Inspector's picker widget.
  */
 export const LIGHT_PROPS: AnimatablePropertyDef[] = [
+  vec("color", "color", 3),
   scalar("intensity", "intensity"),
   scalar("range", "range"),
   scalar("spot/innerConeAngle", "inner cone angle"),
@@ -103,6 +114,24 @@ export const LIGHT_PROPS: AnimatablePropertyDef[] = [
 /** `/extensions/KHR_lights_punctual/lights/{i}/...` — addressed by LIGHT index (the root registry), not node index — see `GltfLightJson`'s own doc comment in `gltf-scene.ts`. */
 export function lightPropPath(lightIndex: number, propKey: string): string {
   return `/extensions/KHR_lights_punctual/lights/${lightIndex}/${propKey}`;
+}
+
+/**
+ * `LIGHT_PROPS`, gated by `lightIndex`'s CURRENT `type` — mirrors
+ * `LightSection.tsx`'s own field-visibility rules exactly (range shown for
+ * point/spot only, spot cone angles shown for spot only, color/intensity
+ * always) so the pointer-picker's property list for a light never offers a
+ * field meaningless for that light's current type (specs/ux-pointer-picker.md
+ * UX-909).
+ */
+export function lightPropsFor(lightIndex: number, json: GltfJsonShape | undefined): AnimatablePropertyDef[] {
+  const light = json?.extensions?.KHR_lights_punctual?.lights?.[lightIndex];
+  const type = light?.type ?? "directional";
+  return LIGHT_PROPS.filter((p) => {
+    if (p.key === "range") return type !== "directional";
+    if (p.key === "spot/innerConeAngle" || p.key === "spot/outerConeAngle") return type === "spot";
+    return true; // color, intensity — always meaningful.
+  });
 }
 
 /**
@@ -117,10 +146,11 @@ export function cameraPropPath(cameraIndex: number, propKey: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Content tree (UX-901): Nodes (full hierarchy) / Materials / Animations.
+// Content tree (UX-901 r2, full punctual-light control): Nodes (full
+// hierarchy) / Materials / Lights / Animations.
 // ---------------------------------------------------------------------------
 
-export type PointerTreeSection = "nodes" | "materials" | "animations";
+export type PointerTreeSection = "nodes" | "materials" | "lights" | "animations";
 
 export interface PointerTreeRow {
   section: PointerTreeSection;
@@ -144,6 +174,17 @@ export function buildPointerContentTree(
     depth: 0,
     icon: "group"
   }));
+  // Full punctual-light control (UX-901 r2): lights are their own root
+  // registry addressed by LIGHT index (`GltfLightJson`'s own doc comment in
+  // gltf-scene.ts) — exactly like materials, one row per registry entry,
+  // never nested under whichever node(s) happen to reference it.
+  const lights: PointerTreeRow[] = (json?.extensions?.KHR_lights_punctual?.lights ?? []).map((l, i) => ({
+    section: "lights",
+    index: i,
+    label: l.name ?? `Light ${i}`,
+    depth: 0,
+    icon: "light"
+  }));
   const animations: PointerTreeRow[] = (json?.animations ?? []).map((a, i) => ({
     section: "animations",
     index: i,
@@ -151,7 +192,7 @@ export function buildPointerContentTree(
     depth: 0,
     icon: "clip"
   }));
-  return [...nodes, ...materials, ...animations];
+  return [...nodes, ...materials, ...lights, ...animations];
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +235,20 @@ export function parsePointerPath(path: string, json: GltfJsonShape | undefined):
     const compIndex = m[3] !== undefined ? Number(m[3]) : undefined;
     const prop = MATERIAL_PROPS.find((p) => p.key === propKey)!;
     return { section: "materials", index: materialIndex, propKey, compIndex, type: compIndex !== undefined ? "float" : prop.type };
+  }
+  // Full punctual-light control (UX-901 r2, UX-909): the `spot/...` keys
+  // themselves already carry a literal `/` (LIGHT_PROPS' `key`, unlike every
+  // other family's flat keys), so the alternation below matches each raw
+  // path segment sequence directly rather than reusing a single-segment
+  // `propKey` group the way the materials/nodes branches above do.
+  m = /^\/extensions\/KHR_lights_punctual\/lights\/(\d+)\/(color|intensity|range|spot\/innerConeAngle|spot\/outerConeAngle)(?:\/(\d+))?$/.exec(path);
+  if (m) {
+    const lightIndex = Number(m[1]);
+    const propKey = m[2]!;
+    const compIndex = m[3] !== undefined ? Number(m[3]) : undefined;
+    const prop = LIGHT_PROPS.find((p) => p.key === propKey);
+    if (!prop) return null;
+    return { section: "lights", index: lightIndex, propKey, compIndex, type: compIndex !== undefined ? "float" : prop.type };
   }
   return null;
 }
@@ -251,9 +306,12 @@ export function colorKindForPointerPath(pointerPath: string): ColorKind | undefi
 // NODE_PROPS/EMITTER_EXTRA_PROP superset for those two families is scene-
 // fixture-specific, not derivable from an arbitrary document the way
 // TRS/pbr are, so it is intentionally not carried over here — see the PR
-// description's "honest gaps"). Lights/cameras are also not yet part of
-// `buildPointerContentTree`/`parsePointerPath` (the pointer-picker dialog's
-// own content tree only enumerates nodes/materials/animations) — the
-// Inspector's `◈` affordance uses `LIGHT_PROPS`/`CAMERA_PROPS` directly and
-// doesn't need that reverse-lookup, but the pointer-picker dialog itself
-// still can't target a light/camera property by hand — a follow-up.
+// description's "honest gaps"). Full punctual-light control (UX-901 r2,
+// UX-909): lights ARE now part of `buildPointerContentTree`/
+// `parsePointerPath`/`lightPropsFor` — a real "Lights" section in the
+// pointer-picker dialog, gated by each light's current type exactly like
+// `LightSection.tsx`'s own field visibility. Cameras remain the one
+// exception noted above: still not part of the content tree/reverse-parse
+// (the Inspector's `◈` affordance uses `CAMERA_PROPS` directly and doesn't
+// need that reverse-lookup, and no vendored pointer-router route exists for
+// camera properties at all, UX-418) — a real follow-up, not invented here.

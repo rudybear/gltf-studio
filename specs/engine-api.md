@@ -95,6 +95,17 @@ same "diff satisfied honestly, not routed around" reason as `EA-pickresult-shape
   test.ts`'s local fixture) gained a no-op `setReferenceHighlight` stub alongside their existing
   `setHighlight` one, purely to keep satisfying the widened `RenderHost` interface — no
   `PlayController`/`PC-###` behavior here changed or depends on the new method.
+- Full punctual-light control (`specs/render-host.md`'s `RH-032`..`RH-034`, a new
+  `RenderHost.setEditorHelpers` method): `value-types.ts` (owned by this file per
+  `specs/ownership.json`, same "owned as a whole even though most individual types back another
+  file's own interface" reasoning as `PickResult`/`PickOptions`, see `EA-pickresult-shape-tbd` below)
+  gained the new `EditorHelperDescriptor`/`EditorHelperKind` types `RenderHost.setEditorHelpers`
+  uses — the requirement text and full narrative live in `specs/render-host.md`, not duplicated
+  here, for the same "diff satisfied honestly, not routed around" reason as that entry. Same
+  mechanical stub-widening as the `setReferenceHighlight` note immediately above: the fake
+  `RenderHost` test doubles in `packages/contract-tests/src/play-controller.ts` and
+  `packages/play/src/play-controller.test.ts` gained a matching no-op `setEditorHelpers` stub — no
+  `PlayController`/`PC-###` behavior changed or depends on it.
 - Deflaking `test:browser`'s real-Chromium `PlayController` contract run (recurring flake noted on
   PRs #51/#56/#57): `packages/contract-tests/src/play-controller.ts`'s "pause stops ticking"/"resume
   continues ticking" assertions used to `await` a fixed real-clock delay and compare

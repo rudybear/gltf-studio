@@ -72,6 +72,7 @@ function fakeRenderHost(): RenderHost {
     applyPointer: vi.fn(),
     setHighlight: vi.fn(),
     setReferenceHighlight: vi.fn(),
+    setEditorHelpers: vi.fn(),
     snapshot: vi.fn(async () => new Blob())
   };
 }
