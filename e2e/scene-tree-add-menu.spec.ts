@@ -198,8 +198,13 @@ test.describe("scene tree + Add menu (specs/ux-scene-tree.md UX-205/UX-206/UX-21
   });
 
   test("Audio Emitter: builds a full, immediately-auditionable KHR_audio_emitter chain with a generated silent clip (UX-206)", async ({ page }) => {
+    // Track A audio task (specs/ux-scene-tree.md UX-222): "Audio Emitter" is
+    // now a submenu (mirroring Mesh's own Cube/Sphere/Plane ▸ precedent),
+    // offering "New (silent placeholder)" — this test's own original
+    // behavior — plus one entry per existing document clip.
     await page.getByTestId("scene-tree.add").click();
     await page.getByTestId("scene-tree.add-menu.audio-emitter").click();
+    await page.getByTestId("scene-tree.add-menu.audio-emitter.new").click();
     await waitForReload(page);
     await page.getByTestId("scene-tree.row.4.rename-input").press("Escape");
 

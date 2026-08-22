@@ -18,7 +18,15 @@ export interface GltfNodeJson {
   scale?: [number, number, number];
   weights?: number[];
   extensions?: {
-    KHR_audio_emitter?: { emitter: number };
+    /**
+     * Multi-emitter-per-node: `emitter` is the original singular binding;
+     * `emitters` is the array-valued shape `SceneEdit.addEmitterToNode`
+     * introduces once a node carries a SECOND emitter (a real imported
+     * asset, e.g. the lifted gltf-webgpu `drum-pads` sample, may also author
+     * `emitters` directly). Never both at once — see that factory's own doc
+     * comment for the upgrade-on-second-add policy.
+     */
+    KHR_audio_emitter?: { emitter?: number; emitters?: number[] };
     KHR_lights_punctual?: { light: number };
     /**
      * Emitter/environment authoring (specs/ux-inspector.md UX-421/UX-422):
@@ -199,6 +207,10 @@ export interface GltfJsonShape {
   textures?: GltfTextureJson[];
   images?: GltfImageJson[];
   accessors?: GltfAccessorJson[];
+  /** Core glTF `bufferViews[]` — added for `audio-clip-bytes.ts`'s embedded-clip byte resolution (Assets > Audio Clips tab); not otherwise read anywhere in this file. */
+  bufferViews?: Array<{ buffer: number; byteOffset?: number; byteLength: number }>;
+  /** Core glTF `buffers[]` — see `bufferViews` above. */
+  buffers?: Array<{ uri?: string; byteLength: number }>;
   animations?: Array<{ name?: string }>;
   extensions?: {
     KHR_audio_emitter?: { emitters?: GltfAudioEmitterJson[]; sources?: GltfAudioSourceJson[]; audio?: GltfAudioDataJson[] };

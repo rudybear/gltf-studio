@@ -110,6 +110,7 @@ export function SceneTree(): JSX.Element {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [meshSubmenuOpen, setMeshSubmenuOpen] = useState(false);
   const [lightSubmenuOpen, setLightSubmenuOpen] = useState(false);
+  const [audioSubmenuOpen, setAudioSubmenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeIndex: number } | null>(null);
   const [renamingNode, setRenamingNode] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -151,6 +152,7 @@ export function SceneTree(): JSX.Element {
     setAddMenuOpen(false);
     setMeshSubmenuOpen(false);
     setLightSubmenuOpen(false);
+    setAudioSubmenuOpen(false);
   }
 
   // UX-206: lands under the currently-selected node (append-only: last
@@ -177,11 +179,24 @@ export function SceneTree(): JSX.Element {
     afterCreate(command, index, "Camera");
   }
 
-  function createAudioEmitter(): void {
+  /**
+   * specs/ux-scene-tree.md UX-206/UX-220: `opts.audioIndex`, when given,
+   * reuses an EXISTING `KHR_audio_emitter.audio[]` clip (the "+ Add" menu's
+   * Audio Emitter submenu's per-clip entries below) instead of generating a
+   * fresh silent-WAV placeholder (`SceneEdit.addAudioEmitterNode`'s own
+   * `opts.audioIndex`, DOC-062 — real at the factory level since that pass,
+   * unwired at this call site until now).
+   */
+  function createAudioEmitter(audioIndex?: number): void {
     if (!history) return;
-    const { command, index } = SceneEdit.addAudioEmitterNode(history.document, "Audio Emitter", { parentNodeIndex: newNodeParent });
+    const { command, index } = SceneEdit.addAudioEmitterNode(history.document, "Audio Emitter", { parentNodeIndex: newNodeParent, audioIndex });
     afterCreate(command, index, "Audio Emitter");
   }
+
+  const audioClipEntries = ((document?.json as GltfJsonShape | undefined)?.extensions?.KHR_audio_emitter?.audio ?? []).map((clip, i) => ({
+    index: i,
+    label: clip.name ?? clip.uri ?? `Clip ${i}`
+  }));
 
   function createGroup(): void {
     if (!history) return;
@@ -377,6 +392,7 @@ export function SceneTree(): JSX.Element {
                 // closing the top menu also collapses any open submenu
                 setMeshSubmenuOpen(false);
                 setLightSubmenuOpen(false);
+                setAudioSubmenuOpen(false);
               }
               return !v;
             })
@@ -419,9 +435,23 @@ export function SceneTree(): JSX.Element {
             </button>
           </li>
           <li>
-            <button data-testid="scene-tree.add-menu.audio-emitter" onClick={createAudioEmitter}>
-              Audio Emitter
+            <button data-testid="scene-tree.add-menu.audio-emitter" onClick={() => setAudioSubmenuOpen((v) => !v)}>
+              Audio Emitter ▸
             </button>
+            <ul className={`add-menu add-submenu${audioSubmenuOpen ? " open" : ""}`} data-testid="scene-tree.add-menu.audio-emitter-submenu">
+              <li>
+                <button data-testid="scene-tree.add-menu.audio-emitter.new" onClick={() => createAudioEmitter()}>
+                  New (silent placeholder)
+                </button>
+              </li>
+              {audioClipEntries.map((entry) => (
+                <li key={entry.index}>
+                  <button data-testid={`scene-tree.add-menu.audio-emitter.clip.${entry.index}`} onClick={() => createAudioEmitter(entry.index)}>
+                    {entry.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </li>
           <li>
             <button data-testid="scene-tree.add-menu.group" onClick={createGroup}>

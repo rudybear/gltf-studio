@@ -164,6 +164,15 @@ process.
 
 ## Implementation notes
 
+- Clip management + source/emitter lifecycle (Track A audio task — the substance lives in
+  `specs/document-model.md`'s `DOC-066`, `specs/ux-inspector.md`'s `UX-425`..`428`, and
+  `specs/ux-scene-tree.md`'s `UX-218`..`222`; this file's own `packages/app/**` catch-all is what
+  makes touching `AssetBrowser.tsx`/`AudioSection.tsx`/`AudioEnvironmentSection.tsx`/`Inspector.tsx`/
+  `SceneTree.tsx`/`App.tsx`/`app-store.ts`/the new `AudioClipsPanel.tsx`/`lib/audio-file-resolve.ts`/
+  `lib/audio-clip-bytes.ts`/`lib/audio-clip-preview.ts` also a `specs/ux-shell.md` change): a new
+  session-only `audioFolderHandle` store field + `grantAudioFolder` action (DOC-030: ephemeral,
+  never persisted, distinct from `UX-117`'s one-time import-fixup folder grant) backs live
+  referenced-clip resolution; no `UX-1xx`-owned shell requirement itself changed.
 - D2 script debugger (specs/ux-debugger.md UX-1505..UX-1508): `app-store.ts` gained `scriptBreakpoints`/
   `audioScriptBreakpoints`/`playDebugBreakpointCount` state and `toggleScriptBreakpoint`/
   `setScriptBreakpoint`/`breakHereOnNode`/`toggleAudioScriptBreakpoint` actions, and

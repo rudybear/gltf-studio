@@ -470,6 +470,67 @@ input.field {
   color: var(--accent);
 }
 
+/* ---------- Audio Clips tab (Track A audio task) ---------- */
+.audio-clips-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+.audio-clips-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.audio-clip-add-reference {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.audio-clip-add-reference input[type="text"] {
+  flex: 1 1 auto;
+}
+.audio-clip-row {
+  cursor: default;
+  flex-wrap: wrap;
+}
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.badge-embedded {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.badge-unresolved {
+  border-color: #d9822b;
+  color: #d9822b;
+}
+.audio-sources-add-row {
+  display: flex;
+  gap: 6px;
+}
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section-header-row h4 {
+  padding: 0;
+  border-bottom: none;
+}
+.audio-source-row .section-header-row {
+  border-bottom: none;
+  padding: 0 0 4px 0;
+  justify-content: flex-end;
+}
+
 /* ---------- center column / viewport ---------- */
 #center-column {
   flex: 1 1 auto;

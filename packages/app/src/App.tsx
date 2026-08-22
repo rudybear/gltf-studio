@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { WebAudioHost } from "@gltf-studio/audio-webaudio";
 import { useAppStore, PANEL_BOUNDS } from "./store/app-store";
 import { attachAudioHost } from "./lib/audio-host-lifecycle.js";
+import { resolveAudioUriAgainstDirectory } from "./lib/audio-file-resolve.js";
 import { TopBar } from "./components/topbar/TopBar";
 import { LockedBanner } from "./components/topbar/LockedBanner";
 import { LeftPanel } from "./components/LeftPanel";
@@ -95,7 +96,20 @@ export function App(): JSX.Element {
       registerAudioHost(undefined);
       return;
     }
-    const host = new WebAudioHost();
+    // Clip management (Track A audio task): resolves a URI-referenced clip
+    // against whichever folder the user has most recently granted via the
+    // Assets > Audio Clips tab's "Grant folder access" action
+    // (`grantAudioFolder`) — read lazily via `useAppStore.getState()` (not
+    // captured once at this closure's creation) so granting mid-session
+    // takes effect on the NEXT `loadEmitters` reload without needing a new
+    // `WebAudioHost` instance. Returns `null` (honestly unresolved, never a
+    // thrown error) when no folder has been granted yet.
+    const host = new WebAudioHost({
+      resolveAudioUri: (uri) => {
+        const dirHandle = useAppStore.getState().audioFolderHandle;
+        return dirHandle ? resolveAudioUriAgainstDirectory(dirHandle, uri) : Promise.resolve(null);
+      }
+    });
     const teardown = attachAudioHost(history, host);
     registerAudioHost(host);
     window.__gltfStudioAudioTest = { diagnostics: () => host.getDiagnostics(), emitterPosition: (index) => host.getEmitterPosition(index) };

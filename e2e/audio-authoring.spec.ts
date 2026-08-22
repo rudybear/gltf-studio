@@ -158,7 +158,9 @@ test.describe("audio authoring: emitter positional physics + sources (specs/ux-i
     expect(clipSource.extensions?.KHR_audio_graph?.oscillator).toBeUndefined();
   });
 
-  test("Audition stays real (gesture-gates AudioHost.init(), reports an active emitter) after editing positional physics", async ({ page }) => {
+  test("Audition stays real (gesture-gates AudioHost.init(), reports an active emitter, feeds the live camera pose to the listener once — UX-428) after editing positional physics", async ({
+    page
+  }) => {
     await page.getByTestId("inspector.audio.distance-model").selectOption("linear");
     await page.getByTestId("inspector.audio.gain").fill("0.3");
 
@@ -217,6 +219,28 @@ test.describe("audio authoring: KHR_audio_environment zone/reverb + scene bindin
     expect(json.nodes[5].extensions!.KHR_audio_environment!.shape!.radius).toBe(12);
     expect(json.nodes[5].extensions!.KHR_audio_environment!.blendDistance).toBe(3);
     expect(json.nodes[5].extensions!.KHR_audio_environment!.priority).toBe(2);
+  });
+
+  test("Shape select switches a zone between sphere and box, authoring real box Size (x/y/z) fields (UX-427)", async ({ page }) => {
+    await page.getByTestId("scene-tree.row.5").click(); // "Zone" -- starts as the fixture's default sphere.
+    await expect(page.getByTestId("inspector.audio-environment.shape-type")).toHaveValue("sphere");
+    await expect(page.getByTestId("inspector.audio-environment.zone-radius")).toBeVisible();
+
+    await page.getByTestId("inspector.audio-environment.shape-type").selectOption("box");
+    await expect(page.getByTestId("inspector.audio-environment.zone-radius")).toHaveCount(0);
+    await expect(page.getByTestId("inspector.audio-environment.box-size.0")).toBeVisible();
+
+    await page.getByTestId("inspector.audio-environment.box-size.0").fill("2");
+    await page.getByTestId("inspector.audio-environment.box-size.1").fill("3");
+    await page.getByTestId("inspector.audio-environment.box-size.2").fill("4");
+
+    const json = (await documentJson(page)) as EmitterDoc & { nodes: Array<{ extensions?: { KHR_audio_environment?: { shape?: { type?: string; size?: number[] } } } }> };
+    expect(json.nodes[5].extensions!.KHR_audio_environment!.shape).toEqual({ type: "box", size: [2, 3, 4] });
+
+    // Switching back to sphere wholesale-replaces the shape object again (no leftover `size`).
+    await page.getByTestId("inspector.audio-environment.shape-type").selectOption("sphere");
+    const afterBack = (await documentJson(page)) as EmitterDoc & { nodes: Array<{ extensions?: { KHR_audio_environment?: { shape?: { type?: string; size?: number[] } } } }> };
+    expect(afterBack.nodes[5].extensions!.KHR_audio_environment!.shape).toEqual({ type: "sphere", radius: 5 });
   });
 
   test("scene default environment/active listener selects reflect and edit the scene's own bindings", async ({ page }) => {

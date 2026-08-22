@@ -27,7 +27,7 @@ import { fixupReferences, type ReferenceKind } from "./fixup-references.js";
 import { formatPointer, getIn } from "./json-pointer.js";
 import { applyPatches } from "./patch.js";
 import type { EditorDocument } from "./document.js";
-import { cubeGeometry, sphereGeometry, planeGeometry, encodeCubeBuffer, silentWavBuffer, type CubeGeometry } from "./primitives.js";
+import { cubeGeometry, sphereGeometry, planeGeometry, encodeCubeBuffer, encodeBase64, silentWavBuffer, type CubeGeometry } from "./primitives.js";
 import { mat4Decompose, mat4FromTranslationRotationScale, mat4Identity, mat4Invert, mat4Multiply, type Mat4, type Quat, type Vec3 } from "./mat-utils.js";
 
 /**
@@ -53,6 +53,42 @@ export class CycleReparentError extends Error {
     );
     this.name = "CycleReparentError";
   }
+}
+
+/**
+ * DOC-066 (clip management): thrown by `SceneEdit.removeAudioClip` when the
+ * clip is still referenced by at least one `extensions.KHR_audio_emitter.
+ * sources[]` entry's `audio` field — mirroring `GraphEdit.removeVariable`'s
+ * `VariableInUseError`/DOC-055 block-don't-dangle policy one extension over:
+ * `audio[]` is a shared declaration table every `sources[].audio` reference
+ * assumes populated, the same shape as `variables[]`/`events[]`. Carries
+ * `usageCount` (distinct referencing `sources[]` entries) so a caller (the
+ * Assets > Audio Clips tab's delete button) can surface an exact "used by N
+ * source(s)" toast rather than a bare rejection.
+ */
+export class AudioClipInUseError extends Error {
+  readonly clipIndex: number;
+  readonly usageCount: number;
+  constructor(clipIndex: number, usageCount: number, label?: string) {
+    super(
+      `Audio clip ${label ? `"${label}"` : `#${clipIndex}`} is used by ${usageCount} source${usageCount === 1 ? "" : "s"} — remove those references before deleting it.`
+    );
+    this.name = "AudioClipInUseError";
+    this.clipIndex = clipIndex;
+    this.usageCount = usageCount;
+  }
+}
+
+/**
+ * DOC-066: counts `extensions.KHR_audio_emitter.sources[]` entries whose
+ * `audio` field equals `clipIndex` — `SceneEdit.removeAudioClip`'s
+ * blocked-delete precondition (mirrors `GraphEdit.countVariableUsage`,
+ * DOC-055), exported so the Assets tab's delete-button enabled/disabled
+ * state and its confirmation toast can use the identical count.
+ */
+export function countAudioClipUsage(json: unknown, clipIndex: number): number {
+  const sources = (getIn(json, ["extensions", "KHR_audio_emitter", "sources"]) as Array<{ audio?: number }> | undefined) ?? [];
+  return sources.filter((source) => source?.audio === clipIndex).length;
 }
 
 /**
@@ -1393,6 +1429,362 @@ export const SceneEdit = {
     return {
       index: newRootIndex,
       command: { id: makeCommandId("duplicate-node"), label, patches: combined.patches, inverse: combined.inverse }
+    };
+  },
+
+  /**
+   * DOC-066 (clip management): appends a NEW, self-contained bufferView-
+   * embedded clip to the root `extensions.KHR_audio_emitter.audio[]`
+   * registry — a fresh `buffers[]` entry holding `input.bytes` as a `data:`
+   * URI (mirrors `addAudioEmitterNode`'s own `silentWavBuffer` embedding
+   * shape, DOC-047) plus a `bufferViews[]` entry spanning it, scaffolding
+   * `extensionsUsed` in the SAME combined command. The Assets > Audio Clips
+   * tab's "Import" action: the caller (`packages/app`) has already
+   * read+validated the file's bytes (via `AudioContext.decodeAudioData`)
+   * before calling this — this factory only ever writes already-validated
+   * bytes into the document; `editor-core` itself never does file I/O or
+   * audio decoding.
+   */
+  addAudioClipEmbedded(document: EditorDocument, input: { bytes: Uint8Array; mimeType: string; name?: string }): { command: Command; index: number } {
+    let json = document.json;
+    const dataUri = `data:${input.mimeType};base64,${encodeBase64(input.bytes)}`;
+
+    const bufferFragment = appendFragment(json, ["buffers"], { byteLength: input.bytes.byteLength, uri: dataUri });
+    json = applyPatches(json, bufferFragment.patches);
+
+    const bufferViewFragment = appendFragment(json, ["bufferViews"], { buffer: bufferFragment.index, byteOffset: 0, byteLength: input.bytes.byteLength });
+    json = applyPatches(json, bufferViewFragment.patches);
+
+    const audioEntry: Record<string, unknown> = { bufferView: bufferViewFragment.index, mimeType: input.mimeType };
+    if (input.name) audioEntry.name = input.name;
+    const audioFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "audio"], audioEntry);
+    json = applyPatches(json, audioFragment.patches);
+
+    const usedFragment = ensureExtensionUsedFragment(json, "KHR_audio_emitter");
+
+    const combined = combineCommandParts([bufferFragment, bufferViewFragment, audioFragment, usedFragment]);
+    return {
+      index: audioFragment.index,
+      command: {
+        id: makeCommandId("add-audio-clip-embedded"),
+        label: `Add audio clip${input.name ? ` "${input.name}"` : ""}`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /**
+   * DOC-066: appends a URI-REFERENCED clip to `extensions.KHR_audio_emitter.
+   * audio[]` — `input.uri` is kept VERBATIM in the JSON (never embedded/
+   * base64'd), the "add by reference" path the Assets > Audio Clips tab
+   * offers alongside `addAudioClipEmbedded`. Resolving `input.uri` to
+   * playable bytes (relative to a granted project folder, or fetched over
+   * http(s)) is entirely an app-layer/`WebAudioHost` concern — `editor-core`
+   * never reads or validates the uri's target.
+   */
+  addAudioClipUri(document: EditorDocument, input: { uri: string; mimeType?: string; name?: string }): { command: Command; index: number } {
+    const audioEntry: Record<string, unknown> = { uri: input.uri };
+    if (input.mimeType) audioEntry.mimeType = input.mimeType;
+    if (input.name) audioEntry.name = input.name;
+    let json = document.json;
+    const audioFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "audio"], audioEntry);
+    json = applyPatches(json, audioFragment.patches);
+    const usedFragment = ensureExtensionUsedFragment(json, "KHR_audio_emitter");
+    const combined = combineCommandParts([audioFragment, usedFragment]);
+    return {
+      index: audioFragment.index,
+      command: {
+        id: makeCommandId("add-audio-clip-uri"),
+        label: `Add audio clip reference${input.name ? ` "${input.name}"` : ""}`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /**
+   * DOC-066: converts an EXISTING uri-referenced `audio[clipIndex]` entry in
+   * place into a bufferView-embedded one — appends a fresh `buffers[]`+
+   * `bufferViews[]` pair for `bytes` (same shape `addAudioClipEmbedded`
+   * uses) and REPLACES the whole `audio[clipIndex]` element with
+   * `{bufferView, mimeType, name?}` (dropping `uri` entirely), all as ONE
+   * combined command. `clipIndex` itself never changes — every
+   * `sources[].audio` reference elsewhere in the document keeps working
+   * unmodified, unlike `removeAudioClip`, which shrinks the array. Throws
+   * if `clipIndex` doesn't currently carry a `uri` (nothing to embed, or
+   * already embedded) — the Assets tab only ever offers this action on a
+   * referenced clip.
+   */
+  embedAudioClip(document: EditorDocument, clipIndex: number, bytes: Uint8Array, opts: { mimeType?: string } = {}): Command {
+    const clip = getIn(document.json, ["extensions", "KHR_audio_emitter", "audio", clipIndex]) as Record<string, unknown> | undefined;
+    if (!clip || typeof clip.uri !== "string") {
+      throw new Error(`SceneEdit.embedAudioClip: audio clip #${clipIndex} has no uri to embed (already embedded, or doesn't exist).`);
+    }
+    let json = document.json;
+    const mimeType = opts.mimeType ?? (typeof clip.mimeType === "string" ? clip.mimeType : "application/octet-stream");
+    const dataUri = `data:${mimeType};base64,${encodeBase64(bytes)}`;
+
+    const bufferFragment = appendFragment(json, ["buffers"], { byteLength: bytes.byteLength, uri: dataUri });
+    json = applyPatches(json, bufferFragment.patches);
+
+    const bufferViewFragment = appendFragment(json, ["bufferViews"], { buffer: bufferFragment.index, byteOffset: 0, byteLength: bytes.byteLength });
+    json = applyPatches(json, bufferViewFragment.patches);
+
+    const nextClip: Record<string, unknown> = { bufferView: bufferViewFragment.index, mimeType };
+    if (typeof clip.name === "string") nextClip.name = clip.name;
+    const clipFragment = setPathFragment(json, ["extensions", "KHR_audio_emitter", "audio", clipIndex], nextClip);
+
+    const combined = combineCommandParts([bufferFragment, bufferViewFragment, clipFragment]);
+    return { id: makeCommandId("embed-audio-clip"), label: `Embed audio clip #${clipIndex}`, patches: combined.patches, inverse: combined.inverse };
+  },
+
+  /**
+   * DOC-066: removes `extensions.KHR_audio_emitter.audio[clipIndex]` —
+   * BLOCKED (throws `AudioClipInUseError`, carrying an exact `usageCount`)
+   * when any `sources[]` entry still references it via `audio === clipIndex`
+   * (`countAudioClipUsage`), mirroring `GraphEdit.removeVariable`'s
+   * block-don't-dangle policy (DOC-055). When unused, removes the element
+   * AND shifts every surviving `sources[].audio` reference above it down by
+   * one, as ONE combined command — this extension's `audio[]` table has no
+   * existing shared fixup path (same as `variables[]`/`events[]` before it),
+   * so this factory owns its own narrow shift logic rather than extending
+   * `fixup-references.ts`.
+   */
+  removeAudioClip(document: EditorDocument, clipIndex: number): Command {
+    const audio = (getIn(document.json, ["extensions", "KHR_audio_emitter", "audio"]) as Array<Record<string, unknown>> | undefined) ?? [];
+    const clip = audio[clipIndex];
+    if (!clip) {
+      throw new Error(`SceneEdit.removeAudioClip: no audio clip at index ${clipIndex}.`);
+    }
+    const usageCount = countAudioClipUsage(document.json, clipIndex);
+    if (usageCount > 0) {
+      throw new AudioClipInUseError(clipIndex, usageCount, typeof clip.name === "string" ? clip.name : undefined);
+    }
+
+    const sources = (getIn(document.json, ["extensions", "KHR_audio_emitter", "sources"]) as Array<Record<string, unknown>> | undefined) ?? [];
+    const sourcesPath = ["extensions", "KHR_audio_emitter", "sources"];
+    let sourcesChanged = false;
+    const nextSources = sources.map((source) => {
+      if (typeof source.audio === "number" && source.audio > clipIndex) {
+        sourcesChanged = true;
+        return { ...source, audio: source.audio - 1 };
+      }
+      return source;
+    });
+    const sourcesFragment: PatchPair = sourcesChanged
+      ? { patches: [{ op: "replace", path: formatPointer(sourcesPath), value: nextSources }], inverse: [{ op: "replace", path: formatPointer(sourcesPath), value: sources }] }
+      : { patches: [], inverse: [] };
+
+    const audioPath = ["extensions", "KHR_audio_emitter", "audio"];
+    const nextAudio = [...audio.slice(0, clipIndex), ...audio.slice(clipIndex + 1)];
+    const removeFragment: PatchPair = {
+      patches: [{ op: "replace", path: formatPointer(audioPath), value: nextAudio }],
+      inverse: [{ op: "replace", path: formatPointer(audioPath), value: audio }]
+    };
+
+    const combined = combineCommandParts([sourcesFragment, removeFragment]);
+    return {
+      id: makeCommandId("remove-audio-clip"),
+      label: `Remove audio clip${typeof clip.name === "string" ? ` "${clip.name}"` : ` #${clipIndex}`}`,
+      patches: combined.patches,
+      inverse: combined.inverse
+    };
+  },
+
+  /**
+   * DOC-066 (source lifecycle): appends a NEW `sources[]` entry — bound to
+   * `opts.audioIndex` when given (a Clip-mode source, `gain:1, loop:false,
+   * autoplay:false`, mirroring `addAudioEmitterNode`'s own default source
+   * shape), else an Oscillator-mode source (`opts.oscillator`'s payload,
+   * defaulting to a plain sine — the full default-params table is an
+   * app/`audio-canvas` concern `editor-core` doesn't import) — and appends
+   * its index into `emitters[emitterIndex].sources`, as ONE combined
+   * command. The Inspector's Sources sub-list "+ Add source" action.
+   */
+  addSourceToEmitter(
+    document: EditorDocument,
+    emitterIndex: number,
+    opts: { audioIndex?: number; oscillator?: Record<string, unknown> } = {}
+  ): { command: Command; index: number } {
+    const emitter = getIn(document.json, ["extensions", "KHR_audio_emitter", "emitters", emitterIndex]);
+    if (!emitter) {
+      throw new Error(`SceneEdit.addSourceToEmitter: no emitter at index ${emitterIndex}.`);
+    }
+    let json = document.json;
+    const sourceValue: Record<string, unknown> =
+      opts.audioIndex !== undefined
+        ? { audio: opts.audioIndex, gain: 1, loop: false, autoplay: false }
+        : { gain: 1, autoplay: false, extensions: { KHR_audio_graph: { oscillator: opts.oscillator ?? { type: "sine", frequency: 440, detune: 0 } } } };
+
+    const sourceFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "sources"], sourceValue);
+    json = applyPatches(json, sourceFragment.patches);
+
+    const sourcesArrayFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "emitters", emitterIndex, "sources"], sourceFragment.index);
+
+    const combined = combineCommandParts([sourceFragment, sourcesArrayFragment]);
+    return {
+      index: sourceFragment.index,
+      command: {
+        id: makeCommandId("add-source-to-emitter"),
+        label: `Add source to emitter ${emitterIndex}`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /**
+   * DOC-066: removes `sourceIndex` from `emitters[emitterIndex].sources` —
+   * membership-array removal only (mirrors `SceneEdit`'s node-membership
+   * factories' own "orphan, don't garbage-collect" philosophy, DOC-050): the
+   * underlying `sources[sourceIndex]` registry entry and whatever clip it
+   * references are left completely untouched (another emitter, or this same
+   * one via a second slot, may still reference that exact source index) —
+   * safe to call with no usage-blocking check, unlike `removeAudioClip`.
+   */
+  removeSourceFromEmitter(document: EditorDocument, emitterIndex: number, sourceIndex: number): Command {
+    const emitter = getIn(document.json, ["extensions", "KHR_audio_emitter", "emitters", emitterIndex]) as { sources?: number[] } | undefined;
+    const list = emitter?.sources ?? [];
+    const position = list.indexOf(sourceIndex);
+    if (position === -1) {
+      throw new Error(`SceneEdit.removeSourceFromEmitter: emitter ${emitterIndex} does not reference source ${sourceIndex}.`);
+    }
+    const path = ["extensions", "KHR_audio_emitter", "emitters", emitterIndex, "sources"];
+    const nextList = [...list.slice(0, position), ...list.slice(position + 1)];
+    return {
+      id: makeCommandId("remove-source-from-emitter"),
+      label: `Remove source from emitter ${emitterIndex}`,
+      patches: [{ op: "replace", path: formatPointer(path), value: nextList }],
+      inverse: [{ op: "replace", path: formatPointer(path), value: list }]
+    };
+  },
+
+  /**
+   * DOC-066 (multi-emitter-per-node, closing PR #48's documented gap): adds
+   * ANOTHER `KHR_audio_emitter` binding to a node that may already carry
+   * one — builds a full source+positional-emitter chain (identical shape to
+   * `addAudioEmitterNode`'s own generation, reusing `opts.audioIndex` the
+   * same way when given), then binds it onto `nodeIndex` under whichever
+   * field shape is already in play: a node with NO existing binding gets
+   * the singular `extensions.KHR_audio_emitter.emitter` field (unchanged
+   * behavior for the common single-emitter case — no `.emitters` array is
+   * introduced unless/until a SECOND emitter actually needs one); a node
+   * that already has a singular `.emitter` is upgraded to the array-valued
+   * `.emitters` field (the existing binding becomes `.emitters[0]`, the new
+   * one `.emitters[1]`); a node that already has `.emitters` simply
+   * appends. `WebAudioHost` already reads BOTH shapes interchangeably
+   * (`web-audio-host.ts`'s `Array.isArray(ext.emitters) ? ext.emitters :
+   * ... [ext.emitter]` fallback) — this factory is purely the
+   * authoring-side gap the Inspector's single-`emitterIndex` lookup left
+   * closed until now.
+   */
+  addEmitterToNode(document: EditorDocument, nodeIndex: number, opts: { audioIndex?: number } = {}): { command: Command; emitterIndex: number } {
+    const node = getIn(document.json, ["nodes", nodeIndex]) as Record<string, unknown> | undefined;
+    if (!node) {
+      throw new Error(`SceneEdit.addEmitterToNode: no node at index ${nodeIndex}.`);
+    }
+    let json = document.json;
+    const generationFragments: PatchPair[] = [];
+    let audioIndex = opts.audioIndex;
+
+    if (audioIndex === undefined) {
+      const wav = silentWavBuffer();
+      const bufferFragment = appendFragment(json, ["buffers"], { byteLength: wav.byteLength, uri: wav.uri });
+      json = applyPatches(json, bufferFragment.patches);
+      generationFragments.push(bufferFragment);
+
+      const bufferViewFragment = appendFragment(json, ["bufferViews"], { buffer: bufferFragment.index, byteOffset: 0, byteLength: wav.byteLength });
+      json = applyPatches(json, bufferViewFragment.patches);
+      generationFragments.push(bufferViewFragment);
+
+      const audioFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "audio"], { bufferView: bufferViewFragment.index, mimeType: "audio/wav" });
+      json = applyPatches(json, audioFragment.patches);
+      generationFragments.push(audioFragment);
+      audioIndex = audioFragment.index;
+    }
+
+    const sourceFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "sources"], { audio: audioIndex, gain: 1, loop: false, autoplay: false });
+    json = applyPatches(json, sourceFragment.patches);
+
+    const emitterFragment = appendFragment(json, ["extensions", "KHR_audio_emitter", "emitters"], {
+      type: "positional",
+      gain: 1,
+      sources: [sourceFragment.index],
+      positional: { shapeType: "omnidirectional", distanceModel: "inverse", refDistance: 1, maxDistance: 0, rolloffFactor: 1 }
+    });
+    json = applyPatches(json, emitterFragment.patches);
+
+    const usedFragment = ensureExtensionUsedFragment(json, "KHR_audio_emitter");
+    json = applyPatches(json, usedFragment.patches);
+
+    const existingExt = (node.extensions as Record<string, unknown> | undefined)?.KHR_audio_emitter as { emitter?: number; emitters?: number[] } | undefined;
+    let bindFragment: PatchPair;
+    if (!existingExt || (existingExt.emitter === undefined && existingExt.emitters === undefined)) {
+      bindFragment = setPathFragment(json, ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitter"], emitterFragment.index);
+    } else if (Array.isArray(existingExt.emitters)) {
+      bindFragment = setPathFragment(json, ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitters"], [...existingExt.emitters, emitterFragment.index]);
+    } else {
+      // Upgrade singular `.emitter` to array-valued `.emitters`, dropping `.emitter`.
+      const upgraded = setPathFragment(json, ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitters"], [existingExt.emitter, emitterFragment.index]);
+      const afterUpgrade = applyPatches(json, upgraded.patches);
+      const dropSingular = deletePathFragment(afterUpgrade, ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitter"]);
+      bindFragment = combineCommandParts([upgraded, dropSingular]);
+    }
+
+    const combined = combineCommandParts([...generationFragments, sourceFragment, emitterFragment, usedFragment, bindFragment]);
+    return {
+      emitterIndex: emitterFragment.index,
+      command: {
+        id: makeCommandId("add-emitter-to-node"),
+        label: `Add audio emitter to node ${nodeIndex}`,
+        patches: combined.patches,
+        inverse: combined.inverse
+      }
+    };
+  },
+
+  /**
+   * DOC-066: removes ONE `KHR_audio_emitter` binding from `nodeIndex` — the
+   * counterpart to `addEmitterToNode`. When the node's binding is the
+   * singular `.emitter` field, it's deleted outright (leaving the node
+   * audio-less). When it's array-valued `.emitters`, `emitterIndex` is
+   * spliced out of that array (never collapsed back down to a singular
+   * `.emitter` field, even when exactly one remains — `WebAudioHost` reads
+   * a one-element `.emitters` array identically to a singular `.emitter`).
+   * Mirrors `removeSourceFromEmitter`'s own orphan-don't-garbage-collect
+   * policy (DOC-050): the underlying `emitters[]`/`sources[]`/`audio[]`
+   * registry entries this binding pointed at are left completely untouched.
+   */
+  removeEmitterFromNode(document: EditorDocument, nodeIndex: number, emitterIndex: number): Command {
+    const node = getIn(document.json, ["nodes", nodeIndex]) as Record<string, unknown> | undefined;
+    const ext = (node?.extensions as Record<string, unknown> | undefined)?.KHR_audio_emitter as { emitter?: number; emitters?: number[] } | undefined;
+    if (!ext) {
+      throw new Error(`SceneEdit.removeEmitterFromNode: node ${nodeIndex} has no KHR_audio_emitter binding.`);
+    }
+    if (Array.isArray(ext.emitters)) {
+      const position = ext.emitters.indexOf(emitterIndex);
+      if (position === -1) {
+        throw new Error(`SceneEdit.removeEmitterFromNode: node ${nodeIndex} does not reference emitter ${emitterIndex}.`);
+      }
+      const path = ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitters"];
+      const nextList = [...ext.emitters.slice(0, position), ...ext.emitters.slice(position + 1)];
+      return {
+        id: makeCommandId("remove-emitter-from-node"),
+        label: `Remove audio emitter from node ${nodeIndex}`,
+        patches: [{ op: "replace", path: formatPointer(path), value: nextList }],
+        inverse: [{ op: "replace", path: formatPointer(path), value: ext.emitters }]
+      };
+    }
+    if (ext.emitter !== emitterIndex) {
+      throw new Error(`SceneEdit.removeEmitterFromNode: node ${nodeIndex} does not reference emitter ${emitterIndex}.`);
+    }
+    const fragment = deletePathFragment(document.json, ["nodes", nodeIndex, "extensions", "KHR_audio_emitter", "emitter"]);
+    return {
+      id: makeCommandId("remove-emitter-from-node"),
+      label: `Remove audio emitter from node ${nodeIndex}`,
+      patches: fragment.patches,
+      inverse: fragment.inverse
     };
   }
 };

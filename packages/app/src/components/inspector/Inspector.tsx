@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { SceneEdit } from "@gltf-studio/editor-core";
 import { useAppStore } from "../../store/app-store";
 import type { GltfJsonShape } from "../../lib/gltf-scene";
 import { uniqueMaterialIndices } from "../../lib/mesh-info";
@@ -25,6 +26,7 @@ import { UsageSection } from "./UsageSection";
 export function Inspector(): JSX.Element {
   const document = useAppStore((s) => s.document);
   const history = useAppStore((s) => s.history);
+  const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const selectedNodeIndex = useAppStore((s) => s.selectedNodeIndex);
   const selectNode = useAppStore((s) => s.selectNode);
   const copyPointerPath = useAppStore((s) => s.copyPointerPath);
@@ -76,7 +78,15 @@ export function Inspector(): JSX.Element {
   const children = node.children ?? [];
   const extensionKeys = node.extensions ? Object.keys(node.extensions) : [];
   const meshName = meshIndex !== undefined ? (json?.meshes?.[meshIndex]?.name ?? `Mesh ${meshIndex}`) : undefined;
-  const emitterIndex = node.extensions?.KHR_audio_emitter?.emitter;
+  // Multi-emitter-per-node (closing PR #48's documented gap): a node's
+  // `KHR_audio_emitter` binding may be the original singular `.emitter`
+  // field OR the array-valued `.emitters` field `SceneEdit.addEmitterToNode`
+  // introduces on a SECOND emitter — normalized to one list here the same
+  // way `WebAudioHost` itself already reads both shapes interchangeably
+  // (`web-audio-host.ts`'s own `Array.isArray(ext.emitters) ? ext.emitters
+  // : ... [ext.emitter]` fallback).
+  const audioExt = node.extensions?.KHR_audio_emitter;
+  const emitterIndices = Array.isArray(audioExt?.emitters) ? audioExt.emitters : typeof audioExt?.emitter === "number" ? [audioExt.emitter] : [];
   const lightIndex = node.extensions?.KHR_lights_punctual?.light;
   const cameraIndex = node.camera;
   const materialIndices = meshIndex !== undefined && json?.meshes?.[meshIndex] ? uniqueMaterialIndices(json.meshes[meshIndex]) : [];
@@ -172,9 +182,18 @@ export function Inspector(): JSX.Element {
         <MaterialSections materialIndices={materialIndices} json={json} document={editorDocument} />
       )}
 
-      {emitterIndex !== undefined && json && (
+      {json && (
         <div ref={audioSectionRef} className={audioFlashed ? "flash-highlight" : undefined}>
-          <AudioSection emitterIndex={emitterIndex} json={json} document={editorDocument} />
+          {emitterIndices.map((idx) => (
+            <AudioSection key={idx} emitterIndex={idx} nodeIndex={selectedNodeIndex} json={json} document={editorDocument} />
+          ))}
+          <button
+            className="btn small"
+            data-testid="inspector.audio.add-emitter"
+            onClick={() => dispatchCommand(SceneEdit.addEmitterToNode(editorDocument, selectedNodeIndex).command)}
+          >
+            + Add audio emitter
+          </button>
         </div>
       )}
 

@@ -94,15 +94,25 @@ export function toClipSource(source: GltfAudioSourceJson, audioClipCount: number
  */
 export function AudioSection({
   emitterIndex,
+  nodeIndex,
   json,
   document
 }: {
   emitterIndex: number;
+  /**
+   * Multi-emitter-per-node (closing PR #48's documented gap,
+   * `SceneEdit.addEmitterToNode`/`removeEmitterFromNode`): the owning node's
+   * index, needed only for the "Remove this emitter" action below — every
+   * OTHER field in this section still addresses the emitter/source/clip
+   * registries directly by their OWN index, never by node.
+   */
+  nodeIndex: number;
   json: GltfJsonShape;
   document: EditorDocument;
 }): JSX.Element {
   const dispatchCommand = useAppStore((s) => s.dispatchCommand);
   const audioHost = useAppStore((s) => s.audioHost);
+  const renderHost = useAppStore((s) => s.renderHost);
   const [initialized, setInitialized] = useState(false);
   const [auditioning, setAuditioning] = useState(false);
   const emitter = json.extensions?.KHR_audio_emitter?.emitters?.[emitterIndex] ?? {};
@@ -128,6 +138,23 @@ export function AudioSection({
     dispatchCommand(SceneEdit.setAudioSourceProperty(document, sourceIndex, path, value));
   }
 
+  /**
+   * Listener-pose gap (specs/engine-api.md's documented note, closed here):
+   * Audition previously played against the Web Audio API's default listener
+   * pose (origin, facing -Z) always — `Viewport.tsx`'s own per-frame
+   * `setListenerPose` feed is deliberately gated on `playState === "playing"`
+   * only (a perf tradeoff for the whole viewport, not revisited here). This
+   * is a ONE-SHOT snapshot instead of a continuous feed: `renderHost.
+   * getCameraPose()` (the SAME `CameraPose` shape play mode's own feed
+   * uses) is read and pushed to `audioHost.setListenerPose` exactly once,
+   * right before `auditionEmitter` — a positional emitter now pans/
+   * attenuates against wherever the viewport camera actually is AT THE
+   * MOMENT Audition is clicked, not a hardcoded origin. It does NOT track
+   * further camera movement during playback (that would need reinstating
+   * the interval feed this section deliberately avoids re-adding, per
+   * `Viewport.tsx`'s own perf-flake history) — a real, honest, narrower
+   * remaining gap than before, not a full live feed.
+   */
   async function audition(): Promise<void> {
     if (!audioHost || auditioning) return;
     setAuditioning(true);
@@ -135,6 +162,9 @@ export function AudioSection({
       if (!initialized) {
         await audioHost.init(); // AH-001: gesture-gated — this onClick IS the gesture.
         setInitialized(true);
+      }
+      if (renderHost) {
+        audioHost.setListenerPose(renderHost.getCameraPose());
       }
       audioHost.auditionEmitter(emitterIndex);
     } finally {
@@ -144,7 +174,17 @@ export function AudioSection({
 
   return (
     <div className="inspector-section" data-testid="inspector.audio.section">
-      <h4>Audio Emitter</h4>
+      <div className="section-header-row">
+        <h4>Audio Emitter</h4>
+        <button
+          className="btn small icon-only"
+          title="Remove this emitter from the node."
+          data-testid={`inspector.audio.${emitterIndex}.remove-emitter`}
+          onClick={() => dispatchCommand(SceneEdit.removeEmitterFromNode(document, nodeIndex, emitterIndex))}
+        >
+          ✕
+        </button>
+      </div>
       <div className="content">
         <div className="field-row">
           <label>Type</label>
@@ -309,20 +349,32 @@ export function AudioSection({
           </>
         )}
 
-        {sourceIndices.length > 0 && (
-          <div className="audio-sources" data-testid="inspector.audio.sources">
-            <h5>Sources</h5>
+        <div className="audio-sources" data-testid="inspector.audio.sources">
+          <h5>Sources</h5>
+          {sourceIndices.length === 0 && (
+            <div className="empty-note" data-testid="inspector.audio.sources.empty">
+              No sources yet.
+            </div>
+          )}
             {sourceIndices.map((sourceIndex) => {
               const source = sources[sourceIndex] ?? {};
               const oscillatorMode = isOscillatorSource(source);
-              const clip = typeof source.audio === "number" ? audioClips[source.audio] : undefined;
-              const clipLabel = clip ? (clip.name ?? clip.uri ?? clip.mimeType ?? `audio #${source.audio}`) : "no clip";
               const oscillator = source.extensions?.KHR_audio_graph?.oscillator ?? {};
               function setOscillatorProp(key: string, value: unknown): void {
                 setSourceProp(sourceIndex, ["extensions", "KHR_audio_graph", "oscillator", key], value);
               }
               return (
                 <div className="audio-source-row" data-testid={`inspector.audio.source.${sourceIndex}`} key={sourceIndex}>
+                  <div className="section-header-row">
+                    <button
+                      className="btn small icon-only"
+                      title="Remove this source from the emitter."
+                      data-testid={`inspector.audio.source.${sourceIndex}.remove`}
+                      onClick={() => dispatchCommand(SceneEdit.removeSourceFromEmitter(document, emitterIndex, sourceIndex))}
+                    >
+                      ✕
+                    </button>
+                  </div>
                   <div className="field-row">
                     <label>Source Type</label>
                     <select
@@ -352,9 +404,20 @@ export function AudioSection({
                     <>
                       <div className="field-row">
                         <label>Clip</label>
-                        <span className="mono dim" data-testid={`inspector.audio.source.${sourceIndex}.clip`}>
-                          {clipLabel}
-                        </span>
+                        <select
+                          className="field"
+                          data-testid={`inspector.audio.source.${sourceIndex}.clip`}
+                          value={source.audio ?? ""}
+                          disabled={audioClips.length === 0}
+                          onChange={(e) => setSourceProp(sourceIndex, ["audio"], Number(e.target.value))}
+                        >
+                          {audioClips.length === 0 && <option value="">no clips — import one first</option>}
+                          {audioClips.map((clip, clipIndex) => (
+                            <option key={clipIndex} value={clipIndex}>
+                              {clip.name ?? clip.uri ?? `Clip ${clipIndex}`}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="field-row">
                         <label>Playback Rate</label>
@@ -455,8 +518,25 @@ export function AudioSection({
                 </div>
               );
             })}
+          <div className="audio-sources-add-row">
+            <button
+              className="btn small"
+              data-testid="inspector.audio.sources.add-clip"
+              disabled={audioClips.length === 0}
+              title={audioClips.length === 0 ? "Import a clip in the Assets > Audio Clips tab first." : "Add a clip source."}
+              onClick={() => dispatchCommand(SceneEdit.addSourceToEmitter(document, emitterIndex, { audioIndex: 0 }).command)}
+            >
+              + Add clip source
+            </button>
+            <button
+              className="btn small"
+              data-testid="inspector.audio.sources.add-oscillator"
+              onClick={() => dispatchCommand(SceneEdit.addSourceToEmitter(document, emitterIndex).command)}
+            >
+              + Add oscillator source
+            </button>
           </div>
-        )}
+        </div>
 
         <button
           className="btn small"

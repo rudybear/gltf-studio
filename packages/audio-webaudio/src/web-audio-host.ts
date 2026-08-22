@@ -363,7 +363,54 @@ function matrixForward(matrix: Mat4): Vec3 {
  * AudioHost method (widening AH-002) or a RenderHost->AudioHost world-
  * matrix feed — left as a follow-up, not attempted here.
  */
+/**
+ * Constructor options for `WebAudioHost` — NOT part of the `AudioHost`
+ * interface (AH-002 fixes that surface exactly at `init/loadEmitters/
+ * applyPointer/setListenerPose/auditionEmitter` + lifecycle); this is a
+ * concrete-class-only extension point, the same "interface unchanged, one
+ * concrete class widened" shape `getDiagnostics()`/`getEmitterPosition()`
+ * already established as non-interface extras.
+ */
+export interface WebAudioHostOptions {
+  /**
+   * Resolves a non-`data:`, non-`http(s)://` audio clip uri (typically a
+   * project-relative path, e.g. a `KHR_audio_emitter.audio[]` entry kept as
+   * a URI REFERENCE rather than embedded) to raw bytes. The app layer is
+   * expected to back this with its own file-map/granted-folder machinery
+   * (`@gltf-studio/storage`'s `resolveUrisFromDirectory`) — `WebAudioHost`
+   * has no filesystem access of its own. Returning `null`/`undefined` (no
+   * folder granted yet, or the file genuinely isn't there) is NOT an error:
+   * `decodeSingle` treats it exactly like any other undecodable clip
+   * (silently skipped from the built audio graph), surfaced only via
+   * `getUnresolvedAudioUris()` for an honest "unresolved" UI state — never a
+   * thrown exception or a console error. An absolute `http(s)://` uri is
+   * ALWAYS fetched directly by `WebAudioHost` itself (a real `fetch()`; a
+   * network/CORS failure is caught and treated as unresolved the same way)
+   * and never routed through this callback.
+   */
+  resolveAudioUri?: (uri: string) => Promise<ArrayBuffer | null | undefined>;
+}
+
 export class WebAudioHost implements AudioHost {
+  private readonly resolveAudioUri?: (uri: string) => Promise<ArrayBuffer | null | undefined>;
+  private unresolvedClipUris = new Set<string>();
+  /**
+   * Cache for a resolved EXTERNAL (non-`data:`) uri's bytes, deliberately
+   * SEPARATE from `decodedUriBuffers` below (which `loadEmitters` clears on
+   * every call — cheap to redo for a local base64 `data:` decode, but an
+   * external resolution can mean a real network `fetch()` or an async
+   * directory-handle lookup). `attachAudioHost` reloads on EVERY
+   * `HistoryStack.onApply` (i.e. on every unrelated document edit, not just
+   * audio ones) — without this separate, never-auto-cleared cache, every
+   * edit anywhere in the document would re-fetch/re-resolve every
+   * uri-referenced clip. Cleared only in `dispose()`.
+   */
+  private externalUriCache = new Map<string, ArrayBuffer>();
+
+  constructor(options: WebAudioHostOptions = {}) {
+    this.resolveAudioUri = options.resolveAudioUri;
+  }
+
   private context: AudioContext | null = null;
   private listenerBus: GainNode | null = null;
   private sendBus: GainNode | null = null;
@@ -743,6 +790,8 @@ export class WebAudioHost implements AudioHost {
     this.environmentBuses.clear();
     this.zones = [];
     this.buffers.clear();
+    this.externalUriCache.clear();
+    this.unresolvedClipUris.clear();
     void this.context?.close().catch(() => undefined);
     this.context = null;
     this.listenerBus = null;
@@ -777,6 +826,23 @@ export class WebAudioHost implements AudioHost {
       return null;
     }
     return [...instance.staticPosition];
+  }
+
+  /**
+   * Not part of the AudioHost interface (AH-002 fixes the surface exactly)
+   * — a diagnostics-only extra, mirroring `getDiagnostics`/`getEmitterPosition`'s
+   * own rationale. Lists every `audio[].uri` this host's most recent
+   * `loadEmitters` rebuild could NOT resolve to playable bytes (an external
+   * uri with no folder-access grant yet, a `fetch()`/CORS failure, or a
+   * genuinely missing file) — the source of truth the Assets > Audio Clips
+   * tab's "unresolved" badge reads, so that state can never drift from what
+   * actually failed to decode. Recomputed fresh on every `loadEmitters` call
+   * (never accumulates stale entries across reloads); empty when nothing is
+   * unresolved, including before any document with a `uri`-referenced clip
+   * has ever loaded.
+   */
+  getUnresolvedAudioUris(): string[] {
+    return [...this.unresolvedClipUris];
   }
 
   // -------------------------------------------------------------------------
@@ -916,7 +982,48 @@ export class WebAudioHost implements AudioHost {
   }
 
   private async decodeAudioData(context: AudioContext, audio: AudioDataDef[]): Promise<void> {
+    // Cleared per rebuild (not per-entry) so a clip that was unresolved on a
+    // prior `loadEmitters` call (e.g. before a folder-access grant) is
+    // retried fresh on every reload rather than sticking as stale — the same
+    // "idempotent rebuild" contract `this.buffers`'s index-cache already
+    // gives every OTHER clip (a previously-unresolved entry is simply never
+    // cached in `this.buffers`, so `decodeSingle` always retries it below).
+    this.unresolvedClipUris.clear();
     await Promise.all(audio.map((_, index) => this.decodeSingle(context, audio, index)));
+  }
+
+  /**
+   * Resolves a non-`data:` `audio[].uri` — an absolute `http(s)://` uri is
+   * fetched directly (honest CORS/network failure -> `undefined`); anything
+   * else is delegated to `this.resolveAudioUri` (the app-supplied
+   * project-folder resolver) when one was given at construction. Caches a
+   * successful resolution by uri (`externalUriCache`, a cache deliberately
+   * never cleared by `loadEmitters` itself — see its own doc comment) so a
+   * fetch/directory-lookup never repeats for the same uri across
+   * `loadEmitters` reloads.
+   */
+  private async resolveExternalUri(uri: string): Promise<ArrayBuffer | undefined> {
+    const cached = this.externalUriCache.get(uri);
+    if (cached) {
+      return cached;
+    }
+    let resolved: ArrayBuffer | undefined;
+    try {
+      if (/^https?:\/\//i.test(uri)) {
+        const response = await fetch(uri);
+        if (response.ok) {
+          resolved = await response.arrayBuffer();
+        }
+      } else if (this.resolveAudioUri) {
+        resolved = (await this.resolveAudioUri(uri)) ?? undefined;
+      }
+    } catch {
+      resolved = undefined; // network error, CORS rejection, or a resolver callback throwing — all treated as "unresolved", never propagated.
+    }
+    if (resolved) {
+      this.externalUriCache.set(uri, resolved);
+    }
+    return resolved;
   }
 
   private async decodeSingle(context: AudioContext, audio: AudioDataDef[], index: number): Promise<AudioBuffer | undefined> {
@@ -930,12 +1037,20 @@ export class WebAudioHost implements AudioHost {
     }
     try {
       let raw: ArrayBuffer | undefined;
+      let isExternalUri = false;
       if (typeof def.bufferView === "number") {
         raw = this.resolveBufferView(def.bufferView);
       } else if (def.uri) {
-        raw = decodeDataUri(def.uri); // non-data: external URIs are not fetched in v1 (see LoadEmittersInput's doc comment)
+        raw = decodeDataUri(def.uri);
+        if (!raw) {
+          isExternalUri = true;
+          raw = await this.resolveExternalUri(def.uri);
+        }
       }
       if (!raw) {
+        if (isExternalUri && def.uri) {
+          this.unresolvedClipUris.add(def.uri); // an honest "couldn't resolve this reference" state, not a thrown error — see getUnresolvedAudioUris().
+        }
         return undefined;
       }
       const buffer = await context.decodeAudioData(raw.slice(0));
