@@ -13,6 +13,7 @@
     { "path": "packages/play" },
     { "path": "packages/graph-canvas" },
     { "path": "packages/script-panel" },
+    { "path": "packages/audio-script-panel" },
     { "path": "packages/storage" },
     { "path": "packages/audio-webaudio" },
     { "path": "packages/audio-graph" },

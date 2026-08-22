@@ -64,7 +64,7 @@ import { checkoutProject, readLastProjectId, rememberLastProjectId } from "../li
 import { buildShareLink, decodeShareLink, readShareHash } from "../lib/share.js";
 
 export type ThemeOverride = "light" | "dark" | null;
-export type DockTab = "graph" | "audio-graph" | "script" | "console" | "data";
+export type DockTab = "graph" | "audio-graph" | "script" | "audio-script" | "console" | "data";
 export type RightTab = "inspector" | "copilot";
 export type AssetTab = "meshes" | "materials" | "audio" | "animations";
 
@@ -261,6 +261,8 @@ export interface AppState {
   selectedGraphNodeIndex: number | null;
   /** Which `extensions.KHR_interactivity.graphs[N]` the canvas shows, when an asset has more than one. */
   selectedGraphIndex: number;
+  /** specs/ux-audio-script.md UX-1400: the audio-graph canvas's OWN node selection (DOC-030: ephemeral) — a separate slot from `selectedGraphNodeIndex` (the BEHAVIOR graph's own selection; AudioGraphTabPanel.tsx's own doc comment explains why the two canvases must not share one), shared here (rather than kept local to AudioGraphTabPanel as it was before this tab existed) so the Audio Script tab — a separate mounted component — can cross-highlight the same node's emitted identifier. */
+  selectedAudioGraphNodeIndex: number | null;
   // -- viewport hover + gizmo mode (DOC-030: ephemeral only; specs/ux-viewport.md UX-301/UX-304) --
   hoveredNodeIndex: number | null;
   gizmoMode: GizmoMode;
@@ -417,6 +419,10 @@ export interface AppState {
   duplicateNode(nodeIndex: number): void;
   selectGraphNode(index: number | null): void;
   setSelectedGraphIndex(index: number): void;
+  /** specs/ux-audio-script.md UX-1400: sets the audio-graph canvas's own node selection — see `selectedAudioGraphNodeIndex`'s own doc comment for why this is a separate slot from `selectGraphNode`. */
+  selectAudioGraphNode(index: number | null): void;
+  /** specs/ux-audio-script.md UX-1400: the Audio Script tab's "→ Audio graph" jump (a diagnostic/identifier naming a `graph.nodes[]` index) — switches to the Audio graph tab and selects that node. Cheap/direct (no focus-request queueing like `jumpUsageRefToGraph`'s `requestGraphNodeFocus`): the audio canvas has no analogous pan/reveal API yet, so this only sets selection — honest, bounded-effort reflection, not a full parity port. */
+  jumpAudioScriptNodeToGraph(nodeIndex: number): void;
   /** UX-1107 (specs/ux-usage-mapping.md): requests the Behavior graph canvas center/pan to the given graph node — see `@gltf-studio/graph-canvas`'s `GraphView` `focusRequest` doc comment. Same cross-component-signal pattern as `requestFrame` below. */
   requestGraphNodeFocus(nodeIndex: number): void;
   /**
@@ -905,6 +911,7 @@ export const useAppStore = create<AppState>((set, get) => {
       selectedNodeIndex: null,
       selectedGraphNodeIndex: null,
       selectedGraphIndex: 0,
+      selectedAudioGraphNodeIndex: null,
       hoveredNodeIndex: null,
       selectedAsset: null,
       dataPointer: "",
@@ -950,6 +957,7 @@ export const useAppStore = create<AppState>((set, get) => {
   selectedNodeIndex: null,
   selectedGraphNodeIndex: null,
   selectedGraphIndex: 0,
+  selectedAudioGraphNodeIndex: null,
   hoveredNodeIndex: null,
   gizmoMode: "translate",
 
@@ -1366,6 +1374,16 @@ export const useAppStore = create<AppState>((set, get) => {
 
   setSelectedGraphIndex(index) {
     set({ selectedGraphIndex: index, selectedGraphNodeIndex: null });
+  },
+
+  selectAudioGraphNode(index) {
+    set({ selectedAudioGraphNodeIndex: index });
+  },
+
+  jumpAudioScriptNodeToGraph(nodeIndex) {
+    const { setActiveDockTab, selectAudioGraphNode } = get();
+    setActiveDockTab("audio-graph");
+    selectAudioGraphNode(nodeIndex);
   },
 
   requestGraphNodeFocus(nodeIndex) {

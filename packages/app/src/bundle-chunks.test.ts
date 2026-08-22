@@ -18,6 +18,16 @@
 // and asserted below — to appear in Monaco's `ts.worker` chunk too; that's
 // a different, unrelated worker, not evidence against this file's claim
 // about the APP's main entry chunk.)
+//
+// specs/ux-audio-script.md UX-1400: @gltf-studio/audio-script-panel's own
+// parse.worker.ts (@gltf-audiograph/parse-ts, also ts-morph-backed) mirrors
+// this SAME rule. Both packages' source files happen to be named
+// `parse.worker.ts`, so Vite's build emits two chunks both matching
+// `parse.worker-*.js` (confirmed via a real `pnpm build` — the audio one is
+// NOT a guess) — `readParseWorkerChunk()` below already joins every such
+// chunk before searching, so the two existing assertions cover both workers
+// as-is; `readParseWorkerChunks()` (plural) additionally lets this file
+// assert there really are two distinct chunks, not just one lucky match.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,21 +49,30 @@ function readMainEntryChunk(): string {
   return readFileSync(join(DIST_DIR, match[1]), "utf8");
 }
 
+function parseWorkerChunkFiles(): string[] {
+  const assetsDir = join(DIST_DIR, "assets");
+  return readdirSync(assetsDir).filter((f) => f.startsWith("parse.worker-") && f.endsWith(".js"));
+}
+
 function readParseWorkerChunk(): string {
   const assetsDir = join(DIST_DIR, "assets");
-  const files = readdirSync(assetsDir).filter((f) => f.startsWith("parse.worker-") && f.endsWith(".js"));
+  const files = parseWorkerChunkFiles();
   if (files.length === 0) {
-    throw new Error(`No built chunk matching "parse.worker-*.js" in ${assetsDir} — expected Vite's static \`new Worker(new URL("./parse.worker.js", import.meta.url))\` detection (parse-client.ts) to emit one.`);
+    throw new Error(`No built chunk matching "parse.worker-*.js" in ${assetsDir} — expected Vite's static \`new Worker(new URL("./parse.worker.js", import.meta.url))\` detection (parse-client.ts / @gltf-studio/audio-script-panel's own parse-client.ts) to emit one.`);
   }
   return files.map((f) => readFileSync(join(assetsDir, f), "utf8")).join("\n");
 }
 
-describe.skipIf(!existsSync(DIST_DIR))("built app bundle chunking (specs/ux-script.md UX-707/UX-709)", () => {
-  it("keeps ts-morph (via @gltfi/parse-ts) OUT of the main app entry chunk", () => {
+describe.skipIf(!existsSync(DIST_DIR))("built app bundle chunking (specs/ux-script.md UX-707/UX-709; specs/ux-audio-script.md UX-1400)", () => {
+  it("keeps ts-morph (via @gltfi/parse-ts AND @gltf-audiograph/parse-ts) OUT of the main app entry chunk", () => {
     expect(readMainEntryChunk()).not.toContain(TS_MORPH_MARKER);
   });
 
-  it("confirms ts-morph really is bundled in the parse worker's own chunk (so the assertion above is meaningful, not just a marker that never appears anywhere)", () => {
+  it("confirms ts-morph really is bundled in the parse worker chunk(s) (so the assertion above is meaningful, not just a marker that never appears anywhere)", () => {
     expect(readParseWorkerChunk()).toContain(TS_MORPH_MARKER);
+  });
+
+  it("emits TWO distinct parse-worker chunks — one for the interactivity Script tab, one for the Audio Script tab (each package's own parse.worker.ts, not a single shared worker)", () => {
+    expect(parseWorkerChunkFiles().length).toBe(2);
   });
 });

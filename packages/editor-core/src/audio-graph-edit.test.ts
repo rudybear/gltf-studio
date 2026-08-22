@@ -237,6 +237,28 @@ describe("AudioGraphEdit.setNodeBypass (DOC-063)", () => {
   });
 });
 
+describe("AudioGraphEdit.replaceAudioGraph (DOC-064)", () => {
+  it("replaces the whole graph root with a single replace patch and round-trips via the inverse", () => {
+    const doc = docWithAudioGraph();
+    const before = doc.json;
+    const newGraph: AudioGraphSpec = {
+      nodes: [{ kind: "gain", params: { gain: 0.9 } }],
+      connections: [],
+      outputs: [{ node: 0, output: 0, emitter: 0 }]
+    };
+    const command = AudioGraphEdit.replaceAudioGraph(doc, 0, newGraph);
+    expect(command.label).toBe("Apply audio script");
+    expect(command.patches).toEqual([{ op: "replace", path: "/extensions/KHR_audio_graph/graphs/0", value: newGraph }]);
+    const after = expectRoundTrip(before, command);
+    expect(audioGraph0(after)).toEqual(newGraph);
+  });
+
+  it("throws when the target graph doesn't exist yet", () => {
+    const doc = fixtureDocument();
+    expect(() => AudioGraphEdit.replaceAudioGraph(doc, 0, { nodes: [], connections: [] })).toThrow(/No KHR_audio_graph graph/);
+  });
+});
+
 describe("AudioGraphEdit property: add/connect/param/remove sequences undo back to the initial document", () => {
   it("any sequence of edits, undone in reverse via each command's own inverse, restores the exact original JSON", () => {
     const kinds = ["gain", "lowpass", "delay", "oscillator"] as const;

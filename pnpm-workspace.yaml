@@ -37,3 +37,17 @@ overrides:
   # needed (see scripts/refresh-vendor.mjs's audioGraphJsRoot block), so the
   # tarball is a plain `npm pack` of its dist/ output.
   "audio-graph-js": "file:vendor/audio-graph-js-0.1.0.tgz"
+  # @gltf-audiograph/* (github.com/rudybear/gltf-audiograph) is the standalone
+  # KHR_audio_graph script transpiler backing the Audio Script tab
+  # (specs/ux-audio-script.md), the audio sibling of the @gltfi/* transpiler
+  # above — same vendoring rationale (not published to npm), same clean-pack
+  # posture as @gltfi/* (real "exports"/"files" fields already in each
+  # package.json, no overlay needed; see scripts/refresh-vendor.mjs's
+  # audiographRoot block). `cli`/`conformance` are not vendored — nothing
+  # here needs the CLI binary, and `conformance` is `"private": true`.
+  "@gltf-audiograph/kernel": "file:vendor/gltf-audiograph-kernel-0.0.1.tgz"
+  "@gltf-audiograph/ir": "file:vendor/gltf-audiograph-ir-0.0.1.tgz"
+  "@gltf-audiograph/emit-ts": "file:vendor/gltf-audiograph-emit-ts-0.0.1.tgz"
+  "@gltf-audiograph/parse-ts": "file:vendor/gltf-audiograph-parse-ts-0.0.1.tgz"
+  "@gltf-audiograph/verify": "file:vendor/gltf-audiograph-verify-0.0.1.tgz"
+  "@gltf-audiograph/runtime-lib": "file:vendor/gltf-audiograph-runtime-lib-0.0.1.tgz"
