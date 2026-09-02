@@ -32,6 +32,12 @@ importers:
       '@gltfi/gltf':
         specifier: file:vendor/gltfi-gltf-0.0.1.tgz
         version: file:vendor/gltfi-gltf-0.0.1.tgz
+      '@gltfi/ir':
+        specifier: file:vendor/gltfi-ir-0.0.1.tgz
+        version: file:vendor/gltfi-ir-0.0.1.tgz
+      '@gltfi/parse-ts':
+        specifier: file:vendor/gltfi-parse-ts-0.0.1.tgz
+        version: file:vendor/gltfi-parse-ts-0.0.1.tgz
       '@gltfi/runtime':
         specifier: file:vendor/gltfi-runtime-0.0.1.tgz
         version: file:vendor/gltfi-runtime-0.0.1.tgz

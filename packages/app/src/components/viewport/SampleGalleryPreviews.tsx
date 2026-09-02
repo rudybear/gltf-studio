@@ -38,6 +38,33 @@ export function EmptyScenePreview(): JSX.Element {
   );
 }
 
+/**
+ * UX-120's third card: a stylized bottle-and-cork caricature -- a dark
+ * green body, a gold foil neck band, and a tan cork popped just clear of
+ * the mouth with a couple of small "burst" flecks, hinting at the pop-the-
+ * cork interaction without trying to be a faithful render of the real
+ * (much more detailed) generated asset.
+ */
+export function ChampagnePreview(): JSX.Element {
+  return (
+    <svg viewBox={VIEWBOX} width="96" height="64" role="img" aria-label="Champagne preview">
+      <rect x="0" y="0" width="96" height="64" rx="6" fill="var(--bg-1)" />
+      {/* Bottle body */}
+      <path d="M40 58 L40 30 Q40 22 44 20 L44 12 L52 12 L52 20 Q56 22 56 30 L56 58 Z" fill="#0b3d1e" />
+      {/* Gold foil neck band */}
+      <rect x="43" y="18" width="10" height="6" fill="#d4af37" />
+      {/* Label */}
+      <rect x="43" y="36" width="10" height="12" rx="1" fill="#f4f1e6" />
+      {/* Popped cork, clear of the mouth */}
+      <rect x="45" y="6" width="6" height="6" rx="1.5" fill="#c8a06a" />
+      {/* Burst flecks */}
+      <circle cx="38" cy="8" r="1.6" fill="#f4f1e6" />
+      <circle cx="58" cy="6" r="1.4" fill="#f4f1e6" />
+      <circle cx="50" cy="2" r="1.3" fill="#f4f1e6" />
+    </svg>
+  );
+}
+
 export function RacerPreview(): JSX.Element {
   return (
     <svg viewBox={VIEWBOX} width="96" height="64" role="img" aria-label="R4 Racer preview">

@@ -8,7 +8,7 @@ import { extractBinaryChunk } from "../../lib/audio-container.js";
 import { buildEmptySceneGlb } from "../../lib/empty-scene.js";
 import { PlayOverlay } from "./PlayOverlay";
 import { ContextMenu } from "../ContextMenu";
-import { EmptyScenePreview, RacerPreview } from "./SampleGalleryPreviews";
+import { EmptyScenePreview, RacerPreview, ChampagnePreview } from "./SampleGalleryPreviews";
 
 /**
  * RenderHost.loadScene's `{ json, binary }` input shape (engine-three's
@@ -47,7 +47,7 @@ const GIZMO_MODES: ReadonlyArray<{ mode: GizmoMode; label: string; title: string
  * no fetch involved.
  */
 interface SampleDescriptor {
-  key: "empty" | "racer";
+  key: "empty" | "racer" | "champagne";
   label: string;
   /** Static asset under `samples/` to fetch and import. Omitted for the Empty scene card, which never fetches. */
   file?: string;
@@ -65,6 +65,12 @@ const SAMPLE_GALLERY: readonly SampleDescriptor[] = [
     label: "R4 Racer",
     file: "r4-racer.glb",
     description: "A complete racing game authored as TypeScript, compiled into the asset; click the pads to steer."
+  },
+  {
+    key: "champagne",
+    label: "Champagne",
+    file: "champagne.glb",
+    description: "Pop the cork -- click it in Play mode. Then open its brain in the graph and script tabs."
   }
 ];
 
@@ -645,18 +651,19 @@ export function Viewport(): JSX.Element {
       : null;
 
   // specs/ux-shell.md UX-120 (supersedes UX-119, itself supersedes UX-114):
-  // the empty-project state's starter-experience gallery -- two cards. R4
-  // Racer fetches its own committed sample asset (samples/r4-racer.glb) as a
-  // static file this app's own build already serves
-  // (packages/app/scripts/copy-sample.mjs copies it into public/ at
-  // predev/prebuild, same mechanism as gltfi-runtime-lib.mjs);  Empty scene
-  // builds a minimal document in-memory instead (`buildEmptySceneGlb`, no
-  // fetch -- samples/playground.glb, the card it replaces, is retired from
-  // the shipped app entirely and now lives on only as a test fixture, see
-  // e2e/golden-path.spec.ts). Either way the resulting bytes import exactly
-  // the way a manually-picked file would, via the top bar's Import control's
-  // own `importGlb`. `import.meta.env.BASE_URL` (not a hardcoded "/") so the
-  // fetch path also works once deployed under a GitHub Pages project-site
+  // the empty-project state's starter-experience gallery -- three cards. R4
+  // Racer and Champagne each fetch their own committed sample asset
+  // (samples/r4-racer.glb, samples/champagne.glb) as a static file this
+  // app's own build already serves (packages/app/scripts/copy-sample.mjs
+  // copies both into public/ at predev/prebuild, same mechanism as
+  // gltfi-runtime-lib.mjs); Empty scene builds a minimal document in-memory
+  // instead (`buildEmptySceneGlb`, no fetch -- samples/playground.glb, the
+  // card it replaces, is retired from the shipped app entirely and now
+  // lives on only as a test fixture, see e2e/golden-path.spec.ts). Either
+  // way the resulting bytes import exactly the way a manually-picked file
+  // would, via the top bar's Import control's own `importGlb`.
+  // `import.meta.env.BASE_URL` (not a hardcoded "/") so the fetch path also
+  // works once deployed under a GitHub Pages project-site
   // subpath.
   const onLoadSample = (sample: SampleDescriptor) => async (): Promise<void> => {
     try {
@@ -704,7 +711,7 @@ export function Viewport(): JSX.Element {
                 {SAMPLE_GALLERY.map((sample) => (
                   <div className="sample-card" data-testid={`viewport.gallery.card.${sample.key}`} key={sample.key}>
                     <div className="sample-card-preview" data-testid={`viewport.gallery.card.${sample.key}.preview`}>
-                      {sample.key === "empty" ? <EmptyScenePreview /> : <RacerPreview />}
+                      {sample.key === "empty" ? <EmptyScenePreview /> : sample.key === "racer" ? <RacerPreview /> : <ChampagnePreview />}
                     </div>
                     <h4 className="sample-card-title">{sample.label}</h4>
                     <p className="sample-card-desc">{sample.description}</p>

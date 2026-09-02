@@ -22,11 +22,14 @@
     "dev": "pnpm --filter @gltf-studio/app run dev",
     "e2e": "playwright test",
     "sample": "node scripts/make-sample.mjs",
+    "champagne": "node scripts/make-champagne.mjs",
     "postinstall": "node scripts/setup-hooks.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@gltfi/gltf": "0.0.1",
+    "@gltfi/ir": "0.0.1",
+    "@gltfi/parse-ts": "0.0.1",
     "@gltfi/runtime": "0.0.1",
     "@gltfi/verify": "0.0.1",
     "@playwright/test": "^1.62.1",

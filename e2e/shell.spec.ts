@@ -124,7 +124,7 @@ test.describe("shell", () => {
   // at its real 366-node graph scale is e2e/racer.spec.ts's job (a separate, heavier
   // Playwright project); the Empty scene card's own document-creation path is covered
   // end-to-end by the dedicated test below.
-  test("empty-project state shows a two-card starter gallery: Empty scene + R4 Racer, no Playground (UX-120)", async ({ page }) => {
+  test("empty-project state shows a three-card starter gallery: Empty scene + R4 Racer + Champagne, no Playground (UX-120)", async ({ page }) => {
     await page.goto("./");
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
 
@@ -139,6 +139,12 @@ test.describe("shell", () => {
     await expect(racer).toContainText("R4 Racer");
     await expect(racer).toContainText("click the pads to steer");
     await expect(racer.getByTestId("viewport.gallery.card.racer.load")).toBeVisible();
+
+    const champagne = page.getByTestId("viewport.gallery.card.champagne");
+    await expect(champagne).toBeVisible();
+    await expect(champagne).toContainText("Champagne");
+    await expect(champagne).toContainText("Pop the cork");
+    await expect(champagne.getByTestId("viewport.gallery.card.champagne.load")).toBeVisible();
 
     // The old, now-retired "Playground" card must be gone entirely, not merely hidden.
     await expect(page.getByTestId("viewport.gallery.card.playground")).toHaveCount(0);
