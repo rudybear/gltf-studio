@@ -1,12 +1,13 @@
-// Copies the repo root's committed sample asset (samples/r4-racer.glb --
-// see samples/README.md for what it is and where it comes from) into this
-// package's public/ dir so Vite serves it as a static asset at
-// "/r4-racer.glb" -- same "generated into public/, gitignored, regenerated
-// on every predev/prebuild" pattern as ./bundle-runtime-lib.mjs's
-// gltfi-runtime-lib.mjs, and exactly the file Viewport.tsx's empty-state
-// starter gallery (specs/ux-shell.md UX-120, supersedes UX-119) fetches for
-// its R4 Racer card. Deliberately a plain file copy, not an import -- the
-// sample must never be pulled into the main JS bundle.
+// Copies the repo root's committed sample assets (samples/r4-racer.glb and
+// samples/champagne.glb -- see samples/README.md for what each is and where
+// it comes from) into this package's public/ dir so Vite serves them as
+// static assets at "/r4-racer.glb"/"/champagne.glb" -- same "generated into
+// public/, gitignored, regenerated on every predev/prebuild" pattern as
+// ./bundle-runtime-lib.mjs's gltfi-runtime-lib.mjs, and exactly the files
+// Viewport.tsx's empty-state starter gallery (specs/ux-shell.md UX-120,
+// supersedes UX-119) fetches for its R4 Racer and Champagne cards.
+// Deliberately a plain file copy, not an import -- neither sample must ever
+// be pulled into the main JS bundle.
 //
 // samples/playground.glb (UX-119's retired "Playground" card asset) is
 // deliberately NOT copied here as of UX-120: it's no longer part of the
@@ -22,7 +23,7 @@ const samplesDir = resolve(here, "../../../samples");
 const outDir = resolve(here, "../public");
 mkdirSync(outDir, { recursive: true });
 
-for (const name of ["r4-racer.glb"]) {
+for (const name of ["r4-racer.glb", "champagne.glb"]) {
   const src = resolve(samplesDir, name);
   const dest = resolve(outDir, name);
   copyFileSync(src, dest);

@@ -74,3 +74,38 @@ viewport the same way a player would.
 
 See `e2e/racer.spec.ts` for scripted coverage of this asset (gallery card, scene tree, graph
 canvas at its real 366-node scale, script-tab decompile, and play-mode pad interaction).
+
+# samples/champagne.glb
+
+A procedurally generated champagne bottle (12 scene nodes: Ground, Bottle, Cork, six foam-burst
+spheres, a light, a camera) whose cork pops open on click. Built entirely in-process by
+`scripts/make-champagne.mjs` (`pnpm champagne`) — hand-rolled ring-segment lathe geometry for the
+bottle and cork profiles (a solid of revolution, smooth per-vertex normals), a synthesized
+"cork pop" WAV (a ~5ms noise transient, a low thump, and a soft filtered-noise fizz tail — all
+deterministic via a seeded PRNG, no `Math.random()`), and a `KHR_interactivity` graph authored as
+real TypeScript ("GIscript") rather than hand-poked JSON — the ONE gallery asset that showcases the
+transpiler pipeline itself: `@gltfi/parse-ts`'s `parseModule` compiles the source to IR,
+`@gltfi/ir`'s `exportGraph` lowers that to the graph, `@gltfi/verify`'s `validateGraph` checks it
+structurally, and a headless `@gltfi/runtime` interpreter run (firing `onSelect` on Cork twice —
+pop, then reset) checks it behaviorally, all before the script ever writes bytes to disk.
+
+The graph: a `popped`/`animating` variable pair gates a single `event/onSelect` on Cork (the only
+selectable/hoverable node — Bottle, Ground, and the foam spheres all carry
+`KHR_node_selectability`'s `selectable: false`, the same scenery convention `r4-racer.glb` uses).
+First click: the audio-emitter "playing" trigger pointer fires the pop sound, six foam spheres
+(initially hidden via `KHR_node_visibility`) reveal on a staggered `pointer/set` cadence, and Cork
+launches on a two-phase `pointer/interpolate` arc — ease-out up-and-sideways chained (via its own
+`done` continuation) into an ease-in down-and-further-sideways "fall" — with a matching two-phase
+rotation tumble around one fixed axis, plus an independent small bottle recoil tilt-and-back. Second
+click (once `animating` clears): Cork interpolates back to its exact authored rest pose and the foam
+re-hides, `popped` clearing last — replayable indefinitely. Any click while `animating` is a no-op.
+
+Open it via the app's empty-project starter gallery's "Champagne" card
+(`viewport.gallery.card.champagne`, specs/ux-shell.md UX-120 r2), which fetches and imports it the
+same way R4 Racer does. In the editor, open the Behavior graph or Script tab first — the whole
+point of this asset is that its logic is small and readable enough to actually read start to
+finish — then enter play mode and click the cork.
+
+See `e2e/champagne.spec.ts` for scripted coverage of this asset (gallery card, scene tree, a real
+viewport click on Cork under both the interpreter and compiled engines, graph canvas at its real
+node count, and script-tab decompile).

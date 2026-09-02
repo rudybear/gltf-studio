@@ -130,6 +130,7 @@ test("golden path: sample scene through every shipped feature", async ({ page })
     await expect(page.getByTestId("viewport.gallery")).toBeVisible();
     await expect(page.getByTestId("viewport.gallery.card.empty")).toBeVisible();
     await expect(page.getByTestId("viewport.gallery.card.racer")).toBeVisible();
+    await expect(page.getByTestId("viewport.gallery.card.champagne")).toBeVisible();
     await page.setInputFiles('[data-testid="topbar.import-input"]', PLAYGROUND_GLB_PATH);
     await expect(page.getByTestId("topbar.project-name")).toHaveText("playground");
     await snap(page, "load-sample");
