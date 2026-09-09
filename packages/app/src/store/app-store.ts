@@ -1470,7 +1470,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   async startPlay() {
-    const { renderHost, history, document, playEngine, playDebug, pushToast, log, scriptBreakpoints } = get();
+    const { renderHost, history, document, playEngine, playDebug, pushToast, log, scriptBreakpoints, audioHost } = get();
     // `playStarting` (not just `playState !== "stopped"`) is the re-entrancy
     // guard: `playState` itself doesn't flip to "playing" until AFTER the
     // `await controller.start(...)` below resolves, so without this a second
@@ -1487,6 +1487,27 @@ export const useAppStore = create<AppState>((set, get) => {
     // microtask can't both slip through).
     if (!renderHost || !history || !document || get().playState !== "stopped" || get().playStarting) return;
     set({ playStarting: true });
+
+    // UX-131/AH-001: the Play button's own click IS the user gesture — arm
+    // (create-or-resume) the audio host's AudioContext right here, still
+    // perfectly synchronous with that click (no `await` has happened yet in
+    // this function, and `TopBar.tsx`'s onClick calls `startPlay()` directly,
+    // not from inside some other already-async callback), so the browser's
+    // autoplay-gesture check sees a real activation on the call stack.
+    // `WebAudioHost.init()` is idempotent either way it's entered here: a
+    // fresh host constructs+resumes a brand-new `AudioContext`; a host an
+    // earlier Audition gesture already armed just re-resumes if somehow
+    // suspended. Armed UNCONDITIONALLY, not just when the current document
+    // happens to declare `KHR_audio_emitter` — a running-but-silent
+    // AudioContext costs nothing, whereas cheaply detecting "this document
+    // has audio" would still miss a KHR_interactivity-driven edit that adds
+    // an emitter mid-session, and would need to be re-checked on every such
+    // edit. `void`: init()'s promise resolving is not on `startPlay()`'s own
+    // critical path — the engine below starts ticking regardless of whether
+    // the AudioContext has finished (re)running by the time it does; a
+    // trigger pointer fired before that resolves is exactly AH-003's
+    // suspended-trigger diagnostic's job to catch instead of going silent.
+    void audioHost?.init();
 
     try {
       // D2 (specs/ux-debugger.md UX-1505's discoverability item): only ever
