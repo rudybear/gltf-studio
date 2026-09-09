@@ -363,28 +363,49 @@ function GraphViewInner(props: GraphViewProps) {
   }, [graph]);
 
   useEffect(() => {
-    // Bug-fix note (deflake, systemic e2e CI stability pass — a THIRD
-    // mechanism behind the node-click/resize race `nodesDimensionsSettled`
-    // exists to guard against, found stabilizing e2e/graph-canvas.spec.ts's
-    // ALREADY-`waitForNodesSettled`-guarded "deleting a node" test under
-    // artificial CPU contention): this effect's own `setNodes(rfNodes)`
-    // call below — not just React Flow's internal ResizeObserver, which is
-    // all `onNodesChange`'s "dimensions"-change tracking (above) sees — can
-    // itself move a node whenever `elkPositions` resolves, since EVERY
-    // node's position/size is recomputed here (`nodePosition`'s ELK
-    // fallback), not just a newly-added node's own. ELK's layout worker is
-    // asynchronous; under heavy contention its result can arrive well AFTER
-    // `nodesDimensionsSettled()` already reported true from the initial
-    // paint settling, silently moving a node out from under a Playwright
-    // bounding box computed in between — no ResizeObserver fires for a
-    // pure position change (only a size change does), so the existing
-    // debounce alone never saw this update. Comparing this effect's own
-    // OUTPUT against the previous render's committed nodes (`nodesRef`) and
-    // bumping the SAME debounce timestamp whenever this effect itself
-    // changes any node's geometry closes that gap without a second,
-    // separate readiness signal for callers to juggle.
-    const previousById = new Map(nodesRef.current.map((n) => [n.id, n]));
-    let geometryChangedByThisEffect = false;
+    // Bug-fix note (deflake, systemic e2e CI stability pass — a mechanism
+    // behind the node-click/resize race `nodesDimensionsSettled` exists to
+    // guard against, found stabilizing e2e/graph-canvas.spec.ts's ALREADY-
+    // `waitForNodesSettled`-guarded "deleting a node" test under artificial
+    // CPU contention, then resurfaced and generalized investigating
+    // graph-literal-editors.spec.ts's pointer-icon-click race in #64's CI):
+    // this effect's own `setNodes(rfNodes)` call below — not just React
+    // Flow's internal ResizeObserver, which is all `onNodesChange`'s
+    // "dimensions"-change tracking (above) sees — can itself move a node
+    // whenever `elkPositions` resolves, since EVERY node's position/size is
+    // recomputed here (`nodePosition`'s ELK fallback), not just a newly-
+    // added node's own. ELK's layout worker is asynchronous; under
+    // contention its result can arrive well AFTER `nodesDimensionsSettled()`
+    // already reported true from the initial paint settling, silently
+    // moving a node out from under a Playwright bounding box computed in
+    // between — no ResizeObserver fires for a pure position change (only a
+    // size change does), so the existing debounce alone never saw this
+    // update.
+    //
+    // Originally this only bumped the debounce when a run of this effect
+    // actually changed some node's NUMERIC x/y/width/height (comparing
+    // against the previous render's committed `nodesRef`) — closing the
+    // exact "deleting a node" repro above. A live repro of
+    // graph-literal-editors.spec.ts's pointer-icon-click race (logging
+    // every native mousedown's `document.elementFromPoint` alongside this
+    // effect's own runs) proved a narrower NUMERIC-delta check isn't
+    // enough: `elFromPoint` at mousedown correctly resolved to
+    // `gcanvas.pointer-icon.2`, yet the resulting click fired React Flow's
+    // `onPaneClick` instead (its own pane-click guard checks `event.target
+    // === paneEl` — proof positive the click's actual target drifted
+    // between mousedown and mouseup, not that Playwright aimed wrong),
+    // timed to land right as a LATE async ELK-layout-worker result (this
+    // effect's own `elkPositions` dependency) triggered a run that changed
+    // no node's numeric geometry at all, yet still called `setNodes` with a
+    // brand-new array (fresh `data` object identities every run,
+    // unconditionally) — React Flow's `StoreUpdater` compares that prop by
+    // REFERENCE, so it re-syncs its internal store (and re-renders every
+    // node) regardless of whether any coordinate actually moved. Bumping
+    // the debounce on EVERY run of this effect (not only ones with a
+    // numeric delta) closes that gap too, with no second readiness signal
+    // for callers to juggle — this effect's `nodes` output reaching React
+    // Flow is ALWAYS a fresh reference, so any run is "still settling" from
+    // a caller's perspective.
     const rfNodes: OpNodeType[] = graph.nodes.map((node) => {
       const pos = nodePosition(node, elkPositions);
       const data: OpNodeData = {
@@ -398,13 +419,8 @@ function GraphViewInner(props: GraphViewProps) {
         onTargetChipClick,
         hasBreakpoint: breakpointNodeIndices?.has(node.index) ?? false
       };
-      const id = String(node.index);
-      const previous = previousById.get(id);
-      if (!previous || previous.position.x !== pos.x || previous.position.y !== pos.y || previous.style?.width !== pos.width || previous.style?.minHeight !== pos.height) {
-        geometryChangedByThisEffect = true;
-      }
       return {
-        id,
+        id: String(node.index),
         type: "op",
         position: { x: pos.x, y: pos.y },
         style: { width: pos.width, minHeight: pos.height },
@@ -414,9 +430,7 @@ function GraphViewInner(props: GraphViewProps) {
         connectable: true
       };
     });
-    if (geometryChangedByThisEffect) {
-      lastDimensionsChangeAtRef.current = performance.now();
-    }
+    lastDimensionsChangeAtRef.current = performance.now();
 
     const rfEdges: Edge[] = graph.edges.map((edge) => ({
       id: edge.id,
@@ -543,6 +557,47 @@ function GraphViewInner(props: GraphViewProps) {
     return true;
   };
 
+  // Bug-fix note (flake ledger: "deleting a node" race — see the disabled
+  // `deleteKeyCode={null}` prop's own doc comment above for the root cause:
+  // React Flow's built-in delete-key handling reads ITS OWN internal store's
+  // `selected` flags, kept in sync with this component's controlled `nodes`
+  // prop by a plain `useEffect` one commit LATER than the click that changed
+  // `selectedNodeIndex` — closeable only by never depending on that internal
+  // mirror for keyboard delete at all). Replaces it with a handler driven
+  // entirely by THIS component's own `selectedNodeIndex` prop (always
+  // correct the instant a click updates it, no intermediary to lag) via
+  // `reactFlow.deleteElements` — the same imperative API React Flow's own
+  // `useGlobalKeyHandler` calls internally, so `handleBeforeDelete` above
+  // (edge-cascade fixup, DOC-019) and every other delete side effect are
+  // reused unchanged; only WHICH node id(s) to pass is decided differently
+  // (this component's own state, not a `.selected` filter over a
+  // possibly-stale internal snapshot).
+  const selectedNodeIndexRef = useRef(selectedNodeIndex);
+  selectedNodeIndexRef.current = selectedNodeIndex;
+  useEffect(() => {
+    // Mirrors @xyflow/react's own `isInputDOMNode` (its `deleteKeyCode`
+    // passes `actInsideInputWithModifier: false`, i.e. never act while focus
+    // is inside a text field, regardless of modifier keys) — a literal-value
+    // `<input>`/`<select>` living INSIDE a node card must keep its own
+    // native Backspace/Delete text-editing behavior, not delete the node.
+    function isInputLikeTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA") return true;
+      if (target.hasAttribute("contenteditable")) return true;
+      return !!target.closest(".nokey");
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (isInputLikeTarget(event.target)) return;
+      const nodeIndex = selectedNodeIndexRef.current;
+      if (nodeIndex === null) return;
+      event.preventDefault();
+      void reactFlow.deleteElements({ nodes: [{ id: String(nodeIndex) }] });
+    }
+    window.document.addEventListener("keydown", handleKeyDown);
+    return () => window.document.removeEventListener("keydown", handleKeyDown);
+  }, [reactFlow]);
+
   const handleDrop: React.DragEventHandler = (event) => {
     event.preventDefault();
     const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
@@ -607,7 +662,38 @@ function GraphViewInner(props: GraphViewProps) {
         nodesDraggable
         nodesConnectable
         elementsSelectable
-        deleteKeyCode={["Backspace", "Delete"]}
+        // Bug-fix note (flake ledger: "deleting a node" race, flaked across
+        // >=5 PRs — #28/#31/#33/#45/#64): THE mechanism, root-caused by
+        // reading @xyflow/react's own source (v12.11.2) rather than guessing
+        // from timing alone. React Flow's built-in `deleteKeyCode` handling
+        // (`useGlobalKeyHandler`) does NOT act on this component's own
+        // `selectedNodeIndex` prop directly — on a keypress it reads
+        // `store.getState().nodes` (React Flow's OWN internal store) and
+        // deletes whichever of THOSE are flagged `selected`. That internal
+        // store is kept in sync with the `nodes` PROP this component passes
+        // (this file's own controlled `selected: node.index ===
+        // selectedNodeIndex` above) by `StoreUpdater`, via a plain
+        // `useEffect` — which React flushes ASYNCHRONOUSLY, one commit AFTER
+        // the click that changed `selectedNodeIndex` actually lands. A
+        // `Delete`/`Backspace` keydown dispatched fast enough after a
+        // selecting click (trivially fast for two separate Playwright CDP
+        // calls back-to-back; also perfectly plausible for a real user's
+        // rapid click-then-Delete) can therefore land BEFORE that effect has
+        // run: React Flow's internal store still shows NO node selected, so
+        // its `deleteKeyCode` handler finds nothing to delete and silently
+        // no-ops — no exception, no `onBeforeDelete` call, nothing to
+        // observe except the node still being there. This is a real latent
+        // product race (not a test-timing artifact or a wrong click target),
+        // confirmed by instrumenting `handleRemoveNodes`/`onPaneClick`/the
+        // click's own DOM target during a live failure: the click always
+        // lands on the correct element and this app's OWN
+        // `selectedNodeIndex` state updates correctly and immediately —
+        // only React Flow's internal mirror of it lags. Fixed at the
+        // source, below (`useEffect` deleteKeyCode override this way is
+        // fully disabled — `null` — to remove the whole
+        // built-in-deleteKeyCode dependency rather than race two delete
+        // paths against each other): see that effect's own doc comment.
+        deleteKeyCode={null}
         fitView
         minZoom={0.05}
         connectionRadius={40}

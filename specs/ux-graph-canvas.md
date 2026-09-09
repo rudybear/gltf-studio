@@ -335,6 +335,60 @@ recognition — every bit of REAL downstream application logic (`GraphEdit`/`Aud
 setNodePosition`, `dispatchCommand`) still runs. Available on both canvases (`__gltfStudioGraphCanvasTest`
 and `__gltfStudioAudioGraphCanvasTest`) since it lives on the one shared `GraphView` component (`UX-600`).
 
+Follow-up (task: zero the flake ledger — the "deleting a node" test's flake lineage: #28/#31/#33/#35/
+#45/#64, this time root-caused all the way to a real product race rather than another test-side
+geometry gap): with tasks #33/#35/#39/#47's guards all already in place (`waitForNodesSettled`, header
+clicks, the details-panel `pointer-events` fix), the test could STILL occasionally fail — instrumenting
+`graph-view.tsx`'s own click/delete path live (logging the click's real DOM target, `handleRemoveNodes`
+call sites, and this canvas's own `selectedNodeIndex`) during a captured failure, then reading
+`@xyflow/react`'s (v12.11.2) own source, found the actual mechanism: the click always lands correctly
+and this canvas's own `selectedNodeIndex` prop updates correctly and immediately — the bug is
+downstream of both. React Flow's BUILT-IN `deleteKeyCode` handling (`useGlobalKeyHandler`) does not
+consult this canvas's controlled `selectedNodeIndex`/`selected` prop directly on a keypress; it reads
+`.selected` off React Flow's OWN internal store, which `StoreUpdater` keeps in sync with the `nodes`
+prop via a plain `useEffect` — flushed ONE COMMIT AFTER the click that changed `selectedNodeIndex`
+lands, not synchronously with it. A `Delete`/`Backspace` keydown dispatched before that effect runs
+(trivially fast for two back-to-back Playwright commands; equally plausible for a real user's fast
+click-then-Delete) finds React Flow's internal store still showing nothing selected, so the built-in
+handler silently deletes nothing — no exception, `onBeforeDelete` never even called, just a node that's
+still there. A genuine latent product race, not a test-timing artifact or a wrong click target. Fixed
+at the source: `graph-view.tsx` now disables the built-in handling (`deleteKeyCode={null}`) and
+installs its own `Delete`/`Backspace` keydown handler driven entirely by this canvas's OWN
+`selectedNodeIndex` (never stale, no intermediary to lag), calling `reactFlow.deleteElements({ nodes:
+[{ id }] })` — the same imperative API `useGlobalKeyHandler` itself calls internally, so
+`handleBeforeDelete`'s edge-cascade fixup (`DOC-019`) and every other delete side effect are reused
+unchanged; only WHICH node id(s) to pass is now decided from authoritative state instead of a
+possibly-stale internal mirror. Mirrors React Flow's own `isInputDOMNode` guard (ignore the keypress
+while focus is inside a text field/contenteditable/`.nokey`-scoped element) so a literal-input's own
+Backspace editing is unaffected. Verified: 90/90 clean across repeated runs (uncontended — the fix
+removes the race by construction rather than narrowing a timing window, so no contention is needed to
+demonstrate it holds) plus the pre-existing `--repeat-each`-under-contention regression coverage this
+test already carries.
+
+Follow-up (same task: graph-literal-editors.spec.ts's pointer-icon-click race, resurfaced in #64's
+CI): a FOURTH variant of the SAME click/resize race class task #33/the "systemic e2e CI stability
+pass" above already named twice, found via the same live-instrumentation method (logging every native
+mousedown's `document.elementFromPoint` alongside `graph-view.tsx`'s own ELK-positions-driven
+node-recompute effect runs) against a real repro: `elFromPoint` at mousedown correctly resolved to
+`gcanvas.pointer-icon.2` — already-`waitForNodesSettled`-guarded, per task #39/#47's convention this
+file already follows — yet the resulting click fired React Flow's `onPaneClick` instead of the
+button's own handler (React Flow's own pane-click guard checks `event.target === paneEl` directly,
+not a `stopPropagation` race — proof the click's REAL target drifted between mousedown and mouseup,
+not that Playwright aimed at the wrong point). Root cause: that recompute effect's own `setNodes`
+call — already known (task #33/the systemic pass) to be able to move a node's geometry after
+`nodesDimensionsSettled()` reports quiet, when a late async ELK-layout-worker result lands — ALSO
+calls `setNodes` with a brand-new array (fresh `data` object identities every run, unconditionally)
+even on a run that changes NO node's numeric geometry at all; React Flow's `StoreUpdater` compares
+that prop by reference, so it re-syncs its internal store (and re-renders every node) regardless. The
+existing debounce (`lastDimensionsChangeAtRef`) only bumped on a run with an actual x/y/width/height
+delta, so a late, geometry-neutral ELK result could still land in the "quiet" window
+`nodesDimensionsSettled()` had already reported, unsettling the DOM out from under a click already in
+flight. Fixed by bumping the SAME debounce on EVERY run of that effect, not only ones with a numeric
+delta — this effect's `nodes` output reaching React Flow is always a fresh reference either way, so
+any run is "still settling" from a caller's own perspective; no second readiness signal for callers to
+juggle. Verified: 90/90 clean (interleaved with the delete-node regression above) across repeated
+uncontended runs.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —
