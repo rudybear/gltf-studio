@@ -393,10 +393,36 @@ test.describe("→ Script jump: visible, persistent decoration (specs/ux-script.
     await jumpToPointerRow(page);
     await assertDecorationVisible(page);
 
+    // Root-caused via `MouseTargetType` logging against a real repro under
+    // CPU contention (this test flaked intermittently — 3+ CI sightings):
+    // `getLineScreenRect`'s `left`/`width` deliberately span the editor's
+    // FULL width including the glyph margin/line-number gutter (so
+    // `screenshotLine` above can see a jump-highlight's gutter-bar
+    // decoration, not just its inline range) — clicking at `rect.left + 5`
+    // therefore always landed in the glyph margin, which Monaco special-
+    // cases as `MouseTargetType.GUTTER_GLYPH_MARGIN` (this file's own
+    // breakpoint-toggle handler is exactly that special-casing) and never
+    // moves the text cursor/selection. That silently turned this "click
+    // elsewhere" into a total no-op every single run, both locally and in
+    // CI: the assertion below only ever passed by accident, racing the
+    // OTHER, independent clear trigger — script-panel.tsx's own
+    // `JUMP_HIGHLIGHT_FADE_MS` 5-second auto-fade timer, started by the
+    // very same jump — against this `expect.poll`'s own 5-second default
+    // timeout. Under real CPU contention that timer's `setTimeout` fires
+    // late enough (the browser tab's own event loop is what's starved, not
+    // Playwright's) to lose that race, which is exactly the flake: the
+    // decoration was never cleared BY this click at all, in a failure OR a
+    // pass. Fixed at the source (test-side, since the app's click-elsewhere
+    // handling itself is correct and already covered by the pointer-set-
+    // node-deleted variant above) by clicking the dedicated `contentLeft`
+    // x-coordinate `getLineScreenRect` now also returns — the real text
+    // CONTENT area's left edge, past both margins — so this test exercises
+    // an actual click-elsewhere or (real cursor move, synchronous clear)
+    // instead of a margin no-op the fade timer happened to paper over.
     const rect = await page.evaluate(() => window.__gltfStudioScriptTest!.getLineScreenRect(1)!);
-    await page.mouse.click(rect.left + 5, rect.top + rect.height / 2);
+    await page.mouse.click(rect.contentLeft + 5, rect.top + rect.height / 2);
 
-    await expect.poll(() => jumpHighlightLineNumber(page)).toBeNull();
+    await expect.poll(() => jumpHighlightLineNumber(page), { timeout: 2000 }).toBeNull();
   });
 
   test("a real edit to the buffer clears the decoration", async ({ page }) => {
