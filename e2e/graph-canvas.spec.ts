@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH, FIXTURE_PLAY_GLB_PATH } from "./global-setup.js";
 import { assertRegionRendersContent, assertHandleLabelPixelGap } from "./visual-assert.js";
+import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * M4 behavior-graph canvas (specs/ux-graph-canvas.md UX-5xx): the lifted
@@ -50,11 +51,26 @@ type RawInteractivityGraph = {
  * geometric CENTER) safe to click — see the selection test's own doc
  * comment below for why clicking `.gcanvas-op-header` instead is also
  * needed for node selection specifically.
+ *
+ * Bug-fix note (flake ledger: this file previously carried its own local
+ * copy of this exact helper — parameterless, always the plain 5000ms
+ * `expect.poll` default — rather than importing the shared one from
+ * `./graph-canvas-test-helpers.js` every other `GraphView`-driving spec
+ * uses; that duplication is exactly what `graph-canvas-test-helpers.ts`'s
+ * own header comment warns let earlier specs miss this guard). A real CI
+ * run (main, post-merge) flaked here: `nodesDimensionsSettled()` genuinely
+ * didn't settle within 5000ms for a JUST-added node under real 4-vCPU/
+ * 2-worker resource contention, inside the SAME "connecting a compatible
+ * value output..." test that already documents (`test.slow()`, two
+ * explicit `{ timeout: 60000 }` assertions below) that its `simulateConnect`
+ * round trip is "genuinely slower under heavy worker parallelism" — this
+ * plain 5000ms wait was the one place in that same test that hadn't caught
+ * up to that already-established budget. Switched to the shared helper
+ * (identical behavior at every other call site in this file, which all
+ * still get the plain default) so that ONE call site can pass the same
+ * generous, already-justified budget its neighbors do, rather than
+ * quietly staying an inconsistent 5000ms.
  */
-async function waitForNodesSettled(page: Page): Promise<void> {
-  await expect.poll(() => page.evaluate(() => window.__gltfStudioGraphCanvasTest!.nodesDimensionsSettled())).toBe(true);
-}
-
 async function importFixture(page: Page): Promise<void> {
   await page.goto("./");
   await page.setInputFiles('[data-testid="topbar.import-input"]', FIXTURE_GLB_PATH);
@@ -276,7 +292,15 @@ test.describe("behavior-graph canvas", () => {
     // real geometry exists" reason) closes it — proven stable across 40
     // repeats under artificial contention (2x --repeat-each=20, 0 failures)
     // where the unfixed test reproduced this within the same run count.
-    await waitForNodesSettled(page);
+    //
+    // Explicit 60000ms budget (this test's OWN established one, see its
+    // `test.slow()`/two `{ timeout: 60000 }` assertions below) rather than
+    // the shared helper's plain default: a real CI flake (main, post-merge)
+    // showed `nodesDimensionsSettled()` genuinely not settling within
+    // 5000ms here under real 4-vCPU/2-worker contention — the same
+    // "genuinely slower under heavy worker parallelism" this test already
+    // budgets generously for elsewhere, just missed at this one call site.
+    await waitForNodesSettled(page, undefined, 60000);
 
     await page.evaluate(() =>
       window.__gltfStudioGraphCanvasTest!.simulateConnect({
