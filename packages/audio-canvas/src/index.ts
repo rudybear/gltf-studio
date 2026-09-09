@@ -11,6 +11,7 @@ export {
   OSCILLATOR_SOURCE_FIELDS,
   defaultOscillatorSourceParams,
   isOscillatorSourceFieldVisible,
+  audioNodeCardSummary,
   type AudioNodeSpec,
   type AudioNodeCategory,
   type AudioParamField,

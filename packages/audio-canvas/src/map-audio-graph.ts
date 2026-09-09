@@ -25,6 +25,7 @@
 import type { MappedEdge, MappedGraph, MappedNode, MappedPort } from "@gltf-studio/graph-canvas";
 import type { AudioGraphLintResult } from "@gltf-studio/engine-api";
 import type { AudioEmitter, AudioEmitterSource, KHRGraph } from "audio-graph-js";
+import { audioNodeCardSummary } from "./audio-node-registry.js";
 
 /** UX-605: every audio-graph port is this one type — no `flow` ports appear on this canvas. */
 export const AUDIO_PORT_TYPE = "audio";
@@ -35,6 +36,8 @@ interface LogicalNode {
   id: string;
   kind: string;
   subtitle?: string;
+  /** UX-620: a real node's card-legibility param summary (`audioNodeCardSummary`) — unset for the two synthetic terminal kinds (they have no `params` bag). */
+  configLine?: string;
   raw: unknown;
   inputs: Set<number>;
   outputs: Set<number>;
@@ -128,6 +131,11 @@ export function mapAudioGraph(
       id: `node:${i}`,
       kind: node.kind,
       subtitle: node.label,
+      // UX-620: card-legibility parity — a real node's params are otherwise
+      // invisible on its card (only ever shown once selected, in
+      // AudioParamPanel), unlike the interactivity canvas's value-in
+      // literal chips.
+      configLine: audioNodeCardSummary(node.kind, node.params ?? {}),
       raw: node,
       inputs: new Set(defaults.inputs),
       outputs: new Set(defaults.outputs)
@@ -222,6 +230,7 @@ export function mapAudioGraph(
       category: AUDIO_CATEGORY,
       label: entry.kind,
       subtitle: entry.subtitle,
+      configLine: entry.configLine,
       knownSpec: true,
       ports,
       literals: {},

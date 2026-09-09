@@ -136,6 +136,24 @@ export type MappedNode = {
    * count is the RENDERER's job (`op-node.tsx`), not this pure mapper's.
    */
   handlerTarget?: { nodeIndex: number; stopPropagation: boolean };
+  /**
+   * UX-620 (`@gltf-studio/audio-canvas`'s card-legibility parity pass,
+   * mirroring this same file's `handlerTarget`/UX-512 precedent): an
+   * optional, ALREADY-FORMATTED single-line param summary a caller wants
+   * rendered as its own row on the card (e.g. `"Gain: 0.6 · Interpolation:
+   * linear"`) — CSS-ellipsis-truncated with the full text in a hover title,
+   * same treatment `subtitle` already gets. Deliberately a plain string,
+   * not a structured value list: unlike `handlerTarget`/the animation-clip
+   * literal (which need document-level name resolution the renderer, not
+   * this pure mapper, performs), an audio node's param summary needs no
+   * such resolution — `@gltf-studio/audio-canvas`'s `mapAudioGraph`
+   * computes it here, in the mapper, from the node's own `kind`/`params`
+   * alone (`audio-node-registry.ts`'s `audioNodeCardSummary`). No
+   * `KHR_interactivity` op sets this today, but the field is generic
+   * (named for what it shows, not which canvas sets it) in case a future
+   * interactivity card-legibility pass wants the same row.
+   */
+  configLine?: string;
   /** False when `op` isn't in the kernel registry (renders gray). */
   knownSpec: boolean;
   ports: MappedPort[];

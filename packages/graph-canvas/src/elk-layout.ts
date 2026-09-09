@@ -78,17 +78,26 @@ function formatLiteralForWidth(value: Array<number | boolean | string>): string 
 function estimateWidth(node: MappedNode): number {
   const labelLen = node.label.length + (node.knownSpec ? 0 : 12);
   const subtitleLen = node.subtitle?.length ?? 0;
+  // UX-620: the card's optional param-summary row (e.g. audio nodes) is
+  // CSS-ellipsis-truncated rather than ever forcing the card wide enough to
+  // show a long compressor-style summary in full — capped the same way
+  // `NODE_METRICS.maxWidth` already caps every other estimate below, just
+  // contributing a bounded character count here rather than the full string
+  // length (a 5-param compressor summary is much longer than any label/
+  // subtitle this function otherwise sees, and would otherwise dominate the
+  // estimate for no benefit once ellipsis kicks in anyway).
+  const configLineLen = Math.min(node.configLine?.length ?? 0, 40);
   const longestPortRow = node.ports.reduce((max, p) => {
     const literal = p.kind === "value-in" ? node.literals[p.name] : undefined;
     const literalLen = literal ? ` = ${formatLiteralForWidth(literal.value)}`.length : 0;
     return Math.max(max, p.name.length + (p.type?.length ?? 0) + literalLen + 4);
   }, 0);
-  const chars = Math.max(labelLen, subtitleLen, longestPortRow);
+  const chars = Math.max(labelLen, subtitleLen, configLineLen, longestPortRow);
   const width = NODE_METRICS.minWidth + chars * 4.5;
   return Math.min(NODE_METRICS.maxWidth, Math.max(NODE_METRICS.minWidth, Math.round(width)));
 }
 
-/** Estimated node box, from title/subtitle/port-row counts (per the plan). */
+/** Estimated node box, from title/subtitle/config-line/port-row counts (per the plan). */
 export function estimateNodeSize(node: MappedNode): { width: number; height: number } {
   const westCount = node.ports.filter((p) => p.kind === "flow-in" || p.kind === "value-in").length;
   const eastCount = node.ports.filter((p) => p.kind === "flow-out" || p.kind === "value-out").length;
@@ -96,6 +105,9 @@ export function estimateNodeSize(node: MappedNode): { width: number; height: num
   const height =
     NODE_METRICS.headerHeight +
     (node.subtitle ? NODE_METRICS.subtitleHeight : 0) +
+    // UX-620: the config-line row (audio-canvas's card-legibility parity
+    // pass) is its own row below subtitle, same fixed row height.
+    (node.configLine ? NODE_METRICS.subtitleHeight : 0) +
     rows * NODE_METRICS.rowHeight +
     NODE_METRICS.verticalPadding;
   return { width: estimateWidth(node), height };
