@@ -314,6 +314,16 @@
   color: var(--warn);
 }
 
+/* UX-620: card-legibility parity — an already-formatted param-summary row (audio-canvas's cards today; generic for any future caller of MappedNode.configLine). Same treatment as `.gcanvas-op-subtitle` (ellipsis + hover title carries the full text). */
+.gcanvas-op-config-line {
+  padding: 0 8px;
+  font-size: 0.85em;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Task: handler nodes (event/onSelect|onHoverIn|onHoverOut) show their scene-node target as a resolved-name chip, clickable to select that node. */
 .gcanvas-op-target-row {
   display: flex;

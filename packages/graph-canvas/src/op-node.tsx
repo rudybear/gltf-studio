@@ -258,6 +258,16 @@ export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
           {node.subtitle}
         </div>
       ) : null}
+      {node.configLine ? (
+        <div
+          className="gcanvas-op-config-line"
+          style={{ height: NODE_METRICS.subtitleHeight }}
+          title={node.configLine}
+          data-testid={`gcanvas.config-line.${node.index}`}
+        >
+          {node.configLine}
+        </div>
+      ) : null}
       {target ? (
         <div className="gcanvas-op-target-row" style={{ height: NODE_METRICS.subtitleHeight }} data-testid={`gcanvas.op-target-row.${node.index}`}>
           <span className="gcanvas-op-target-label">target:</span>

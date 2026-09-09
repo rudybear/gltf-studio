@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUDIO_NODE_REGISTRY,
   OSCILLATOR_SOURCE_FIELDS,
+  audioNodeCardSummary,
   audioNodeSpec,
   defaultOscillatorSourceParams,
   defaultParamsFor,
@@ -126,6 +127,75 @@ describe("isParamFieldVisible (UX-618)", () => {
     const field = spec.params.find((f) => f.key === "curve")!;
     expect(field.showIf).toBeUndefined();
     expect(isParamFieldVisible(spec, field, {})).toBe(true);
+  });
+});
+
+// Regression guard (bug report: "audio graph nodes have no values/
+// parameters, only sockets") for the panel-correctness half of the fix —
+// asserts the registry->panel plumbing this file/audio-param-panel.tsx share
+// stays schema-driven and non-empty for EVERY creatable kind, so a future
+// @gltf-audiograph/kernel shape change (a renamed AudioParamSpec field, a
+// param dropped from a kind's list, ...) fails a fast unit test here rather
+// than silently rendering an empty param panel/card summary in the app.
+describe("registry->panel/card plumbing: every creatable kind has a real, fully-defaulted param schema", () => {
+  it("every AUDIO_NODE_REGISTRY entry has at least one param field (never an empty schema for a real kind)", () => {
+    for (const spec of AUDIO_NODE_REGISTRY) {
+      expect(spec.params.length, `${spec.kind} has no param fields`).toBeGreaterThan(0);
+    }
+  });
+
+  it("defaultParamsFor(kind) leaves no non-optional field undefined (a required-but-default-less kernel param without this file's own creationDefault would leak an undefined value into a freshly-created node's params, then render as a blank/'0' field)", () => {
+    for (const spec of AUDIO_NODE_REGISTRY) {
+      const params = defaultParamsFor(spec.kind);
+      for (const field of spec.params) {
+        if (field.optional) continue;
+        expect(params[field.key], `${spec.kind}.${field.key} has no default/creationDefault`).not.toBeUndefined();
+      }
+    }
+  });
+
+  it("audioNodeSpec resolves every kernel-registered kind (no drift between this file's KIND_ORDER and @gltf-audiograph/kernel's AUDIO_KIND_REGISTRY — a mismatch here would make the whole module throw at import time, per this file's own header comment)", () => {
+    for (const spec of AUDIO_NODE_REGISTRY) {
+      expect(audioNodeSpec(spec.kind)).toBeDefined();
+    }
+  });
+});
+
+describe("audioNodeCardSummary (UX-620: card-legibility parity)", () => {
+  it("summarizes a freshly-created (defaultParamsFor) node of EVERY creatable kind as a non-empty string — a palette-added node is exactly as legible as an imported one", () => {
+    for (const spec of AUDIO_NODE_REGISTRY) {
+      const summary = audioNodeCardSummary(spec.kind, defaultParamsFor(spec.kind));
+      expect(summary, `${spec.kind} produced no card summary`).toBeTruthy();
+      expect(summary!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("formats a number param with its registry label's own unit suffix (e.g. 'Frequency (Hz)' -> 'Frequency: 350 Hz')", () => {
+    expect(audioNodeCardSummary("lowpass", { frequency: 350, qualityFactor: 1 })).toBe("Frequency: 350 Hz · Q: 1");
+  });
+
+  it("shows a plain value with no unit suffix when the field's label has none (e.g. gain's own 'Gain' label)", () => {
+    expect(audioNodeCardSummary("gain", { gain: 0.6, interpolation: "linear", duration: 0 })).toBe("Gain: 0.6 · Interpolation: linear · Duration: 0 s");
+  });
+
+  it("falls back to the field's own registry default when a param key is absent from the bag (a hand-authored/legacy node missing a key still summarizes)", () => {
+    expect(audioNodeCardSummary("gain", {})).toBe("Gain: 1 · Interpolation: linear · Duration: 0 s");
+  });
+
+  it("excludes curve/periodic-wave fields (unbounded arrays, not card-legible) even when present and non-empty", () => {
+    const summary = audioNodeCardSummary("gain", { gain: 0.6, interpolation: "custom", duration: 0, curve: [0, 0.5, 1] });
+    expect(summary).not.toMatch(/curve/i);
+    expect(summary).toContain("Interpolation: custom");
+  });
+
+  it("respects showIf visibility the same way the param panel does (UX-618) — a hidden field never appears in the summary", () => {
+    const summaryHiddenBypass = audioNodeCardSummary("gain", { gain: 0.6, interpolation: "linear", duration: 0 });
+    expect(summaryHiddenBypass).toBe("Gain: 0.6 · Interpolation: linear · Duration: 0 s");
+  });
+
+  it("returns undefined for an unregistered kind (e.g. the removed 'oscillator' node kind) rather than throwing or rendering a dangling row", () => {
+    expect(audioNodeCardSummary("oscillator", {})).toBeUndefined();
+    expect(audioNodeCardSummary("not-a-real-kind", {})).toBeUndefined();
   });
 });
 

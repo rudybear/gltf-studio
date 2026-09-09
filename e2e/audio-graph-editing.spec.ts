@@ -133,6 +133,86 @@ test.describe("audio-graph editing: palette, connect, param edit, undo (UX-608/6
   });
 });
 
+test.describe("audio-graph card-legibility parity (UX-620): cards show param text, panel edits update both document and card", () => {
+  test("palette-add gain + lowpass: cards show param text without selecting, the panel lists every param once selected, editing gain + frequency updates the document (undoably) and the card text, and audition still reflects a healthy graph", async ({
+    page
+  }) => {
+    await importFixture(page);
+    const audioCanvas = page.getByTestId("acanvas.root");
+
+    // --- the fixture's own imported gain node (mapped index 0) already shows its param text with no selection ---
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.0")).toHaveText("Gain: 0.6 · Interpolation: linear · Duration: 0 s");
+
+    // --- palette-add a second gain + a lowpass (UX-608) ---
+    await page.getByTestId("acanvas.palette.search").fill("gain");
+    await expect(page.getByTestId("acanvas.palette.op.gain")).toBeVisible();
+    await page.getByTestId("acanvas.palette.op.gain").click();
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+
+    await page.getByTestId("acanvas.palette.search").fill("lowpass");
+    await expect(page.getByTestId("acanvas.palette.op.lowpass")).toBeVisible();
+    await page.getByTestId("acanvas.palette.op.lowpass").click();
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+
+    // Mapped/raw indices now: 0 = beepGain (fixture), 1 = the new gain, 2 = the new lowpass (both real, in add order).
+    let graph = await getAudioGraphJson(page);
+    expect(graph.nodes.map((n) => n.kind)).toEqual(["gain", "gain", "lowpass"]);
+
+    // --- a freshly palette-added node's card shows param text just as legibly as an imported one (no selection needed, part (c) of the bug report) ---
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.1")).toHaveText("Gain: 1 · Interpolation: linear · Duration: 0 s");
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.2")).toHaveText("Frequency: 350 Hz · Q: 1");
+
+    // --- selecting the new lowpass opens the param panel with EVERY schema param listed and editable (not empty) ---
+    await clickNodeHeader(audioCanvas, 2);
+    await expect(audioCanvas.getByTestId("gcanvas.node.2")).toHaveClass(/gcanvas-op-node-selected/);
+    const panel = page.getByTestId("acanvas.param-panel");
+    await expect(panel).toBeVisible();
+    const freqField = page.getByTestId("acanvas.param.lowpass.frequency");
+    const qField = page.getByTestId("acanvas.param.lowpass.qualityFactor");
+    await expect(freqField).toBeVisible();
+    await expect(freqField).toHaveValue("350");
+    await expect(qField).toBeVisible();
+
+    // --- editing frequency updates the document AND the card's param text ---
+    await freqField.fill("800");
+    await freqField.blur();
+    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[2]!.params?.frequency).toBe(800);
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.2")).toHaveText("Frequency: 800 Hz · Q: 1");
+
+    // --- selecting the new gain node and editing its gain param does the same (undoable, coalesced into one step) ---
+    await waitForNodesSettled(page, AUDIO_HOOK_KEY);
+    await clickNodeHeader(audioCanvas, 1);
+    const gainField = page.getByTestId("acanvas.param.gain.gain");
+    await expect(gainField).toBeVisible();
+    await gainField.fill("0.42");
+    await gainField.blur();
+    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.gain).toBe(0.42);
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.1")).toHaveText("Gain: 0.42 · Interpolation: linear · Duration: 0 s");
+
+    // --- undo the two param edits: document AND card text both revert ---
+    await page.getByTestId("topbar.undo").click(); // undoes the new gain's gain edit
+    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[1]!.params?.gain).toBe(1);
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.1")).toHaveText("Gain: 1 · Interpolation: linear · Duration: 0 s");
+
+    await page.getByTestId("topbar.undo").click(); // undoes the lowpass frequency edit
+    await expect.poll(async () => (await getAudioGraphJson(page)).nodes[2]!.params?.frequency).toBe(350);
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.2")).toHaveText("Frequency: 350 Hz · Q: 1");
+
+    // --- audition still reflects a healthy, still-valid graph after all this editing (cheap diagnostics-adjacent check, mirrors audio-graph-gaps.spec.ts's compressor test) ---
+    await expect(page.getByTestId("acanvas.lint-banner")).toHaveCount(0);
+    await expect(page.getByTestId("acanvas.audition")).toBeEnabled();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.getByTestId("acanvas.audition").click();
+    await page.waitForTimeout(200);
+    expect(pageErrors).toEqual([]);
+    await expect(page.getByTestId("acanvas.audition")).toBeEnabled();
+
+    graph = await getAudioGraphJson(page);
+    expect(graph.nodes).toHaveLength(3);
+  });
+});
+
 test.describe("audio-graph editing: lint-on-edit cycle policy (UX-609/612/614)", () => {
   test("creating a cycle through editing is allowed but flagged (banner + per-node badges) and disables audition; removing the cycle clears it", async ({
     page

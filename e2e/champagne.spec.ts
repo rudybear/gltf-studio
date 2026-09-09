@@ -198,6 +198,20 @@ test("Champagne: gallery load, scene tree, pop-the-cork (interpreter), reset, st
     await waitForNodesSettled(page, "__gltfStudioGraphCanvasTest", 15_000);
   });
 
+  await test.step("Audio graph tab shows the pop sound's gain node with its param inline on the card (UX-620) -- not just sockets", async () => {
+    await page.getByTestId("dock.tab.audio-graph").click();
+    await expect(page.getByTestId("dock.tab.audio-graph")).toHaveClass(/active/);
+    const audioCanvas = page.getByTestId("acanvas.root");
+    await expect(audioCanvas).toBeVisible();
+    await waitForNodesSettled(page, "__gltfStudioAudioGraphCanvasTest");
+    // scripts/make-champagne.mjs's own KHR_audio_graph: one real node,
+    // "popGain" (gain: 0.8) -- mapped index 0 (real nodes are always ordered
+    // before the synthetic source/emitter terminals, map-audio-graph.ts).
+    const gainCard = audioCanvas.getByTestId("gcanvas.node.0");
+    await expect(gainCard).toContainText("popGain");
+    await expect(audioCanvas.getByTestId("gcanvas.config-line.0")).toContainText("Gain: 0.8");
+  });
+
   await test.step("Script tab shows real, readable, multi-line TypeScript (this asset's whole showcase point)", async () => {
     await page.getByTestId("dock.tab.script").click();
     await expect(page.getByTestId("dock.tab.script")).toHaveClass(/active/);

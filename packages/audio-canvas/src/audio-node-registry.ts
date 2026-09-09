@@ -342,3 +342,62 @@ export function defaultOscillatorSourceParams(): Record<string, unknown> {
 export function isOscillatorSourceFieldVisible(field: AudioParamField, oscillatorParams: Record<string, unknown>): boolean {
   return isFieldVisibleIn(OSCILLATOR_SOURCE_FIELDS, field, oscillatorParams);
 }
+
+// ---------------------------------------------------------------------------
+// UX-620: card-legibility parity — a short "Label: value" summary line for a
+// real node's card, mirroring specs/ux-graph-canvas.md's UX-512/UX-514 audit
+// on the interactivity canvas (this file's header comment covers the wider
+// "who consumes this" story; see that spec entry for the full rationale).
+// ---------------------------------------------------------------------------
+
+/** A field's own registry `label`'s trailing parenthetical, when it has one (e.g. "Frequency (Hz)" -> "Hz", "Delay time (s)" -> "s") — this file's ONE source of unit text, never a second table kept in sync by hand. */
+const LABEL_UNIT_RE = /\(([^()]+)\)\s*$/;
+
+function cardFieldName(field: AudioParamField): string {
+  return field.label.replace(LABEL_UNIT_RE, "").trim();
+}
+
+function cardFieldUnit(field: AudioParamField): string | undefined {
+  return LABEL_UNIT_RE.exec(field.label)?.[1];
+}
+
+/** Rounds a float to 3 decimals for card display (a 0.05-step gain shouldn't show binary-float drift) without touching the actual stored/edited value. */
+function roundForCard(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function formatCardFieldValue(field: AudioParamField, value: unknown): string {
+  if (typeof value === "number") {
+    const unit = cardFieldUnit(field);
+    return unit ? `${roundForCard(value)} ${unit}` : String(roundForCard(value));
+  }
+  if (typeof value === "boolean") return value ? "on" : "off";
+  return String(value);
+}
+
+/**
+ * The short inline param summary a real node's CARD renders below its
+ * subtitle (UX-620) — one "Label: value" pair per currently-visible
+ * (`isParamFieldVisible`-gated) param, EXCLUDING `curve`/`periodic-wave`
+ * fields (unbounded arrays, not card-legible scalars), joined with " · ".
+ * Schema-driven exactly like `AudioParamPanel` (iterates `spec.params`, not
+ * `Object.keys(params)`), so a freshly palette-added node — whose `params`
+ * bag already has every non-optional field filled by `defaultParamsFor` —
+ * summarizes immediately, with no difference from an imported node's card.
+ * `undefined` for an unregistered kind or a kind with nothing summarizable
+ * (there is none today, but a future params-less kind shouldn't render an
+ * empty/dangling row).
+ */
+export function audioNodeCardSummary(kind: string, params: Record<string, unknown>): string | undefined {
+  const spec = audioNodeSpec(kind);
+  if (!spec) return undefined;
+  const parts: string[] = [];
+  for (const field of spec.params) {
+    if (field.type === "curve" || field.type === "periodic-wave") continue;
+    if (!isParamFieldVisible(spec, field, params)) continue;
+    const value = params[field.key] ?? field.default;
+    if (value === undefined) continue;
+    parts.push(`${cardFieldName(field)}: ${formatCardFieldValue(field, value)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}

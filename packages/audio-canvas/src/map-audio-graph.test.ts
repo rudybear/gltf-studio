@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { KHRGraph } from "audio-graph-js";
 import { mapAudioGraph, AUDIO_CATEGORY, AUDIO_PORT_TYPE } from "./map-audio-graph.js";
+import { audioNodeCardSummary } from "./audio-node-registry.js";
 
 describe("mapAudioGraph", () => {
   it("maps every node to the single 'audio' category, distinct from every behavior-graph category (UX-601)", () => {
@@ -140,6 +141,35 @@ describe("mapAudioGraph", () => {
       // Seeded 0, actually-wired 5, plus one spare "next" slot at 6 — 3 distinct output ports (sparse, not a dense 0..6 range).
       const outNames = splitNode.ports.filter((p) => p.kind === "value-out").map((p) => p.name).sort();
       expect(outNames).toEqual(["out0", "out5", "out6"]);
+    });
+  });
+
+  describe("UX-620: card-legibility parity — real nodes carry a param-summary configLine, synthetic terminals never do", () => {
+    it("a real node's configLine matches audioNodeCardSummary(kind, params) exactly", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g", params: { gain: 0.6, interpolation: "linear", duration: 0 } }], connections: [] };
+      const mapped = mapAudioGraph(graph, 0);
+      expect(mapped.nodes[0].configLine).toBe(audioNodeCardSummary("gain", { gain: 0.6, interpolation: "linear", duration: 0 }));
+      expect(mapped.nodes[0].configLine).toBe("Gain: 0.6 · Interpolation: linear · Duration: 0 s");
+    });
+
+    it("a node authored with no params object at all still gets a configLine (falls back to the kind's own registry defaults, same as a freshly palette-added node)", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "delay", label: "d" }], connections: [] };
+      const mapped = mapAudioGraph(graph, 0);
+      expect(mapped.nodes[0].configLine).toBeTruthy();
+    });
+
+    it("the synthetic source terminal has no configLine (it has no params bag to summarize)", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g" }], connections: [], inputs: [{ source: 0, node: 0 }] };
+      const mapped = mapAudioGraph(graph, 0, [], [], [{ audio: 0 }]);
+      const sourceNode = mapped.nodes.find((n) => n.op === "audio-buffer-source")!;
+      expect(sourceNode.configLine).toBeUndefined();
+    });
+
+    it("the synthetic emitter terminal has no configLine", () => {
+      const graph: KHRGraph = { nodes: [{ kind: "gain", label: "g" }], connections: [], outputs: [{ node: 0, emitter: 0 }] };
+      const mapped = mapAudioGraph(graph, 0, [{ type: "global" }]);
+      const emitterNode = mapped.nodes.find((n) => n.op === "emitter")!;
+      expect(emitterNode.configLine).toBeUndefined();
     });
   });
 
