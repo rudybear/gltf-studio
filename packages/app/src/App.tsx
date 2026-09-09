@@ -108,7 +108,14 @@ export function App(): JSX.Element {
       resolveAudioUri: (uri) => {
         const dirHandle = useAppStore.getState().audioFolderHandle;
         return dirHandle ? resolveAudioUriAgainstDirectory(dirHandle, uri) : Promise.resolve(null);
-      }
+      },
+      // AH-003/UX-131: the honest fallback for whatever gap remains after
+      // `startPlay()`'s own play-start arming (and the in-play viewport
+      // click's belt-and-suspenders re-arm) — surfaced on the app's own
+      // Console tab (same `log()` a play-session's other diagnostics use,
+      // `startPlay()`'s `controller.onDiagnostic` wiring) rather than pure
+      // silence.
+      onSuspendedTrigger: (message) => useAppStore.getState().log("warn", message)
     });
     const teardown = attachAudioHost(history, host);
     registerAudioHost(host);

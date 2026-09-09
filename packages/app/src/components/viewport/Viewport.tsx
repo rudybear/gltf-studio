@@ -558,6 +558,14 @@ export function Viewport(): JSX.Element {
     const editMode = playState === "stopped";
     const result = hostRef.current?.pick(x, y, editMode ? { ignoreEligibility: true } : undefined) ?? null;
     if (playState !== "stopped") {
+      // UX-131 belt-and-suspenders: a click landing here IS itself a fresh
+      // user gesture, same as the Play button's own click that `startPlay()`
+      // already arms audio on. Re-arming (idempotent, AH-001/`init()`) on
+      // every in-play click costs nothing when the context is already
+      // running, and covers whatever edge left it un-armed or suspended by
+      // the time this fires (e.g. a caller that never awaited `startPlay()`'s
+      // own arming, or a browser that revoked activation mid-session).
+      void audioHost?.init();
       // PC-008: route clicks to the running engine's fireSelect instead of
       // editor selection while playing/paused — do not touch editor
       // selection state (UX-113: editing affordances are disabled).
