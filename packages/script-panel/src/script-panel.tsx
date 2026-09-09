@@ -137,9 +137,26 @@ export interface GltfStudioScriptTestHook {
    * 1-based model line currently renders at, or `null` if that line isn't
    * currently laid out (e.g. the model is empty). Lets a visual e2e test
    * turn "line N" into a `page.screenshot({ clip })`/pixel-sampling region
-   * without reimplementing Monaco's own line-to-pixel geometry.
+   * without reimplementing Monaco's own line-to-pixel geometry. `left`/
+   * `width` deliberately span the editor's FULL width (glyph margin +
+   * line-number gutter + content) — a jump-highlight decoration paints a
+   * gutter bar (`buildJumpDecorations`'s `gi-jump-highlight-gutter`) as
+   * well as the inline range, so a caller diffing "does this line look
+   * decorated at all" needs the whole row, not just the text.
+   * `contentLeft` is the ADDITIONAL, separate x-coordinate where the real
+   * text CONTENT area begins (past those margins) — a caller that wants to
+   * click into the buffer at this line (as opposed to screenshotting it)
+   * must use this, not `left`: `left + a-few-px` lands in the glyph
+   * margin/line-number gutter, whose clicks Monaco treats specially
+   * (`MouseTargetType.GUTTER_GLYPH_MARGIN`/`GUTTER_LINE_NUMBERS` — this
+   * file's own breakpoint-toggle `onMouseDown` handler is exactly that
+   * special-casing) and which never move the text cursor/selection at all,
+   * silently turning an intended "click elsewhere in the buffer" into a
+   * total no-op (root-caused via `MouseTargetType` logging against a real
+   * repro: every such click reported `GUTTER_GLYPH_MARGIN`, never a
+   * cursor-selection change).
    */
-  getLineScreenRect(lineNumber: number): { top: number; left: number; width: number; height: number } | null;
+  getLineScreenRect(lineNumber: number): { top: number; left: number; width: number; height: number; contentLeft: number } | null;
   /**
    * e2e-only (specs/ux-usage-mapping.md UX-1119): every pointer-path link
    * `pointer-links.ts` currently finds in the emitted code — lets a test
@@ -911,7 +928,12 @@ export function ScriptPanel({
         const visible = editor.getScrolledVisiblePosition({ lineNumber, column: 1 });
         if (!visible) return null;
         const rect = domNode.getBoundingClientRect();
-        return { top: rect.top + visible.top, left: rect.left, width: rect.width, height: visible.height };
+        // `visible.left` is column 1's own x-offset within the editor's DOM
+        // node — i.e. already past the glyph margin/line-number gutter,
+        // exactly the real text content's left edge (see this field's own
+        // doc comment above for why `left`/`width` below deliberately do
+        // NOT use it themselves).
+        return { top: rect.top + visible.top, left: rect.left, width: rect.width, height: visible.height, contentLeft: rect.left + visible.left };
       },
       getPointerLinks: () => findPointerPathLinks(codeRef.current).map((l) => l.pointerPath),
       clickPointerLink: (pointerPath: string) => {

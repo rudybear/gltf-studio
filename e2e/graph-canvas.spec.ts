@@ -338,6 +338,25 @@ test.describe("behavior-graph canvas", () => {
     // strip at the top of every op node, so a click there can never land on
     // a row-level control.
     await page.getByTestId("gcanvas.node.2").locator(".gcanvas-op-header").click();
+    // Deliberately no wait between the selecting click and Delete — see
+    // graph-view.tsx's own `deleteKeyCode={null}` doc comment (flake ledger:
+    // this exact test flaked across >=5 PRs, #28/#31/#33/#45/#64). Root-
+    // caused by reading @xyflow/react's source (not by guessing from
+    // timing): its built-in `deleteKeyCode` handling deletes whatever ITS
+    // OWN internal store's `.selected` flags say, and that internal store
+    // is synced from this canvas's controlled `nodes` prop by React Flow's
+    // `StoreUpdater` via a plain `useEffect` — ONE COMMIT LATER than the
+    // click that changed `selectedNodeIndex`. Fast enough back-to-back
+    // click+Delete (trivial for two consecutive Playwright commands; just
+    // as plausible for a real fast-typing user) could land the keydown
+    // before that effect ran, so the internal store still showed nothing
+    // selected and the built-in handler silently deleted nothing — no
+    // exception, just a node that's still there. Fixed at the product
+    // level (graph-view.tsx now handles Delete/Backspace itself, off this
+    // component's own always-current `selectedNodeIndex`, never depending
+    // on React Flow's internal mirror of it) rather than by waiting here —
+    // this test intentionally keeps zero delay to stand as the regression
+    // guard for that exact race.
     await page.keyboard.press("Delete");
 
     await expect(page.getByTestId("gcanvas.node.2")).toHaveCount(0);

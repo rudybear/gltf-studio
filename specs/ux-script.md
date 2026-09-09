@@ -219,6 +219,21 @@ logic.
     composited-pixel screenshot assertion `e2e/visual-assert.ts` already established elsewhere,
     rather than only ever re-checking `getSelectedText()` (an API-level read that, per this bug
     report's own root cause, can pass while a real screen shows nothing different at all).
+  - Flake-ledger fix (task: zero the flake ledger): `getLineScreenRect` also returns a `contentLeft`
+    field now — the real text CONTENT area's x-offset (`getScrolledVisiblePosition`'s own `left`,
+    previously computed but discarded), separate from `left`/`width`, which deliberately still span
+    the editor's FULL width (glyph margin + gutter + content) for `screenshotLine`'s whole-row pixel
+    diffing. Root-caused via `MouseTargetType` instrumentation against a real repro under CPU
+    contention: `e2e/usage-mapping.spec.ts`'s "clicking elsewhere in the buffer clears the
+    decoration" test clicked `left + 5px`, which always lands in the glyph margin/line-number gutter
+    (Monaco's `MouseTargetType.GUTTER_GLYPH_MARGIN` — this file's own breakpoint-toggle handler is
+    exactly that special-casing) and never moves the text cursor, so the click never actually
+    exercised click-elsewhere at all; the assertion only ever passed by racing UX-715's independent
+    5s auto-fade timer against the test's own 5s poll timeout, which a starved event loop under real
+    contention occasionally loses. Fixed test-side (the app's click-elsewhere handling itself is
+    correct, and independently covered by the pointer-set-node-deleted variant in the same file) by
+    clicking `contentLeft` instead — a real, synchronous cursor-driven clear, no longer racing the
+    fade timer at all.
 
 - UX-709's gutter/inline markers now source their line from `@gltfi/ir`'s `Diagnostic.line` (a
   structured, 1-based source position `@gltfi/parse-ts` populates from its ts-morph AST for every
