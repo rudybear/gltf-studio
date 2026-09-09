@@ -116,6 +116,83 @@ describe("WebAudioHost extras", () => {
 });
 
 /**
+ * AH-003 (specs/engine-api.md): the honesty fallback for the champagne-pop
+ * bug (specs/ux-shell.md UX-131) — a one-shot `/sources/{i}/playing` trigger
+ * pointer firing while the context doesn't exist yet, or exists but isn't
+ * running, must be reported via `onSuspendedTrigger` instead of the silent
+ * no-op `applyPointer` otherwise gives every other pointer family before
+ * `init()` (AH-002).
+ */
+describe("WebAudioHost onSuspendedTrigger (AH-003, specs/ux-shell.md UX-131)", () => {
+  function triggerDoc() {
+    return {
+      asset: { version: "2.0" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: "N", extensions: { KHR_audio_emitter: { emitters: [0] } } }],
+      extensions: {
+        KHR_audio_emitter: {
+          audio: [],
+          sources: [{ audio: 0 }],
+          emitters: [{ type: "global", sources: [0] }]
+        }
+      }
+    };
+  }
+
+  it("reports a suspended-trigger diagnostic when the trigger fires before init() was ever called (the champagne-pop bug's exact shape: no context at all)", () => {
+    const messages: string[] = [];
+    const host = new WebAudioHost({ onSuspendedTrigger: (message) => messages.push(message) });
+    // Deliberately no init()/loadEmitters() call — this is the "fresh Play,
+    // no prior Audition" scenario itself: `applyPointer` can still be
+    // called (PC-001's fan-out calls both hosts unconditionally) even
+    // though nothing armed the host yet.
+    host.applyPointer("/extensions/KHR_audio_emitter/sources/0/playing", [1]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("not yet created");
+    host.dispose();
+  });
+
+  it("reports a suspended-trigger diagnostic when the context exists but is suspended", async () => {
+    const messages: string[] = [];
+    const host = new WebAudioHost({ onSuspendedTrigger: (message) => messages.push(message) });
+    await host.init();
+    await host.loadEmitters(triggerDoc());
+    host.suspend();
+    host.applyPointer("/extensions/KHR_audio_emitter/sources/0/playing", [1]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("suspended");
+    host.dispose();
+  });
+
+  it("does NOT report a diagnostic once the context is running (the normal, armed case)", async () => {
+    const messages: string[] = [];
+    const host = new WebAudioHost({ onSuspendedTrigger: (message) => messages.push(message) });
+    await host.init();
+    await host.loadEmitters(triggerDoc());
+    host.applyPointer("/extensions/KHR_audio_emitter/sources/0/playing", [1]);
+    expect(messages).toHaveLength(0);
+    host.dispose();
+  });
+
+  it("does NOT report a diagnostic for a falsy (stop) trigger value even before init()", () => {
+    const messages: string[] = [];
+    const host = new WebAudioHost({ onSuspendedTrigger: (message) => messages.push(message) });
+    host.applyPointer("/extensions/KHR_audio_emitter/sources/0/playing", [0]);
+    expect(messages).toHaveLength(0);
+    host.dispose();
+  });
+
+  it("does NOT report a diagnostic for a non-trigger pointer before init() (every other pointer family stays a plain, expected no-op per AH-002)", () => {
+    const messages: string[] = [];
+    const host = new WebAudioHost({ onSuspendedTrigger: (message) => messages.push(message) });
+    host.applyPointer("/extensions/KHR_audio_emitter/emitters/0/gain", [0.5]);
+    expect(messages).toHaveLength(0);
+    host.dispose();
+  });
+});
+
+/**
  * Emitter/environment authoring (specs/ux-inspector.md UX-419/UX-423,
  * specs/engine-api.md's extended AH-pointer-value-tbd note): the five
  * newly-recognized `positional/*` pointer families apply DIRECTLY onto the

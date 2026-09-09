@@ -235,3 +235,56 @@ test("Champagne: gallery load, scene tree, pop-the-cork (interpreter), reset, st
     await page.getByTestId("playbar.engine-picker").selectOption("interpreter");
   });
 });
+
+/**
+ * Regression coverage for the real-user "the cork pop is silent" bug
+ * (specs/ux-shell.md UX-131, specs/engine-api.md AH-001/AH-003): the test
+ * above always performs an Audition gesture (`inspector.audio.audition`)
+ * BEFORE ever entering play mode, which itself calls `AudioHost.init()`
+ * (AH-001's user gesture) — so it could never have caught a bug where Play
+ * is the FIRST and ONLY user gesture in the whole session. This test is
+ * exactly that fresh-user path: load Champagne, select + frame Cork (a
+ * selection click and a camera-frame click, neither of which touches audio),
+ * enter play mode, and click Cork WITHOUT ever touching Audition. Runs as
+ * its own `test()` (own fresh `page`/app instance, no shared state with the
+ * suite above) specifically so nothing upstream can accidentally arm audio
+ * first and mask the bug.
+ */
+test("Champagne: Play with no prior Audition gesture still produces audible cork pop (UX-131 regression)", async ({ page }) => {
+  await loadChampagne(page);
+  await expect.poll(() => page.evaluate(() => window.__gltfStudioTest?.isReady() === true)).toBe(true);
+
+  // Characterization: before Play, nothing has ever called `AudioHost.init()`
+  // in this session — selection and camera-frame are real clicks but neither
+  // is audio-related, so the host must still read "idle" (no AudioContext
+  // constructed yet at all, not merely "suspended").
+  await page.getByTestId(`scene-tree.row.${SCENE_NODE.CORK}`).click();
+  await page.getByTestId("viewport.camera-frame").click();
+  expect(await audioDiagnostics(page)).toBe("audio idle");
+
+  await expect(page.getByTestId("playbar.engine-picker")).toHaveValue("interpreter");
+  await page.getByTestId("playbar.play").click();
+  await expect(page.getByTestId("locked-banner")).toHaveAttribute("data-play-state", "playing");
+  await expect(page.getByTestId("viewport.play-overlay")).toBeVisible();
+
+  // The Play click alone (before any cork click) is the arming gesture:
+  // the AudioContext must already be "running" by the time play mode is up.
+  await expect.poll(() => audioDiagnostics(page)).toContain("running");
+
+  const mount = page.getByTestId("viewport.mount");
+  const poppedRow = page.getByTestId("viewport.play-overlay.variable.popped");
+  expect(await readVal(poppedRow)).toBe("false");
+  const box = (await mount.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  // popped flips (the click reached the engine)...
+  await expect.poll(() => readVal(poppedRow)).toBe("true");
+  // ...AND the pop actually produced an active voice (a real trigger against
+  // a running context, not the silent "context stayed null" no-op the bug
+  // report described) -- same diagnostics contract the Audition-first tests
+  // already rely on.
+  await expect.poll(() => audioDiagnostics(page)).toMatch(/audio running.*last trigger: source 0/);
+
+  await page.getByTestId("playbar.stop").click();
+  await expect(page.getByTestId("locked-banner")).toHaveCount(0);
+});

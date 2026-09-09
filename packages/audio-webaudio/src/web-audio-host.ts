@@ -260,6 +260,8 @@ interface EnvironmentBus {
 
 const RAD_TO_DEG = 180 / Math.PI;
 const IDENTITY_QUAT: [number, number, number, number] = [0, 0, 0, 1];
+/** The NONSTANDARD one-shot playback trigger pointer (see `applyPointer`'s own doc comment) — shared so AH-003's suspended-trigger diagnostic matches the exact same pointer family the real trigger branch does. */
+const TRIGGER_POINTER_RE = /^\/extensions\/KHR_audio_emitter\/sources\/(\d+)\/playing$/;
 
 function generateReverbImpulse(
   context: BaseAudioContext,
@@ -389,10 +391,33 @@ export interface WebAudioHostOptions {
    * and never routed through this callback.
    */
   resolveAudioUri?: (uri: string) => Promise<ArrayBuffer | null | undefined>;
+
+  /**
+   * AH-003 (specs/engine-api.md): honesty hook for the "silent pop" class of
+   * bug (the champagne starter's cork pop was silent for a fresh Play — no
+   * prior Audition gesture — because nothing ever called `init()`, so
+   * `applyPointer`'s one-shot trigger branch was a pure no-op against a null
+   * `context`). Invoked, at most once per `applyPointer` call, when a
+   * `/extensions/KHR_audio_emitter/sources/{i}/playing` trigger pointer
+   * fires with a truthy value while `this.context` is either absent (never
+   * `init()`-ed) or exists but isn't `"running"` (suspended, e.g. a browser
+   * that revoked activation, or a caller that never awaited `init()`'s
+   * `resume()`) — the two cases together are exactly the ones under which
+   * the trigger has NO audible effect. `packages/app`'s own play-start
+   * arming (specs/ux-shell.md UX-131) is the actual fix; this is the
+   * fallback diagnostic for whatever gap remains after that arming (should
+   * be rare in practice). Not part of the `AudioHost` interface (AH-002
+   * unchanged) — same non-interface-extension shape as `resolveAudioUri`
+   * above. The app wires this to its own Console tab (`log("warn", ...)`,
+   * `App.tsx`) rather than `WebAudioHost` reaching into app-level state
+   * itself.
+   */
+  onSuspendedTrigger?: (message: string) => void;
 }
 
 export class WebAudioHost implements AudioHost {
   private readonly resolveAudioUri?: (uri: string) => Promise<ArrayBuffer | null | undefined>;
+  private readonly onSuspendedTrigger?: (message: string) => void;
   private unresolvedClipUris = new Set<string>();
   /**
    * Cache for a resolved EXTERNAL (non-`data:`) uri's bytes, deliberately
@@ -409,6 +434,7 @@ export class WebAudioHost implements AudioHost {
 
   constructor(options: WebAudioHostOptions = {}) {
     this.resolveAudioUri = options.resolveAudioUri;
+    this.onSuspendedTrigger = options.onSuspendedTrigger;
   }
 
   private context: AudioContext | null = null;
@@ -485,11 +511,28 @@ export class WebAudioHost implements AudioHost {
    * be a no-op here, not a throw.
    */
   applyPointer(pointer: string, value: unknown): void {
-    if (!this.context) {
-      return;
-    }
     const scalar = Array.isArray(value) ? Number(value[0]) : Number(value);
     if (!Number.isFinite(scalar)) {
+      return;
+    }
+
+    // AH-003: checked BEFORE the `!this.context` early-return below (and
+    // before the real trigger-matching branch further down, which never
+    // even runs without a context) so the "no context at all" case — the
+    // champagne-pop bug, where `init()` was simply never called — is
+    // diagnosed too, not just "context exists but suspended". Only the
+    // one-shot playback trigger gets this treatment: every other pointer
+    // family is a legitimate, expected no-op before `init()` (AH-002's own
+    // "silently ignores any call before init()" contract), so only the
+    // pointer family whose whole job is "make an audible thing happen right
+    // now" is worth surfacing.
+    if (scalar > 0.5 && TRIGGER_POINTER_RE.test(pointer) && (!this.context || this.context.state !== "running")) {
+      this.onSuspendedTrigger?.(
+        `audio trigger while context ${this.context ? this.context.state : "not yet created"} — click Play/interact to enable audio`
+      );
+    }
+
+    if (!this.context) {
       return;
     }
     const time = this.context.currentTime;
@@ -516,7 +559,7 @@ export class WebAudioHost implements AudioHost {
     // and the drum-kit/interactivity use case needs it — but it should NOT
     // be treated as portable to another KHR_audio_emitter-only
     // implementation. See specs/engine-api.md's AH-002 note.
-    match = pointer.match(/^\/extensions\/KHR_audio_emitter\/sources\/(\d+)\/playing$/);
+    match = pointer.match(TRIGGER_POINTER_RE);
     if (match) {
       const fired = this.triggerSource(Number(match[1]), scalar > 0.5);
       this.lastTrigger = `source ${match[1]} (${fired} voice${fired === 1 ? "" : "s"})`;
