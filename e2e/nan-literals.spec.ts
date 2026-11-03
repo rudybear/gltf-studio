@@ -42,12 +42,8 @@ test.describe("NaN literal UX (UX-524)", () => {
     await expect(a).toHaveValue("");
     await expect(a).toHaveAttribute("placeholder", "NaN");
     await expect(page.getByTestId("gcanvas.literal.3.b")).toHaveValue("1");
-    // Color literal (node 1, baseColorFactor): numeric slots with NaN placeholders and NO fake white swatch.
-    await expect(page.getByTestId("gcanvas.literal.1.value.swatch")).toHaveCount(0);
-    for (const c of ["x", "y", "z", "w"]) {
-      await expect(page.getByTestId(`gcanvas.literal.1.value.${c}`)).toHaveAttribute("placeholder", "NaN");
-    }
-    await expect(page.getByTestId("gcanvas.literal.1.value.init-color")).toBeVisible();
+    // Color literal (node 1, baseColorFactor, wholly omitted): the picker stays usable but is explicitly badged NaN.
+    await expect(page.getByTestId("gcanvas.literal.1.value.nan-badge")).toContainText("NaN");
     // Non-editable float3 chip (node 4, /nodes/0/scale): "= [NaN, NaN, NaN]", not "= []".
     await expect(page.getByTestId("gcanvas.node.4")).toContainText("= [NaN, NaN, NaN]");
     expect(errors).toEqual([]);
@@ -59,8 +55,6 @@ test.describe("NaN literal UX (UX-524)", () => {
     // focus() rather than click(): a click on a narrow empty number input can land on its spin button and step it to -1.
     await a.focus();
     await a.blur();
-    await page.getByTestId("gcanvas.literal.1.value.x").focus();
-    await page.getByTestId("gcanvas.literal.1.value.x").blur();
     const g = await graph(page);
     expect(g.nodes[3]!.values!.a).toEqual({ type: 0 });
     expect(g.nodes[1]!.values!.value).toEqual({ type: 2 });
@@ -75,18 +69,15 @@ test.describe("NaN literal UX (UX-524)", () => {
     await expect.poll(async () => (await graph(page)).nodes[3]!.values!.a!.value).toEqual([2.5]);
   });
 
-  test("a NaN color: editing one component keeps the rest NaN (not 0); the init-color button starts a real color", async ({ page }) => {
+  test("picking a color on a NaN color literal writes a real float4 and drops the NaN badge", async ({ page }) => {
     await importNanFixture(page);
-    const x = page.getByTestId("gcanvas.literal.1.value.x");
-    await x.fill("0.5");
-    await x.blur();
-    await expect.poll(async () => (await graph(page)).nodes[1]!.values!.value!.value).toEqual([0.5, "NaN", "NaN", "NaN"]);
-    // Still partly NaN -> still the numeric editor (no invalid-color swatch).
-    await expect(page.getByTestId("gcanvas.literal.1.value.swatch")).toHaveCount(0);
-    await page.getByTestId("gcanvas.literal.1.value.init-color").click();
-    await expect.poll(async () => (await graph(page)).nodes[1]!.values!.value!.value).toEqual([1, 1, 1, 1]);
-    const swatch = page.getByTestId("gcanvas.literal.1.value.swatch");
-    await expect(swatch).toHaveValue("#ffffff");
+    await page.getByTestId("gcanvas.literal.1.value.swatch").evaluate((el) => {
+      const input = el as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "#ff0000");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect.poll(async () => (await graph(page)).nodes[1]!.values!.value!.value).toEqual([1, 0, 0, 1]);
+    await expect(page.getByTestId("gcanvas.literal.1.value.nan-badge")).toHaveCount(0);
   });
 
   test("Variables panel: float / float3 variables with no default show NaN placeholders and survive focus+blur untouched", async ({ page }) => {

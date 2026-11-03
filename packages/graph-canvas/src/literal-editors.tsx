@@ -161,10 +161,11 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
 
   const vectorCount = VECTOR_COMPONENT_COUNTS[type];
   const nanVector = vectorCount !== undefined && literalHasNaN(value, vectorCount);
-  if (colorKind && vectorCount !== undefined && !numericFallback.active && !nanVector) {
+  const entirelyOmitted = vectorCount !== undefined && value.length === 0;
+  if (colorKind && vectorCount !== undefined && !numericFallback.active && (!nanVector || entirelyOmitted)) {
     // Missing/non-numeric components default to 1 (opaque white, glTF's own baseColorFactor default) rather than 0 (which would render as black/fully transparent) — a color swatch defaulting to invisible black is a worse first impression than opaque white.
     const numeric = Array.from({ length: vectorCount }, (_, i) => (isFiniteLiteralComponent(value[i]) ? decodeLiteralComponent(value[i])! : 1));
-    return (
+    const picker = (
       <ColorField
         value={numeric}
         kind={colorKind}
@@ -172,6 +173,15 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
         numericFallback={numericFallback}
         testIdBase={testIdBase}
       />
+    );
+    // A wholly omitted color literal is NaN: keep the picker usable for authoring (a fresh pointer/set node starts here too) but say so explicitly — the swatch's white is only the picker's starting point, not the value.
+    return entirelyOmitted ? (
+      <span className="gcanvas-nan-color" title="NaN (no value set) — pick a color to set one" data-testid={`${testIdBase}.nan-badge`}>
+        {picker}
+        <span className="gcanvas-nan-badge">NaN</span>
+      </span>
+    ) : (
+      picker
     );
   }
 
@@ -197,7 +207,8 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
             isInt={false}
             label={COMPONENT_LABELS[slot]}
             testId={`${testIdBase}.${COMPONENT_LABELS[slot]}`}
-            onCommit={onCommit}
+            // Authoring a never-set literal (component ABSENT): the first typed slot completes it with 0s (legacy behavior). Components explicitly NaN/Infinity ("NaN" string in the document) are preserved.
+            onCommit={(next) => onCommit(next.map((c, i) => (c === "NaN" && value[i] === undefined ? 0 : c)))}
           />
         ))}
         {colorKind && nanVector ? (
