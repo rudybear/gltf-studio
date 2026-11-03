@@ -400,3 +400,5 @@ uncontended runs.
   whether the same dashed-edge treatment applies here is not specified.
 
 - Implementation note (2026-11-03): variable labels (subtitles, Variables panel, node-details picker) now read `id ?? name`, because `@gltfi/ir`'s `exportGraph` (gltf-interactivity 0.3.0) writes `name` for script-authored variables; renames/new variables still write `id`. Float literals/defaults can now be NaN upstream (spec corpus f99d9b6); the literal editors are unchanged and still default new floats to 0.
+
+Follow-up note (e2e settle flake fix): rebuilding the React Flow node array (selection, diagnostics, a late ELK result) preserves each node's last `measured` size, so a rebuild never leaves a node unmeasured; `nodesDimensionsSettled()` can therefore always converge. No requirement change.

@@ -622,3 +622,5 @@ process.
 - OPEN(UX-toast-queue-tbd): the mockup shows at most one or two toasts at a time in the natural
   course of clicking through it; a queuing/stacking-limit policy for many toasts firing in quick
   succession is not specified.
+
+Follow-up note (SP-016 discard race): `recovery.dialog` is dismissed only after `recovery.discard`'s `save()` has resolved (journal cleared), so the prompt disappearing is a durable signal and an immediate reload cannot re-offer the discarded journal. No requirement change.
