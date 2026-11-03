@@ -1,7 +1,7 @@
 // specs/ux-shell.md UX-123/UX-124: the debounce scheduler and best-effort
 // thumbnail capture, in isolation from the store.
 import { describe, expect, it, vi } from "vitest";
-import type { RenderHost } from "@gltf-studio/engine-api";
+import type { ActiveCameraState, RenderHost } from "@gltf-studio/engine-api";
 import { AUTOSAVE_DEBOUNCE_MS, createAutosaveScheduler, tryCaptureThumbnail } from "./autosave.js";
 
 describe("createAutosaveScheduler (UX-123)", () => {
@@ -64,6 +64,7 @@ function fakeRenderHost(overrides: Partial<RenderHost> = {}): RenderHost {
     pick: vi.fn(() => null),
     getCameraPose: vi.fn(() => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1] })),
     setCameraPose: vi.fn(),
+    getActiveCameraState: vi.fn((): ActiveCameraState => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1], projection: { type: "perspective", aspectRatio: 1, yfov: 0.8, znear: 0.01, zfar: 1000 } })),
     attachGizmo: vi.fn(),
     detachGizmo: vi.fn(),
     onGizmoChange: vi.fn(() => () => {}),

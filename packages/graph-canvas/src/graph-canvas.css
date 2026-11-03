@@ -842,3 +842,14 @@
   line-height: 1;
   padding: 1px 3px;
 }
+
+.gcanvas-nan-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gcanvas-nan-badge {
+  font-size: 10px;
+  opacity: 0.7;
+  font-style: italic;
+}

@@ -2,7 +2,7 @@
 // packages/engine-api/src/play-controller.ts for the interface contract this
 // file implements, and engine-host.ts for how the interpreter/compiled
 // engine itself gets built.
-import type { AudioHost, PlayController, PlayDiagnostic, PlayInspection, PlayStartOptions, RenderHost } from "@gltf-studio/engine-api";
+import type { ActiveCameraState, AudioHost, PlayController, PlayDiagnostic, PlayInspection, PlayStartOptions, RenderHost } from "@gltf-studio/engine-api";
 import { createEngineHost, type EngineHost, type PointerFanOut } from "./engine-host.js";
 import { createDefaultScheduler, type FrameScheduler } from "./scheduler.js";
 
@@ -114,7 +114,7 @@ export class PlayControllerImpl implements PlayController {
     // still null) — nothing below this try block runs on failure.
     // PC-009: `options.debug` is a no-op for the interpreter engine —
     // createEngineHost only reads it on the compiled branch.
-    const host = await createEngineHost(options.engine, documentJson, binary, fanOut, options.debug, options.debugBreakpointLines);
+    const host = await createEngineHost(options.engine, documentJson, binary, fanOut, options.debug, options.debugBreakpointLines, this.#readCamera());
     host.engine.start();
 
     this.#host = host;
@@ -159,8 +159,22 @@ export class PlayControllerImpl implements PlayController {
     }
   }
 
+  /** PC-011: current viewport camera, or undefined when the RenderHost has none yet (not mounted) — activeCamera pointers then stay NaN. */
+  #readCamera(): ActiveCameraState | undefined {
+    try {
+      return this.#deps.renderHost.getActiveCameraState();
+    } catch {
+      return undefined;
+    }
+  }
+
   #tickEngine(dtSeconds: number): void {
     if (!this.#host) return;
+    // PC-011: feed the camera BEFORE the engine tick so this tick's pointer/get sees it.
+    if (this.#host.setActiveCamera) {
+      const camera = this.#readCamera();
+      if (camera) this.#host.setActiveCamera(camera);
+    }
     try {
       this.#host.engine.advance(dtSeconds);
     } catch (err) {

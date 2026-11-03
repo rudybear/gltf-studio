@@ -46,7 +46,8 @@ export function hexToRgb01(hex: string): [number, number, number] {
 
 export function rgb01ToHex([r, g, b]: readonly [number, number, number] | number[]): string {
   const toByte = (v: number): string =>
-    Math.round(Math.max(0, Math.min(1, v)) * 255)
+    // Non-finite (NaN) channels would stringify to "NaN" and yield an invalid CSS/hex color; clamp them to 0.
+    Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 255)
       .toString(16)
       .padStart(2, "0");
   return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
@@ -64,8 +65,9 @@ export type ColorFieldProps = {
 
 /** A `<input type="color">` (+ an alpha slider for RGBA) bound to a `[0,1]`-float component array, with an optional numeric-fallback toggle. Every edit calls `onChange` with a full, correctly-sized array — callers never need to merge partial updates themselves. */
 export function ColorField({ value, kind, onChange, numericFallback, testIdBase }: ColorFieldProps): JSX.Element {
-  const rgb: [number, number, number] = [value[0] ?? 1, value[1] ?? 1, value[2] ?? 1];
-  const alpha = kind === "rgba" ? (value[3] ?? 1) : undefined;
+  const finiteOr1 = (v: number | undefined): number => (typeof v === "number" && Number.isFinite(v) ? v : 1);
+  const rgb: [number, number, number] = [finiteOr1(value[0]), finiteOr1(value[1]), finiteOr1(value[2])];
+  const alpha = kind === "rgba" ? finiteOr1(value[3]) : undefined;
 
   return (
     <span className="gcanvas-color-field">

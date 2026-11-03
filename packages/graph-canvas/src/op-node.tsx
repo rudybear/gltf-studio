@@ -14,7 +14,7 @@ import { NODE_METRICS, eastPorts, westPorts } from "./elk-layout.js";
 import type { GraphDiagnostic } from "./validation.js";
 import type { ValueType } from "@gltfi/kernel";
 import { colorKindForPointerPath } from "./color-field.js";
-import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS } from "./literal-editors.js";
+import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS, formatLiteralDisplay } from "./literal-editors.js";
 
 /**
  * e2e/graph-canvas.spec.ts's "a value-in row showing a literal chip (an
@@ -98,8 +98,8 @@ function resolveHandlerTarget(
   return { label: `${sceneNodeNames[nodeIndex]} (#${nodeIndex})`, missing: false, clickIndex: nodeIndex };
 }
 
-function formatLiteral(value: Array<number | boolean | string>): string {
-  const text = value.length === 1 ? String(value[0]) : `[${value.map(String).join(", ")}]`;
+function formatLiteral(value: Array<number | boolean | string>, type?: string): string {
+  const text = formatLiteralDisplay(value, type);
   return text.length > MAX_LITERAL_CHARS ? `${text.slice(0, MAX_LITERAL_CHARS - 1)}…` : text;
 }
 
@@ -146,8 +146,8 @@ function PortRow({
       testIdBase={`gcanvas.literal.${node.index}.${port.name}`}
     />
   ) : literal ? (
-    <span className="gcanvas-port-literal" title={formatLiteral(literal.value)}>
-      {`= ${formatLiteral(literal.value)}`}
+    <span className="gcanvas-port-literal" title={formatLiteral(literal.value, port.type)}>
+      {`= ${formatLiteral(literal.value, port.type)}`}
     </span>
   ) : null;
   const typeSpan = port.type ? <span className="gcanvas-port-type">{port.type}</span> : null;

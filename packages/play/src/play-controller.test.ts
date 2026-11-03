@@ -3,6 +3,7 @@ import type { AudioHost, PlayDiagnostic, RenderHost } from "@gltf-studio/engine-
 import type { FrameScheduler } from "./scheduler.js";
 import { buildVariablesRecord, createPlayController, FIXED_TICK_DT, PlayControllerImpl } from "./play-controller.js";
 import {
+  activeCameraProbeGltfJson,
   noGraphGltfJson,
   onStartPointerSetGltfJson,
   onTickPointerSetGltfJson,
@@ -18,6 +19,7 @@ function makeFakeRenderHost(overrides: Partial<RenderHost> = {}): RenderHost {
     patchScene: () => "applied",
     pick: () => null,
     getCameraPose: () => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1] }),
+    getActiveCameraState: () => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1], projection: { type: "perspective", aspectRatio: 1, yfov: 0.8, znear: 0.01, zfar: 1000 } }),
     setCameraPose: () => {},
     attachGizmo: () => {},
     detachGizmo: () => {},
@@ -463,5 +465,64 @@ describe("PlayController fireSelect/fireHoverIn/fireHoverOut (PC-008)", () => {
     expect(() => controller.fireHoverOut(0)).not.toThrow();
     controller.pause();
     expect(() => controller.fireHoverOut()).not.toThrow();
+  });
+});
+
+describe("PlayController activeCamera feed (PC-011)", () => {
+  function camHost(pose: { position: [number, number, number] }, calls: string[]): RenderHost {
+    return makeFakeRenderHost({
+      getActiveCameraState: () => {
+        calls.push("camera");
+        return {
+          position: pose.position,
+          rotation: [0, 0, 0, 1],
+          projection: { type: "perspective", aspectRatio: 2, yfov: 0.5, znear: 0.1, zfar: 50 }
+        };
+      }
+    });
+  }
+
+  it("interpreter: activeCamera pointers read the viewport camera, re-fed before every tick (follows camera moves)", async () => {
+    const pose = { position: [1, 2, 3] as [number, number, number] };
+    const calls: string[] = [];
+    const controller = createPlayController({
+      renderHost: camHost(pose, calls),
+      getDocumentJson: () => activeCameraProbeGltfJson(),
+      scheduler: makeManualScheduler()
+    });
+    await controller.start({ engine: "interpreter" });
+    controller.pause();
+    controller.tickOnce();
+    const read = (): { camPos: { data: number[] }; camYfov: { data: number[] } } =>
+      controller.inspect().variables as never;
+    expect(read().camPos.data).toEqual([1, 2, 3]);
+    expect(read().camYfov.data[0]).toBeCloseTo(0.5, 6);
+
+    pose.position = [-4, 5, 6];
+    controller.tickOnce();
+    expect(read().camPos.data).toEqual([-4, 5, 6]);
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    await controller.stop();
+  });
+
+  it("a RenderHost with no camera (getActiveCameraState throws) leaves activeCamera pointers NaN and does not raise a diagnostic", async () => {
+    const diagnostics: PlayDiagnostic[] = [];
+    const controller = createPlayController({
+      renderHost: makeFakeRenderHost({
+        getActiveCameraState: () => {
+          throw new Error("not mounted");
+        }
+      }),
+      getDocumentJson: () => activeCameraProbeGltfJson(),
+      scheduler: makeManualScheduler()
+    });
+    controller.onDiagnostic((d) => diagnostics.push(d));
+    await controller.start({ engine: "interpreter" });
+    controller.pause();
+    controller.tickOnce();
+    const vars = controller.inspect().variables as { camPos: { data: number[] } };
+    expect(vars.camPos.data.every(Number.isNaN)).toBe(true);
+    expect(diagnostics).toEqual([]);
+    await controller.stop();
   });
 });

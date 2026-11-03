@@ -13,7 +13,7 @@ export function hexToRgb01(hex: string): [number, number, number] {
 
 export function rgb01ToHex([r, g, b]: readonly [number, number, number] | number[]): string {
   const toByte = (v: number): string =>
-    Math.round(Math.max(0, Math.min(1, v)) * 255)
+    Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 255)
       .toString(16)
       .padStart(2, "0");
   return `#${toByte(r)}${toByte(g)}${toByte(b)}`;

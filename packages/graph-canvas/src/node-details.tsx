@@ -19,7 +19,7 @@ import type { InteractivityEvent, InteractivityVariable, MappedGraph, MappedNode
 import { categoryColor } from "./palette.js";
 import type { GraphDiagnostic } from "./validation.js";
 import { colorKindForPointerPath } from "./color-field.js";
-import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS } from "./literal-editors.js";
+import { TypedLiteralEditor, VECTOR_COMPONENT_COUNTS, formatLiteralDisplay } from "./literal-editors.js";
 
 const VARIABLE_TYPE_OPTIONS: ValueType[] = ["bool", "int", "float", "float2", "float3", "float4"];
 
@@ -71,8 +71,8 @@ export type NodeDetailsProps = {
   onBreakHere?: (nodeIndex: number) => void;
 };
 
-function formatLiteral(value: Array<number | boolean | string>): string {
-  return value.length === 1 ? String(value[0]) : `[${value.map(String).join(", ")}]`;
+function formatLiteral(value: Array<number | boolean | string>, type?: string): string {
+  return formatLiteralDisplay(value, type);
 }
 
 const NEW_OPTION = "__new__";
@@ -539,7 +539,7 @@ function PortStatusRows({ graph, node, onLiteralCommit }: { graph: MappedGraph; 
       const literal = node.literals[port.name];
       const edge = graph.edges.find((e) => e.kind === "value" && e.targetNode === node.index && e.targetPort === port.id);
       if (edge) return `from node ${edge.sourceNode}.${edge.sourcePort.replace(/^value-out:/, "")}`;
-      if (literal) return `literal: ${formatLiteral(literal.value)}`;
+      if (literal) return `literal: ${formatLiteral(literal.value, port.type)}`;
       return "unconnected";
     }
     if (port.kind === "flow-in") {

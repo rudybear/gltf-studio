@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Container } from "@gltfi/gltf";
 import { createDocument, HistoryStack } from "@gltf-studio/editor-core";
-import type { CameraPose, PatchOutcome, RenderHost } from "@gltf-studio/engine-api";
+import type { ActiveCameraState, CameraPose, PatchOutcome, RenderHost } from "@gltf-studio/engine-api";
 import { buildBehaviorNeutralProposalForTests, buildDeliberatelyBrokenProposalForTests } from "@gltf-studio/agent-mock";
 
 const controllerMocks = {
@@ -60,6 +60,7 @@ function fakeRenderHost(): RenderHost {
     pick: vi.fn(() => null),
     getCameraPose: vi.fn((): CameraPose => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1] })),
     setCameraPose: vi.fn(),
+    getActiveCameraState: vi.fn((): ActiveCameraState => ({ position: [0, 0, 0], rotation: [0, 0, 0, 1], projection: { type: "perspective", aspectRatio: 1, yfov: 0.8, znear: 0.01, zfar: 1000 } })),
     attachGizmo: vi.fn(),
     detachGizmo: vi.fn(),
     onGizmoChange: vi.fn(() => () => {}),

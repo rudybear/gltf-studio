@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 4173;
+const PORT = Number(process.env.E2E_PORT ?? 4173);
 // The app's own vite.config.ts now defaults `base` to "/app/" (the editor
 // always lives one level below whatever site root it's served from — see
 // that file's own comment), so the BUILT app `vite preview` serves is only
@@ -46,7 +46,7 @@ export default defineConfig({
     trace: "retain-on-failure"
   },
   webServer: {
-    command: "pnpm --filter @gltf-studio/app run preview -- --port 4173 --strictPort",
+    command: `pnpm --filter @gltf-studio/app run preview -- --port ${PORT} --strictPort`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000

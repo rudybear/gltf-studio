@@ -18,6 +18,7 @@ import {
 } from "@gltfi/three-adapter";
 import { applyPatches } from "@gltf-studio/editor-core";
 import type {
+  ActiveCameraState,
   CameraPose,
   EditorHelperDescriptor,
   GizmoChangeEvent,
@@ -770,6 +771,29 @@ export class ThreeRenderHost implements RenderHost {
       return { position, rotation, target: this.controls.target.toArray() as [number, number, number] };
     }
     return { position, rotation };
+  }
+
+  getActiveCameraState(): ActiveCameraState {
+    if (!this.camera) {
+      throw new Error("RenderHost.getActiveCameraState: call mount() first");
+    }
+    const camera = this.camera;
+    camera.updateMatrixWorld(true);
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    camera.matrixWorld.decompose(position, quaternion, new THREE.Vector3());
+    return {
+      position: position.toArray() as [number, number, number],
+      rotation: quaternion.toArray() as [number, number, number, number],
+      // three's PerspectiveCamera.fov is the vertical FOV in DEGREES; glTF yfov is radians.
+      projection: {
+        type: "perspective",
+        aspectRatio: camera.aspect,
+        yfov: THREE.MathUtils.degToRad(camera.fov),
+        znear: camera.near,
+        zfar: camera.far
+      }
+    };
   }
 
   setCameraPose(pose: CameraPose): void {
