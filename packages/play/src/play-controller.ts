@@ -218,7 +218,7 @@ export class PlayControllerImpl implements PlayController {
       return { time: 0, variables: {}, sentEvents: [] };
     }
     const { engine, graph } = this.#host;
-    const ids = graph.variables?.map((variable) => variable.id);
+    const ids = graph.variables?.map((variable) => variable.id ?? (variable as { name?: string }).name);
     return {
       time: engine.time,
       variables: buildVariablesRecord(engine.variableCount, (i) => engine.getVariableByIndex(i), ids),

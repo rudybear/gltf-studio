@@ -45,3 +45,5 @@ override (not a tarball) so the vendored `@gltfi/three-adapter` and `@gltfi/pars
 declare the exact `0.0.1`, resolve to the registry release as well. All other packages named in
 this ADR (including `@gltfi/runtime-lib`, also on npm) stay vendored; the Decision above is
 otherwise unchanged.
+
+2026-11-03: `@gltfi/runtime` bumped to `^0.1.1` (range override and `minimumReleaseAgeExclude` now `@gltfi/runtime@0.1.1`); the vendored `@gltfi/*` tarballs were re-packed from the monorepo at gltf-interactivity 0.3.0 (3b5c146). `@gltfi/runtime-lib@0.1.1` is on npm too but stays vendored so it remains byte-matched to the vendored `emit-ts` output.

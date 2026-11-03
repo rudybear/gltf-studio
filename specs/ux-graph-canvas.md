@@ -398,3 +398,5 @@ uncontended runs.
 - OPEN(UX-graph-invalid-edge-tbd): the behavior-graph canvas has no example of an invalid/rejected
   edge in the approved mockup (unlike the audio graph, `specs/ux-audio-graph.md`'s `UX-603`);
   whether the same dashed-edge treatment applies here is not specified.
+
+- Implementation note (2026-11-03): variable labels (subtitles, Variables panel, node-details picker) now read `id ?? name`, because `@gltfi/ir`'s `exportGraph` (gltf-interactivity 0.3.0) writes `name` for script-authored variables; renames/new variables still write `id`. Float literals/defaults can now be NaN upstream (spec corpus f99d9b6); the literal editors are unchanged and still default new floats to 0.

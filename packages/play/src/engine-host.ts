@@ -168,7 +168,10 @@ async function buildCompiledEngine(
     if (typeof mod.default !== "function") {
       throw new Error("PlayController.start: compiled module has no default-exported EngineFactory.");
     }
-    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut });
+    // @gltfi/runtime@0.1.1 still types SentEvent.payload as the legacy 4-tuple
+    // while runtime-lib (spec corpus f99d9b6) widened it to a generic EventPayload
+    // (custom event payloads). Structurally the same engine surface; widen here.
+    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut }) as unknown as EngineInteractive;
   } finally {
     URL.revokeObjectURL(blobUrl);
   }

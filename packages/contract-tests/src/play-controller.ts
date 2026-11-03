@@ -39,11 +39,11 @@ export const playControllerContractObligations: string[] = [
  * CONTRACT_UNHANDLED_POINTER })` so the "onDiagnostic" obligations below have
  * something to observe.
  */
-export const CONTRACT_UNHANDLED_POINTER = "/test/unhandled";
+export const CONTRACT_UNHANDLED_POINTER = "/nodes/0/translation";
 
 /**
  * onTick -> variable/get(counter) -> math/add(+1) -> variable/set(counter)
- * -> pointer/set(CONTRACT_UNHANDLED_POINTER, 42). One linear flow chain
+ * -> pointer/set(CONTRACT_UNHANDLED_POINTER, float3 [1,2,3]) (a real, resolvable, writable pointer: @gltfi/runtime >= 0.1.1 errs, instead of writing, on unresolvable pointers). One linear flow chain
  * (the same proven op/config/value/flow shapes as
  * packages/play/src/test-fixtures.ts's tickCounterGltfJson and
  * onTickPointerSetGltfJson, concatenated into a single chain rather than
@@ -52,16 +52,17 @@ export const CONTRACT_UNHANDLED_POINTER = "/test/unhandled";
  * writes a pointer every tick, so a single harness/document can serve every
  * obligation below (`makeHarness()` takes no per-test arguments).
  */
-export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, pointerValue = 42): Record<string, unknown> {
+export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, pointerValue: number[] = [1, 2, 3]): Record<string, unknown> {
   return {
     asset: { version: "2.0" },
+    nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
     extensions: {
       KHR_interactivity: {
         graph: 0,
         graphs: [
           {
-            types: [{ signature: "int" }],
+            types: [{ signature: "int" }, { signature: "float3" }],
             variables: [{ id: "counter", type: 0, value: [0] }],
             events: [],
             declarations: [
@@ -88,8 +89,8 @@ export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, 
               },
               {
                 declaration: 4,
-                configuration: { pointer: { value: [pointer] }, type: { value: [0] } },
-                values: { value: { type: 0, value: [pointerValue] } },
+                configuration: { pointer: { value: [pointer] }, type: { value: [1] } },
+                values: { value: { type: 1, value: pointerValue } },
                 flows: {}
               }
             ]

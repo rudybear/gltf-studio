@@ -43,6 +43,8 @@ export type InteractivityTypeDecl = { signature: string; [extra: string]: unknow
 
 export type InteractivityVariable = {
   id?: string;
+  /** @gltfi/ir's exportGraph (>= gltf-interactivity 0.3.0) writes `name` for script-authored variables; readers use `id ?? name`. */
+  name?: string;
   type: number;
   value?: JsonScalar[];
 };
@@ -603,9 +605,9 @@ type SubtitleResult = { text: string; missing?: boolean };
  * treatment (`missing: true`) other dangling-reference surfaces in this
  * package/`@gltf-studio/editor-core`'s `fixup-references.ts` use.
  */
-function declRef(idx: number, entry: { id?: string } | undefined, fallbackPrefix: string): SubtitleResult {
+function declRef(idx: number, entry: { id?: string; name?: string } | undefined, fallbackPrefix: string): SubtitleResult {
   if (!entry) return { text: `⚠ missing (${fallbackPrefix}#${idx})`, missing: true };
-  return { text: entry.id ?? `${fallbackPrefix}#${idx}` };
+  return { text: entry.id ?? entry.name ?? `${fallbackPrefix}#${idx}` };
 }
 
 function nodeSubtitle(

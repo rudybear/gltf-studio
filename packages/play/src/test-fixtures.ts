@@ -64,17 +64,18 @@ export function throwingTickGltfJson(): Record<string, unknown> {
   return json;
 }
 
-/** onStart -> pointer/set("/test/pointer", 42). Fires exactly once, synchronously, from InteractivityRuntime.start(). */
-export function onStartPointerSetGltfJson(pointer = "/test/pointer", value = 42): Record<string, unknown> {
+/** onStart -> pointer/set("/nodes/0/translation", float3 [1,2,3]) against a one-node document. Fires exactly once, synchronously, from InteractivityRuntime.start(). */
+export function onStartPointerSetGltfJson(pointer = "/nodes/0/translation", value: number[] = [1, 2, 3]): Record<string, unknown> {
   return {
     asset: { version: "2.0" },
+    nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
     extensions: {
       KHR_interactivity: {
         graph: 0,
         graphs: [
           {
-            types: [{ signature: "int" }],
+            types: [{ signature: "float3" }],
             variables: [],
             events: [],
             declarations: [{ op: "event/onStart" }, { op: "pointer/set" }],
@@ -83,7 +84,7 @@ export function onStartPointerSetGltfJson(pointer = "/test/pointer", value = 42)
               {
                 declaration: 1,
                 configuration: { pointer: { value: [pointer] }, type: { value: [0] } },
-                values: { value: { type: 0, value: [value] } },
+                values: { value: { type: 0, value } },
                 flows: {}
               }
             ]
@@ -94,17 +95,18 @@ export function onStartPointerSetGltfJson(pointer = "/test/pointer", value = 42)
   };
 }
 
-/** onTick -> pointer/set("/test/pointer", 42). Fires on every tick (unlike onStartPointerSetGltfJson's once-only fire). */
-export function onTickPointerSetGltfJson(pointer = "/test/pointer", value = 42): Record<string, unknown> {
+/** onTick -> pointer/set("/nodes/0/translation", float3 [1,2,3]) against a one-node document. Fires on every tick (unlike onStartPointerSetGltfJson's once-only fire). */
+export function onTickPointerSetGltfJson(pointer = "/nodes/0/translation", value: number[] = [1, 2, 3]): Record<string, unknown> {
   return {
     asset: { version: "2.0" },
+    nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
     extensions: {
       KHR_interactivity: {
         graph: 0,
         graphs: [
           {
-            types: [{ signature: "int" }],
+            types: [{ signature: "float3" }],
             variables: [],
             events: [],
             declarations: [{ op: "event/onTick" }, { op: "pointer/set" }],
@@ -113,7 +115,7 @@ export function onTickPointerSetGltfJson(pointer = "/test/pointer", value = 42):
               {
                 declaration: 1,
                 configuration: { pointer: { value: [pointer] }, type: { value: [0] } },
-                values: { value: { type: 0, value: [value] } },
+                values: { value: { type: 0, value } },
                 flows: {}
               }
             ]

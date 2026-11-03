@@ -325,7 +325,7 @@ function ConfigEditor({
   const keys = Array.from(new Set([...specialFields, ...Object.keys(raw)]));
   if (keys.length === 0) return null;
 
-  const variableOptions = variables.map((v, i) => ({ index: i, label: v.id ?? `var#${i}` }));
+  const variableOptions = variables.map((v, i) => ({ index: i, label: v.id ?? v.name ?? `var#${i}` }));
   const eventOptions = events.map((e, i) => ({ index: i, label: e.id ?? `event#${i}` }));
 
   return (

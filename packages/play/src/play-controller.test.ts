@@ -144,14 +144,14 @@ describe("PlayController diagnostics (PC-005)", () => {
     const controller = createPlayController({
       renderHost,
       getAudioHost: () => audioHost,
-      getDocumentJson: () => onStartPointerSetGltfJson("/test/pointer", 7),
+      getDocumentJson: () => onStartPointerSetGltfJson("/nodes/0/translation", [4, 5, 6]),
       scheduler: makeManualScheduler()
     });
     controller.onDiagnostic((d) => diagnostics.push(d));
 
     await controller.start({ engine: "interpreter" });
 
-    expect(diagnostics).toEqual([{ kind: "unhandled-pointer", message: "boom-render", pointer: "/test/pointer" }]);
+    expect(diagnostics).toEqual([{ kind: "unhandled-pointer", message: "boom-render", pointer: "/nodes/0/translation" }]);
     // audioHost still gets a chance even though renderHost's call threw.
     expect(audioCalls).toEqual(["audio"]);
   });
@@ -174,7 +174,7 @@ describe("PlayController diagnostics (PC-005)", () => {
 
     await controller.start({ engine: "interpreter" });
 
-    expect(diagnostics).toEqual([{ kind: "unhandled-pointer", message: "boom-audio", pointer: "/test/pointer" }]);
+    expect(diagnostics).toEqual([{ kind: "unhandled-pointer", message: "boom-audio", pointer: "/nodes/0/translation" }]);
   });
 
   it("onDiagnostic's returned unsubscribe function stops further delivery", async () => {
@@ -260,6 +260,24 @@ describe("PlayController end-to-end against a real interpreter engine (PC-001/PC
     expect(inspection.variables.counter).toEqual({ type: "int", data: [3] });
     expect(inspection.time).toBeGreaterThan(0);
     expect(inspection.sentEvents).toEqual([]);
+  });
+
+  it("inspect() keys variables by `name` when the graph declares `name` instead of `id` (exportGraph output, gltf-interactivity >= 0.3.0)", async () => {
+    const controller = createPlayController({
+      renderHost: makeFakeRenderHost(),
+      getDocumentJson: () => {
+        const json = tickCounterGltfJson() as { extensions: { KHR_interactivity: { graphs: Array<{ variables: Array<Record<string, unknown>> }> } } };
+        const variable = json.extensions.KHR_interactivity.graphs[0].variables[0];
+        delete variable.id;
+        variable.name = "counter";
+        return json;
+      },
+      scheduler: makeManualScheduler()
+    });
+
+    await controller.start({ engine: "interpreter" });
+    controller.pause();
+    expect(controller.inspect().variables.counter).toEqual({ type: "int", data: [0] });
   });
 
   it("inspect() returns the stopped-state shape before start() and after stop()", async () => {

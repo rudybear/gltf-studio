@@ -13,7 +13,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "vendor/**"]
+    ignores: ["**/dist/**", "**/node_modules/**", "vendor/**", "packages/app/public/gltfi-runtime-lib.mjs"]
   },
   {
     rules: {

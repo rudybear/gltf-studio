@@ -88,7 +88,7 @@ function VariableRow({
   return (
     <tr className="gcanvas-variables-row" data-testid={`gcanvas.variables.row.${index}`}>
       <td>
-        <IdField value={variable.id ?? `var#${index}`} onCommit={onRename} testId={`gcanvas.variables.name.${index}`} />
+        <IdField value={variable.id ?? variable.name ?? `var#${index}`} onCommit={onRename} testId={`gcanvas.variables.name.${index}`} />
       </td>
       <td>
         <select

@@ -452,7 +452,7 @@ export default createEngine((rt) => {
 }
 
 function findVarIndex(graph, id) {
-  const index = graph.variables.findIndex((v) => v.id === id);
+  const index = graph.variables.findIndex((v) => (v.name ?? v.id) === id);
   if (index < 0) throw new Error(`[make-champagne] FAILED: no exported variable with id "${id}"`);
   return index;
 }
