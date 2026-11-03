@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH, FIXTURE_AUDIO_GRAPH_GAIN_NODE_LABEL } from "./global-setup.js";
-import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { clickNodeHeader, waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+
+test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
 /** This canvas's own instance of the shared test hook — see `GraphViewProps.testHookKey`'s doc comment (packages/graph-canvas/src/graph-view.tsx) for why audio-graph gets a separate key from the behavior graph. */
 const AUDIO_HOOK_KEY = "__gltfStudioAudioGraphCanvasTest";

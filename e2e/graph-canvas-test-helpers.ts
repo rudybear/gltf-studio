@@ -93,3 +93,19 @@ export async function waitForNodesSettled(page: Page, hookKey = "__gltfStudioGra
 export async function clickNodeHeader(scope: Page | Locator, nodeIndex: number): Promise<void> {
   await scope.locator(`[data-testid="gcanvas.node.${nodeIndex}"] .gcanvas-op-header`).click();
 }
+
+/**
+ * Viewport for every spec that clicks graph nodes by real pointer position.
+ *
+ * At Playwright's default 1280x720 the behavior-graph pane is only ~216px wide
+ * (palette + details panels take the rest), narrower than a node card (221px).
+ * A palette-added node lands partly OUTSIDE the pane, so `elementFromPoint` at
+ * the click target hits `.gcanvas-root`. Playwright's "scroll into view" can
+ * hide that by scrolling the overflow-clipped ancestor, but any later
+ * re-render/reflow resets it, so clicks intermittently time out with
+ * "<div class=gcanvas-root> intercepts pointer events" (reproduced 5/24 under
+ * CPU contention). At 1920x1080 the pane is ~856px and the node is fully
+ * on-screen, so the click never depends on scroll state. Use via
+ * `test.use({ viewport: GRAPH_CANVAS_VIEWPORT })`.
+ */
+export const GRAPH_CANVAS_VIEWPORT = { width: 1920, height: 1080 } as const;
