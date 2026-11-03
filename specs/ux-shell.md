@@ -622,3 +622,5 @@ process.
 - OPEN(UX-toast-queue-tbd): the mockup shows at most one or two toasts at a time in the natural
   course of clicking through it; a queuing/stacking-limit policy for many toasts firing in quick
   succession is not specified.
+
+- Implementation note (2026-11-03, PC-011/UX-524 PR, no requirement change): `RenderHost` gained `getActiveCameraState()` (RH-036), so the app-level `RenderHost` test doubles (`app-store.test.ts`, `copilot-actions.test.ts`, `autosave.test.ts`) implement it; `packages/app/src/lib/color.ts` `rgb01ToHex` clamps non-finite channels to 0 (mirrors graph-canvas, UX-524) so a NaN colour factor never yields an invalid CSS colour; `packages/app/vite.config.ts` `preview.port` honours `E2E_PORT` (default 4173, unchanged) so a worktree can run e2e beside another preview server.
