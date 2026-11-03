@@ -406,6 +406,18 @@ function GraphViewInner(props: GraphViewProps) {
     // for callers to juggle — this effect's `nodes` output reaching React
     // Flow is ALWAYS a fresh reference, so any run is "still settling" from
     // a caller's perspective.
+    // Carry each node's last-known `measured` size across this rebuild.
+    // React Flow's `adoptUserNodes` rebuilds a node from the USER node and
+    // takes `measured` only from it, so handing back fresh objects without it
+    // wipes the measurement and the node's handle bounds, and RF re-measures
+    // only if the node's ResizeObserver fires (it re-observes only when
+    // `isInitialized` flips). A rebuild that races that re-measure (selection
+    // change, diagnostics, a late ELK result) could leave a node permanently
+    // unmeasured -- `nodesDimensionsSettled()` then never reports true
+    // (observed as 60s `waitForNodesSettled` timeouts). A genuine resize still
+    // fires the observer and is compared against this carried value.
+    const prevMeasured = new Map<string, OpNodeType["measured"]>();
+    for (const n of nodesRef.current) if (n.measured) prevMeasured.set(n.id, n.measured);
     const rfNodes: OpNodeType[] = graph.nodes.map((node) => {
       const pos = nodePosition(node, elkPositions);
       const data: OpNodeData = {
@@ -427,7 +439,8 @@ function GraphViewInner(props: GraphViewProps) {
         data,
         selected: node.index === selectedNodeIndex,
         deletable: true,
-        connectable: true
+        connectable: true,
+        ...(prevMeasured.has(String(node.index)) ? { measured: prevMeasured.get(String(node.index)) } : {})
       };
     });
     lastDimensionsChangeAtRef.current = performance.now();
