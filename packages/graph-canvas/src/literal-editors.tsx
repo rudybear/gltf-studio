@@ -22,6 +22,59 @@ export const EDITABLE_LITERAL_TYPES: ReadonlySet<string> = new Set(["bool", "int
 
 const COMPONENT_LABELS = ["x", "y", "z", "w"] as const;
 
+/**
+ * NaN UX (spec alignment: float-typed defaults are NaN — an omitted literal
+ * `value` in an imported document, an unwired float input). A non-finite
+ * component is represented as an OMITTED entry (`[]`/short array) or, in a
+ * partially-NaN vector, as the strings "NaN"/"Infinity"/"-Infinity" (the
+ * encoding @gltfi/kernel's `parseScalar` decodes and the exporter writes; JSON
+ * cannot carry NaN). These editors must (a) SHOW that state explicitly
+ * ("NaN" placeholder, never a fake 0 / white swatch), (b) never write 0 just
+ * because a field was focused and blurred untouched, and (c) let the user type
+ * a real number.
+ */
+export function decodeLiteralComponent(v: unknown): number | undefined {
+  if (typeof v === "number") return v;
+  if (v === "NaN") return Number.NaN;
+  if (v === "Infinity") return Number.POSITIVE_INFINITY;
+  if (v === "-Infinity") return Number.NEGATIVE_INFINITY;
+  return undefined;
+}
+
+/** Inverse of `decodeLiteralComponent` for JSON: finite numbers pass through; NaN/±Infinity become their string spelling (a bare `NaN` number would serialize to `null`). */
+export function encodeLiteralComponent(n: number): number | string {
+  if (Number.isFinite(n)) return n;
+  return Number.isNaN(n) ? "NaN" : n > 0 ? "Infinity" : "-Infinity";
+}
+
+export function isFiniteLiteralComponent(v: unknown): v is number {
+  const n = decodeLiteralComponent(v);
+  return n !== undefined && Number.isFinite(n);
+}
+
+/** `true` when any of the first `count` components is missing/NaN/Infinity/non-numeric — i.e. the literal is (partly) non-finite. */
+export function literalHasNaN(value: LiteralValue, count: number): boolean {
+  for (let i = 0; i < count; i++) if (!isFiniteLiteralComponent(value[i])) return true;
+  return false;
+}
+
+/** Placeholder text for a non-finite float component: "NaN" (omitted/NaN) or the infinity's spelling. */
+function nonFiniteLabel(v: unknown): string {
+  const n = decodeLiteralComponent(v);
+  if (n === undefined || Number.isNaN(n)) return "NaN";
+  return n > 0 ? "Infinity" : "-Infinity";
+}
+
+/** Display text for a literal on a card/status line: an omitted float literal reads `NaN` (or `[NaN, NaN, NaN]`), not `[]`. */
+export function formatLiteralDisplay(value: LiteralValue, type?: string): string {
+  const isFloat = type === "float" || (type !== undefined && VECTOR_COMPONENT_COUNTS[type] !== undefined);
+  const count = type === "float" ? 1 : type !== undefined ? (VECTOR_COMPONENT_COUNTS[type] ?? 0) : 0;
+  const shown: Array<number | boolean | string> = isFloat
+    ? Array.from({ length: count }, (_, i) => (isFiniteLiteralComponent(value[i]) ? value[i]! : nonFiniteLabel(value[i])))
+    : value;
+  return shown.length === 1 ? String(shown[0]) : `[${shown.map(String).join(", ")}]`;
+}
+
 function BoolEditor({ value, onCommit, testId }: { value: LiteralValue; onCommit: (v: LiteralValue) => void; testId: string }): JSX.Element {
   const checked = value[0] === true || value[0] === "true";
   return (
@@ -53,7 +106,11 @@ function NumberSlot({
   onCommit: (v: LiteralValue) => void;
 }): JSX.Element {
   const initial = value[slot];
-  const [text, setText] = useState<string>(() => (initial === undefined ? "" : String(initial)));
+  // A non-finite component (NaN/omitted/Infinity) has no representation in a number input: start blank and show the placeholder.
+  const initialText = isFiniteLiteralComponent(initial) ? String(initial) : "";
+  const [text, setText] = useState<string>(() => initialText);
+  // A float component that is omitted/NaN shows an explicit "NaN" placeholder (an int's default is 0, never NaN).
+  const showNaN = !isInt && !isFiniteLiteralComponent(initial);
   return (
     <span className="gcanvas-literal-vector-slot">
       {label ? <span className="gcanvas-literal-vector-label">{label}</span> : null}
@@ -61,15 +118,20 @@ function NumberSlot({
         type="number"
         className="gcanvas-literal-input"
         value={text}
+        placeholder={showNaN ? nonFiniteLabel(initial) : undefined}
+        data-nan={showNaN && text === "" ? "true" : undefined}
         step={isInt ? 1 : "any"}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
+          // Untouched (focus + blur) or blank: commit NOTHING. `Number("")` is 0, which would silently turn an omitted/NaN literal into a real 0.
+          if (text === initialText || text.trim() === "") return;
           const n = Number(text);
           if (!Number.isFinite(n)) return;
           const next = value.slice();
           next[slot] = isInt ? Math.trunc(n) : n;
-          onCommit(next);
+          // A vector literal must be complete in JSON: components still NaN/Infinity keep that value, spelled as a string ("NaN"), never silently 0.
+          onCommit(next.map((c) => (typeof c === "number" ? encodeLiteralComponent(c) : c)));
         }}
         data-testid={testId}
       />
@@ -98,9 +160,10 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
   }
 
   const vectorCount = VECTOR_COMPONENT_COUNTS[type];
-  if (colorKind && vectorCount !== undefined && !numericFallback.active) {
+  const nanVector = vectorCount !== undefined && literalHasNaN(value, vectorCount);
+  if (colorKind && vectorCount !== undefined && !numericFallback.active && !nanVector) {
     // Missing/non-numeric components default to 1 (opaque white, glTF's own baseColorFactor default) rather than 0 (which would render as black/fully transparent) — a color swatch defaulting to invisible black is a worse first impression than opaque white.
-    const numeric = Array.from({ length: vectorCount }, (_, i) => (typeof value[i] === "number" ? (value[i] as number) : 1));
+    const numeric = Array.from({ length: vectorCount }, (_, i) => (isFiniteLiteralComponent(value[i]) ? decodeLiteralComponent(value[i])! : 1));
     return (
       <ColorField
         value={numeric}
@@ -122,7 +185,8 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
     // `NumberSlot` below shares this SAME padded array, so editing any one
     // slot's `onCommit` always writes back a complete, correctly-sized
     // literal regardless of which slot was touched first.
-    const padded = Array.from({ length: vectorCount }, (_, i) => (typeof value[i] === "number" ? value[i] : 0));
+    // Missing components stay NaN (displayed as a "NaN" placeholder, see NumberSlot) rather than being faked as 0.
+    const padded = Array.from({ length: vectorCount }, (_, i) => decodeLiteralComponent(value[i]) ?? Number.NaN);
     return (
       <span className="gcanvas-literal-vector" data-testid={`${testIdBase}.group`}>
         {Array.from({ length: vectorCount }, (_, slot) => (
@@ -136,7 +200,18 @@ export function TypedLiteralEditor({ type, value, colorKind, onCommit, testIdBas
             onCommit={onCommit}
           />
         ))}
-        {colorKind ? (
+        {colorKind && nanVector ? (
+          // A NaN color has no honest swatch (white would be a lie): offer an explicit way to start from opaque white and pick.
+          <button
+            type="button"
+            className="gcanvas-color-field-toggle"
+            title="Set a color (starts at white)"
+            data-testid={`${testIdBase}.init-color`}
+            onClick={() => onCommit(Array.from({ length: vectorCount }, () => 1))}
+          >
+            ●
+          </button>
+        ) : colorKind ? (
           <button
             type="button"
             className="gcanvas-color-field-toggle"
