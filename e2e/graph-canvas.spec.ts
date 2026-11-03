@@ -2,7 +2,9 @@ import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH, FIXTURE_PLAY_GLB_PATH } from "./global-setup.js";
 import { assertRegionRendersContent, assertHandleLabelPixelGap } from "./visual-assert.js";
-import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+
+test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
 /**
  * M4 behavior-graph canvas (specs/ux-graph-canvas.md UX-5xx): the lifted

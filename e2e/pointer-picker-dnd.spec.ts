@@ -1,7 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
-import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { clickNodeHeader, waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+
+test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
 /**
  * M4 pointer picker, drag-to-graph, and config editors:

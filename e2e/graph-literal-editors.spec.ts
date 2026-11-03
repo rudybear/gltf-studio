@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
-import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+
+test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
 /**
  * Typed literal editors incl. color pickers (task: "for such cases as input
