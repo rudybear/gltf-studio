@@ -574,3 +574,26 @@ describe("GraphEdit.renameCustomEvent / removeCustomEvent (DOC-055)", () => {
     expect(() => GraphEdit.removeCustomEvent(doc, 0, 99)).toThrow(/No event at index 99/);
   });
 });
+
+describe("GraphEdit never leaves an empty variables/events array (DOC-067)", () => {
+  it("removing the LAST variable drops the `variables` member (the spec rejects `[]`), and the inverse restores it", () => {
+    const doc = fixtureDocument(); // fixture graph 0 declares exactly one variable, v0 (unreferenced)
+    const before = doc.json;
+    const after = expectRoundTrip(before, GraphEdit.removeVariable(doc, 0, 0));
+    expect("variables" in (graph0(after) as object)).toBe(false);
+  });
+
+  it("removing the LAST custom event drops the `events` member, and the inverse restores it", () => {
+    const base = fixtureDocument();
+    const withEvent = applyCommand(base, GraphEdit.addCustomEvent(base, 0, { id: "e0" }));
+    const before = withEvent.json;
+    const after = expectRoundTrip(before, GraphEdit.removeCustomEvent(withEvent, 0, 0));
+    expect("events" in (graph0(after) as object)).toBe(false);
+  });
+
+  it("a freshly scaffolded graph carries no empty variables/events members", () => {
+    const doc = fixtureDocument({ asset: { version: "2.0" } });
+    const after = expectRoundTrip(doc.json, GraphEdit.ensureGraph(doc, 0));
+    expect(Object.keys(graph0(after)).sort()).toEqual(["declarations", "nodes", "types"]);
+  });
+});
