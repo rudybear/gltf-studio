@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Regenerates vendor/gltfi-{kernel,ir,gltf,emit-ts,parse-ts,verify,runtime,
-// runtime-lib}-0.0.1.tgz from the sibling gltf-interactivity monorepo,
+// Regenerates vendor/gltfi-{kernel,ir,gltf,emit-ts,parse-ts,verify,
+// runtime-lib}-0.0.1.tgz from the sibling gltf-interactivity monorepo
+// (@gltfi/runtime is NOT vendored any more: it is consumed from npm, ^0.1.0 —
+// see the 2026-11-02 addendum in docs/adr/0003-vendored-gltfi-tarballs.md),
 // vendor/gltfi-three-adapter-0.0.1.tgz from the sibling
 // gltf-interactivity-three repo's packages/adapter, (M7)
 // vendor/audio-graph-js-0.1.0.tgz from the sibling glTF-audio/AudioGraphJS
@@ -40,7 +42,6 @@ const GLTFI_PACKAGES = [
   "emit-ts",
   "parse-ts",
   "verify",
-  "runtime",
   "runtime-lib"
 ];
 

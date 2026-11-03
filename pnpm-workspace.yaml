@@ -12,7 +12,12 @@ allowBuilds:
   # running it, only unreviewed postinstall code to avoid.
   msw: false
 
-# Vendored @gltfi/* packages and the three.js render-host adapter are not published to
+# @gltfi/runtime@0.1.0 was published within the registry release-age window; our own package, so exempt.
+minimumReleaseAgeExclude:
+  - '@gltfi/runtime@0.1.0'
+
+# Vendored @gltfi/* packages (all except @gltfi/runtime, which now comes from npm) and the
+# three.js render-host adapter are not published to
 # npm (see docs/adr/0003-vendored-gltfi-tarballs.md). These overrides force ANY resolution
 # of these package names — direct or transitive — onto the committed vendor/ tarball
 # regardless of the semver range a consumer declares. As of M2, packages/engine-three
@@ -27,7 +32,10 @@ overrides:
   "@gltfi/emit-ts": "file:vendor/gltfi-emit-ts-0.0.1.tgz"
   "@gltfi/parse-ts": "file:vendor/gltfi-parse-ts-0.0.1.tgz"
   "@gltfi/verify": "file:vendor/gltfi-verify-0.0.1.tgz"
-  "@gltfi/runtime": "file:vendor/gltfi-runtime-0.0.1.tgz"
+  # @gltfi/runtime is published to npm (>=0.1.0, self-contained bundle). The vendored
+  # three-adapter / parse-ts tarballs still declare the old exact "0.0.1", so this range
+  # override pins every transitive occurrence onto the registry release too.
+  "@gltfi/runtime": "^0.1.0"
   "@gltfi/runtime-lib": "file:vendor/gltfi-runtime-lib-0.0.1.tgz"
   "@gltfi/three-adapter": "file:vendor/gltfi-three-adapter-0.0.1.tgz"
   # AudioGraphJS (github.com's sibling glTF-audio/AudioGraphJS checkout) is a

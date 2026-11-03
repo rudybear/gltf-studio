@@ -34,3 +34,14 @@ mid-milestone). The tradeoff is a manual refresh step (`pnpm refresh:vendor`) wh
 monorepos' relevant packages change, and a larger git history from committed tarballs — accepted as
 a one-line migration to ordinary npm ranges once publishing unblocks (no code changes needed, only
 `pnpm-workspace.yaml`'s `overrides` and each consumer's declared range).
+
+## Addendum (2026-11-02): `@gltfi/runtime` now comes from npm
+
+`@gltfi/runtime@0.1.0` is published to npm (a self-contained, zero-dependency ES2020 bundle of the
+reference interpreter). It is no longer vendored: `packages/play` and the root workspace declare
+`"@gltfi/runtime": "^0.1.0"`, `vendor/gltfi-runtime-0.0.1.tgz` and its `GLTFI_PACKAGES` entry in
+`scripts/refresh-vendor.mjs` are removed, and `pnpm-workspace.yaml` carries a `"^0.1.0"` range
+override (not a tarball) so the vendored `@gltfi/three-adapter` and `@gltfi/parse-ts`, which still
+declare the exact `0.0.1`, resolve to the registry release as well. All other packages named in
+this ADR (including `@gltfi/runtime-lib`, also on npm) stay vendored; the Decision above is
+otherwise unchanged.
