@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  ActiveCameraState,
   CameraPose,
   EditorHelperDescriptor,
   GizmoChangeEvent,
@@ -24,6 +25,7 @@ export const playControllerContractObligations: string[] = [
   "pause stops ticking until resume is called",
   "resume continues ticking from where pause left off",
   "tickOnce advances exactly one tick while paused",
+  "the viewport camera is read from the RenderHost at start() and before each tick (PC-011)",
   "stop() contractually reloads the scene snapshot (PC-003)",
   "stop() after stop() (already stopped) does not throw",
   "inspect() reports time/variables/sentEvents consistent with ticks that have occurred",
@@ -111,6 +113,8 @@ export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, 
  */
 export interface RenderHostSpy extends RenderHost {
   readonly loadSceneCalls: unknown[];
+  /** Number of `getActiveCameraState()` reads (PC-011). */
+  activeCameraReads: number;
 }
 
 const FIXED_CAMERA_POSE: CameraPose = { position: [0, 0, 3], rotation: [0, 0, 0, 1], target: [0, 0, 0] };
@@ -118,8 +122,9 @@ const FIXED_CAMERA_POSE: CameraPose = { position: [0, 0, 3], rotation: [0, 0, 0,
 export function createFakeRenderHost(options?: { throwOnPointer?: string }): RenderHostSpy {
   const loadSceneCalls: unknown[] = [];
   let cameraPose: CameraPose = FIXED_CAMERA_POSE;
-  return {
+  const spy: RenderHostSpy = {
     loadSceneCalls,
+    activeCameraReads: 0,
     mount(): void {},
     async loadScene(json: unknown): Promise<void> {
       loadSceneCalls.push(json);
@@ -136,6 +141,14 @@ export function createFakeRenderHost(options?: { throwOnPointer?: string }): Ren
     },
     setCameraPose(pose: CameraPose): void {
       cameraPose = pose;
+    },
+    getActiveCameraState(): ActiveCameraState {
+      spy.activeCameraReads++;
+      return {
+        position: cameraPose.position,
+        rotation: cameraPose.rotation,
+        projection: { type: "perspective", aspectRatio: 1.5, yfov: 0.8, znear: 0.01, zfar: 1000 }
+      };
     },
     attachGizmo(_nodeIndex: number, _mode: GizmoMode): void {},
     detachGizmo(): void {},
@@ -154,6 +167,7 @@ export function createFakeRenderHost(options?: { throwOnPointer?: string }): Ren
       return new Blob([], { type: "image/png" });
     }
   };
+  return spy;
 }
 
 export interface PlayControllerHarness {
@@ -388,6 +402,17 @@ export function describePlayControllerContract(
       const secondDelta = t2 - t1;
       expect(firstDelta).toBeGreaterThan(0);
       expect(secondDelta).toBeCloseTo(firstDelta, 10);
+      await controller.stop();
+    });
+
+    it("the viewport camera is read from the RenderHost at start() and before each tick (PC-011)", async () => {
+      const { controller, renderHost } = makeHarness();
+      await controller.start({ engine: "interpreter" });
+      const afterStart = renderHost.activeCameraReads;
+      expect(afterStart).toBeGreaterThanOrEqual(1);
+      controller.pause();
+      controller.tickOnce();
+      expect(renderHost.activeCameraReads).toBeGreaterThan(afterStart);
       await controller.stop();
     });
 

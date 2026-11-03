@@ -47,6 +47,6 @@ export default defineConfig({
     port: 5173
   },
   preview: {
-    port: 4173
+    port: Number(process.env.E2E_PORT ?? 4173)
   }
 });

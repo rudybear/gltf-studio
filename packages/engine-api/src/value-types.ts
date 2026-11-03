@@ -29,6 +29,25 @@ export interface CameraPose {
   target?: [number, number, number];
 }
 
+/**
+ * RH-036 / PC-011: projection of the camera actually rendering, in glTF
+ * units (perspective `yfov` is the VERTICAL field of view in RADIANS;
+ * orthographic `xmag`/`ymag` are half-extents). Structurally identical to
+ * `@gltfi/kernel`'s `ActiveCameraProjection`, so it can be handed to
+ * `InteractivityRuntime.setActiveCamera` without conversion.
+ */
+export type ActiveCameraProjection =
+  | { type: "perspective"; aspectRatio: number; yfov: number; znear: number; zfar: number }
+  | { type: "orthographic"; xmag: number; ymag: number; znear: number; zfar: number };
+
+/** RH-036: world pose (position + glTF-order quaternion) plus projection of the camera currently rendering. */
+export interface ActiveCameraState {
+  position: [number, number, number];
+  /** Quaternion, glTF order (x, y, z, w), world space. */
+  rotation: [number, number, number, number];
+  projection: ActiveCameraProjection;
+}
+
 // RESOLVED(EA-pickresult-shape-tbd) (see specs/render-host.md's "Open
 // questions"): the plan says RenderHost has a "pick" method and PickResult
 // is a shared value type, but did not originally enumerate PickResult's

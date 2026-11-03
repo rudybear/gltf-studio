@@ -26,7 +26,7 @@ import { importGraph, checkModule, type Graph as IrGraph, type IRModule } from "
 import { emitModule, EmitError } from "@gltfi/emit-ts";
 import { buildEmitView } from "@gltf-studio/script-panel/emit-view";
 import type { EngineFactory } from "@gltfi/runtime-lib";
-import type { EngineKind } from "@gltf-studio/engine-api";
+import type { ActiveCameraState, EngineKind } from "@gltf-studio/engine-api";
 import { debugVirtualSourceUrl } from "./debug-source.js";
 import { buildDebugModuleSource } from "./debug-compose.js";
 
@@ -37,6 +37,13 @@ export interface EngineHost {
   /** The resolved KHR_interactivity graph (graphs[0]) — PC-002's inspect() needs its `variables[i].id` for the id-vs-index fallback. */
   readonly graph: InterpGraph;
   readonly engine: EngineInteractive;
+  /**
+   * PC-011: pushes the viewport camera into the engine. Present for the
+   * interpreter (InteractivityRuntime.setActiveCamera, callable every
+   * tick); ABSENT for the compiled engine — @gltfi/runtime-lib only accepts
+   * `EngineOptions.activeCamera` at construction (a one-shot snapshot).
+   */
+  readonly setActiveCamera?: (state: ActiveCameraState) => void;
 }
 
 /**
@@ -69,15 +76,21 @@ export async function createEngineHost(
   binary: ArrayBuffer | Uint8Array | undefined,
   fanOut: PointerFanOut,
   debug = false,
-  breakpointLines?: readonly number[]
+  breakpointLines?: readonly number[],
+  initialCamera?: ActiveCameraState
 ): Promise<EngineHost> {
   const graph = resolveGraphOrThrow(documentJson);
   if (kind === "interpreter") {
     const runtime = new InteractivityRuntime(graph, documentJson, binary ?? null);
     runtime.bindAdapter({ applyPointer: fanOut });
-    return { graph, engine: runtime.asEngineLike() };
+    if (initialCamera) runtime.setActiveCamera(initialCamera.position, initialCamera.rotation, initialCamera.projection);
+    return {
+      graph,
+      engine: runtime.asEngineLike(),
+      setActiveCamera: (state) => runtime.setActiveCamera(state.position, state.rotation, state.projection)
+    };
   }
-  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug, breakpointLines);
+  const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug, breakpointLines, initialCamera);
   return { graph, engine };
 }
 
@@ -136,7 +149,8 @@ async function buildCompiledEngine(
   binary: ArrayBuffer | Uint8Array | undefined,
   fanOut: PointerFanOut,
   debug: boolean,
-  breakpointLines?: readonly number[]
+  breakpointLines?: readonly number[],
+  initialCamera?: ActiveCameraState
 ): Promise<EngineInteractive> {
   // @gltfi/runtime's Graph and @gltfi/ir's Graph are two independently
   // declared but structurally identical types — no KHR_interactivity-graph
@@ -171,7 +185,7 @@ async function buildCompiledEngine(
     // @gltfi/runtime@0.1.1 still types SentEvent.payload as the legacy 4-tuple
     // while runtime-lib (spec corpus f99d9b6) widened it to a generic EventPayload
     // (custom event payloads). Structurally the same engine surface; widen here.
-    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut }) as unknown as EngineInteractive;
+    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut, activeCamera: initialCamera ?? null }) as unknown as EngineInteractive;
   } finally {
     URL.revokeObjectURL(blobUrl);
   }

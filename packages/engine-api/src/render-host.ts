@@ -1,5 +1,5 @@
 import type { JsonPatchOp } from "./json-patch.js";
-import type { CameraPose, EditorHelperDescriptor, PickOptions, PickResult, TRS } from "./value-types.js";
+import type { ActiveCameraState, CameraPose, EditorHelperDescriptor, PickOptions, PickResult, TRS } from "./value-types.js";
 
 /**
  * RenderHost: the viewport abstraction. The editor never imports three.js
@@ -74,6 +74,14 @@ export interface RenderHost {
   /** RH-016/RH-017: see CameraPose (position + quaternion + optional target). */
   getCameraPose(): CameraPose;
   setCameraPose(pose: CameraPose): void;
+
+  /**
+   * RH-036: world pose + projection of the camera that is actually
+   * rendering right now (the editor/orbit camera in edit mode and in play
+   * mode unless a glTF camera has been switched in). Feeds the
+   * KHR_interactivity `activeCamera` pointers (PC-011).
+   */
+  getActiveCameraState(): ActiveCameraState;
 
   /** RH-018/RH-019: attaches/replaces a gizmo of the given mode on the node. */
   attachGizmo(nodeIndex: number, mode: GizmoMode): void;

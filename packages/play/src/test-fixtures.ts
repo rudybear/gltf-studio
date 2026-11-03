@@ -130,3 +130,50 @@ export function onTickPointerSetGltfJson(pointer = "/nodes/0/translation", value
 export function noGraphGltfJson(): Record<string, unknown> {
   return { asset: { version: "2.0" } };
 }
+
+/**
+ * PC-011: onTick -> variable/set(camPos <- pointer/get(/extensions/KHR_interactivity/activeCamera/position)),
+ * and (same chain) variable/set(camYfov <- pointer/get(.../activeCamera/perspective/yfov)). Both variables
+ * start at their (NaN-for-float) default, so a value that is not NaN proves the camera was fed.
+ */
+export function activeCameraProbeGltfJson(): Record<string, unknown> {
+  const AC = "/extensions/KHR_interactivity/activeCamera";
+  return {
+    asset: { version: "2.0" },
+    nodes: [{ name: "target" }],
+    extensionsUsed: ["KHR_interactivity"],
+    extensions: {
+      KHR_interactivity: {
+        graph: 0,
+        graphs: [
+          {
+            types: [{ signature: "float" }, { signature: "float3" }],
+            variables: [
+              { id: "camPos", type: 1 },
+              { id: "camYfov", type: 0 }
+            ],
+            events: [],
+            declarations: [{ op: "event/onTick" }, { op: "pointer/get" }, { op: "variable/set" }],
+            nodes: [
+              { declaration: 0, configuration: {}, values: {}, flows: { out: { node: 3, socket: "in" } } },
+              { declaration: 1, configuration: { pointer: { value: [`${AC}/position`] }, type: { value: [1] } }, values: {}, flows: {} },
+              { declaration: 1, configuration: { pointer: { value: [`${AC}/perspective/yfov`] }, type: { value: [0] } }, values: {}, flows: {} },
+              {
+                declaration: 2,
+                configuration: { variables: { value: [0] } },
+                values: { "0": { node: 1, socket: "value" } },
+                flows: { out: { node: 4, socket: "in" } }
+              },
+              {
+                declaration: 2,
+                configuration: { variables: { value: [1] } },
+                values: { "1": { node: 2, socket: "value" } },
+                flows: {}
+              }
+            ]
+          }
+        ]
+      }
+    }
+  };
+}

@@ -28,6 +28,7 @@ export const renderHostContractObligations: string[] = [
   "pick() honors KHR_node_selectability by default: a non-selectable node under the cursor is not picked (RH-027)",
   "pick(x, y, { ignoreEligibility: true }) picks a non-selectable node under the cursor, still gated by visibility (RH-027)",
   "getCameraPose/setCameraPose round-trip position and rotation (RH-016, RH-017)",
+  "getActiveCameraState reports the rendering camera's world pose and a perspective projection with yfov in radians (RH-036)",
   "attachGizmo accepts a GizmoMode of translate, rotate, or scale (RH-018)",
   "attachGizmo while a gizmo is already attached replaces it without an explicit detach (RH-019)",
   "detachGizmo removes any attached gizmo and is a no-op when none is attached (RH-025)",
@@ -417,6 +418,29 @@ export function describeRenderHostContract(makeHost: () => RenderHost): void {
       const readBack = host.getCameraPose();
       for (let i = 0; i < 3; i++) expect(readBack.position[i]).toBeCloseTo(pose.position[i], 5);
       for (let i = 0; i < 4; i++) expect(readBack.rotation[i]).toBeCloseTo(pose.rotation[i], 5);
+      teardown(host, container);
+    });
+
+    test("getActiveCameraState reports the rendering camera's world pose and a perspective projection with yfov in radians (RH-036)", () => {
+      const host = makeHost();
+      const container = createContainer();
+      host.mount(container);
+      host.setCameraPose({ position: [1, 2, 3], rotation: [0, Math.SQRT1_2, 0, Math.SQRT1_2], target: [0, 0, 0] });
+      const state = host.getActiveCameraState();
+      for (let i = 0; i < 3; i++) expect(state.position[i]).toBeCloseTo([1, 2, 3][i]!, 5);
+      for (let i = 0; i < 4; i++) expect(state.rotation[i]).toBeCloseTo([0, Math.SQRT1_2, 0, Math.SQRT1_2][i]!, 5);
+      expect(state.projection.type).toBe("perspective");
+      if (state.projection.type === "perspective") {
+        // yfov is radians (a vertical FOV of a few tens of degrees is well under pi), not degrees.
+        expect(state.projection.yfov).toBeGreaterThan(0);
+        expect(state.projection.yfov).toBeLessThan(Math.PI);
+        expect(state.projection.aspectRatio).toBeGreaterThan(0);
+        expect(state.projection.znear).toBeGreaterThan(0);
+        expect(state.projection.zfar).toBeGreaterThan(state.projection.znear);
+      }
+      // Moving the camera is reflected on the next read.
+      host.setCameraPose({ position: [-5, 0, 0], rotation: [0, 0, 0, 1], target: [0, 0, 0] });
+      expect(host.getActiveCameraState().position[0]).toBeCloseTo(-5, 5);
       teardown(host, container);
     });
 
