@@ -11,7 +11,7 @@ overrides:
   '@gltfi/emit-ts': file:vendor/gltfi-emit-ts-0.0.1.tgz
   '@gltfi/parse-ts': file:vendor/gltfi-parse-ts-0.0.1.tgz
   '@gltfi/verify': file:vendor/gltfi-verify-0.0.1.tgz
-  '@gltfi/runtime': file:vendor/gltfi-runtime-npm-0.2.0.tgz
+  '@gltfi/runtime': ^0.2.0
   '@gltfi/runtime-lib': file:vendor/gltfi-runtime-lib-0.0.1.tgz
   '@gltfi/three-adapter': file:vendor/gltfi-three-adapter-0.0.1.tgz
   audio-graph-js: file:vendor/audio-graph-js-0.1.0.tgz
@@ -39,8 +39,8 @@ importers:
         specifier: file:vendor/gltfi-parse-ts-0.0.1.tgz
         version: file:vendor/gltfi-parse-ts-0.0.1.tgz
       '@gltfi/runtime':
-        specifier: file:vendor/gltfi-runtime-npm-0.2.0.tgz
-        version: file:vendor/gltfi-runtime-npm-0.2.0.tgz
+        specifier: ^0.2.0
+        version: 0.2.0
       '@gltfi/verify':
         specifier: file:vendor/gltfi-verify-0.0.1.tgz
         version: file:vendor/gltfi-verify-0.0.1.tgz
@@ -479,8 +479,8 @@ importers:
         specifier: file:../../vendor/gltfi-ir-0.0.1.tgz
         version: file:vendor/gltfi-ir-0.0.1.tgz
       '@gltfi/runtime':
-        specifier: file:../../vendor/gltfi-runtime-npm-0.2.0.tgz
-        version: file:vendor/gltfi-runtime-npm-0.2.0.tgz
+        specifier: ^0.2.0
+        version: 0.2.0
       '@gltfi/runtime-lib':
         specifier: file:../../vendor/gltfi-runtime-lib-0.0.1.tgz
         version: file:vendor/gltfi-runtime-lib-0.0.1.tgz
@@ -808,9 +808,8 @@ packages:
     resolution: {integrity: sha512-QwpUs0d0gugoMVAljWVk+ExacBgTCyjKTgXefiNTtdsLHNNj/vqb8DHabzGtZnaHsYyp2z/2T3Z1X/wJuVuXgg==, tarball: file:vendor/gltfi-runtime-lib-0.0.1.tgz}
     version: 0.0.1
 
-  '@gltfi/runtime@file:vendor/gltfi-runtime-npm-0.2.0.tgz':
-    resolution: {integrity: sha512-GgezyboTNLujtFiQqVKXS9zrHZEtt3t5UD4BvMcveKNF98fY4DlrBz5nYe0HYIaa5NoSEiFZqnHa14hgJ4t1MQ==, tarball: file:vendor/gltfi-runtime-npm-0.2.0.tgz}
-    version: 0.2.0
+  '@gltfi/runtime@0.2.0':
+    resolution: {integrity: sha512-GgezyboTNLujtFiQqVKXS9zrHZEtt3t5UD4BvMcveKNF98fY4DlrBz5nYe0HYIaa5NoSEiFZqnHa14hgJ4t1MQ==}
 
   '@gltfi/three-adapter@file:vendor/gltfi-three-adapter-0.0.1.tgz':
     resolution: {integrity: sha512-hOgZ+RTCNUOqiX1MxpSxjC3oKU2HNMkjJRINSZHJCaM+Drg6nAQl4V4QUTEWC3D1AE1C3EKlVHJLvCEFNOKgnA==, tarball: file:vendor/gltfi-three-adapter-0.0.1.tgz}
@@ -2613,12 +2612,12 @@ snapshots:
     dependencies:
       '@gltfi/kernel': file:vendor/gltfi-kernel-0.0.1.tgz
 
-  '@gltfi/runtime@file:vendor/gltfi-runtime-npm-0.2.0.tgz': {}
+  '@gltfi/runtime@0.2.0': {}
 
   '@gltfi/three-adapter@file:vendor/gltfi-three-adapter-0.0.1.tgz(three@0.180.0)':
     dependencies:
       '@gltfi/kernel': file:vendor/gltfi-kernel-0.0.1.tgz
-      '@gltfi/runtime': file:vendor/gltfi-runtime-npm-0.2.0.tgz
+      '@gltfi/runtime': 0.2.0
       three: 0.180.0
 
   '@gltfi/verify@file:vendor/gltfi-verify-0.0.1.tgz':
