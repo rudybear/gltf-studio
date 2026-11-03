@@ -2457,7 +2457,6 @@ export const useAppStore = create<AppState>((set, get) => {
   async discardRecovery() {
     const { recoveryOffer, storage, log } = get();
     if (!recoveryOffer) return;
-    set({ recoveryOffer: null });
     try {
       // SP-016: any successful save clears the journal -- re-saving the
       // already-installed last-saved data as-is is enough to drop the stale
@@ -2470,6 +2469,14 @@ export const useAppStore = create<AppState>((set, get) => {
       });
     } catch (error) {
       log("error", `Failed to clear recovered journal: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Dismiss the prompt only AFTER the save (and its journal clear) has
+      // committed -- or failed. Hiding it first made "prompt gone" a false
+      // durability signal: a reload right after Discard could beat the
+      // IndexedDB write and re-offer the same stale journal (SP-016 flake).
+      // A second click while the save is in flight just repeats the same
+      // idempotent save.
+      if (get().recoveryOffer === recoveryOffer) set({ recoveryOffer: null });
     }
   },
 

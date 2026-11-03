@@ -151,6 +151,30 @@ describe("applyRecovery / discardRecovery (UX-125)", () => {
     const journal = await storage.loadJournal(id);
     expect(journal.patches).toEqual([]);
   });
+
+  it("discardRecovery keeps the prompt up until the journal is actually cleared (SP-016 durability; reload-after-Discard race)", async () => {
+    const id = await setUpCrashedProject();
+    const { storage } = useAppStore.getState();
+    // Hold the save open: the prompt disappearing is the user's (and the e2e
+    // suite's) signal that Discard is durable, so it must not disappear early.
+    let releaseSave!: () => void;
+    const gate = new Promise<void>((r) => (releaseSave = r));
+    const realSave = storage.save.bind(storage);
+    storage.save = async (...args: Parameters<typeof realSave>) => {
+      await gate;
+      return realSave(...args);
+    };
+
+    const pending = useAppStore.getState().discardRecovery();
+    await Promise.resolve();
+    expect(useAppStore.getState().recoveryOffer).not.toBeNull();
+    expect((await storage.loadJournal(id)).patches).not.toEqual([]);
+
+    releaseSave();
+    await pending;
+    expect(useAppStore.getState().recoveryOffer).toBeNull();
+    expect((await storage.loadJournal(id)).patches).toEqual([]);
+  });
 });
 
 describe("project manager row actions (UX-122)", () => {
