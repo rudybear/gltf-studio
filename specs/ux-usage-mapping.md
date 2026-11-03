@@ -188,3 +188,5 @@ how that request is constructed or dispatched.
   - `UX-1116`'s asset-browser badge click ("jumps to its first reference") has no test asserting
     behavior when an asset has 2+ references and a specific (non-first) one would arguably be more
     relevant — only ever exercised here against single-reference rows.
+
+- Implementation note (2026-11-03, gltf-interactivity 0.4.0): `usage-index`'s `animation/start|stop|stopAt` clip lookup (`literalValueNumber`) now also reads the spec form of the `animation` ref literal, the JSON Pointer `"/animations/N"` (the graph canvas writes that form now, see `specs/ux-graph-canvas.md`); the legacy bare-index literal is still read. No requirement change.

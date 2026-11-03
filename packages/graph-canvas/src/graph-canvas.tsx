@@ -5,6 +5,7 @@
 // report is translated here into a GraphEdit (or graph-edit-ext/ensure-graph)
 // Command and handed to `dispatchCommand`; this is the ONLY module in the
 // package that calls those command factories.
+import { animationRefPointer } from "./animation-ref.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   GraphEdit,
@@ -414,7 +415,7 @@ export function GraphCanvas({
 
   /** `animation/start`/`animation/stop`'s "animation" socket is a VALUE (ref-typed literal), not a `configuration` field — see handleCreateFromDrop's own doc comment for why `ref` needs its own `types[]` entry. */
   function handleSetAnimationValue(nodeIndex: number, animationIndex: number) {
-    dispatchCommand(setLiteralValue(document, graphIndex, nodeIndex, "animation", "ref", [animationIndex]));
+    dispatchCommand(setLiteralValue(document, graphIndex, nodeIndex, "animation", "ref", [animationRefPointer(animationIndex)]));
   }
 
   function handleLiteralCommit(nodeIndex: number, socket: string, type: ValueType, value: Array<number | boolean | string>) {
@@ -479,7 +480,7 @@ export function GraphCanvas({
         { ...workingDocument, json: jsonAfterType },
         index,
         optionKey === "animation-start" ? "animation/start" : "animation/stop",
-        { values: { animation: { type: refTypeIndex, value: [refId] } }, position }
+        { values: { animation: { type: refTypeIndex, value: [animationRefPointer(refId)] } }, position }
       );
       const combined = combineCommandParts([ensureRefCmd, addCmd]);
       command = { id: makeCommandId("add-anim-node"), label: addCmd.label, patches: combined.patches, inverse: combined.inverse };

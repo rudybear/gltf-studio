@@ -30,7 +30,6 @@ export function buildNanFixtureJson(): Record<string, unknown> {
               { id: "f", type: 0 },
               { id: "v3", type: 1 }
             ],
-            events: [],
             declarations: [{ op: "event/onStart" }, { op: "pointer/set" }, { op: "variable/set" }, { op: "math/add" }],
             nodes: [
               { declaration: 0, flows: { out: { node: 1, socket: "in" } } },
@@ -38,16 +37,16 @@ export function buildNanFixtureJson(): Record<string, unknown> {
                 declaration: 1,
                 configuration: { pointer: { value: ["/materials/0/pbrMetallicRoughness/baseColorFactor"] }, type: { value: [2] } },
                 values: { value: { type: 2 } },
-                flows: { out: { node: 4, socket: "in" } }
+                flows: { out: { node: 2, socket: "in" } }
               },
-              { declaration: 2, configuration: { variables: { value: [0] } }, values: { "0": { node: 3, socket: "value" } } },
-              { declaration: 3, values: { a: { type: 0 }, b: { type: 0, value: [1] } } },
               {
                 declaration: 1,
                 configuration: { pointer: { value: ["/nodes/0/scale"] }, type: { value: [1] } },
                 values: { value: { type: 1 } },
-                flows: { out: { node: 2, socket: "in" } }
-              }
+                flows: { out: { node: 4, socket: "in" } }
+              },
+              { declaration: 3, values: { a: { type: 0 }, b: { type: 0, value: [1] } } },
+              { declaration: 2, configuration: { variables: { value: [0] } }, values: { "0": { node: 3, socket: "value" } } }
             ]
           }
         ]

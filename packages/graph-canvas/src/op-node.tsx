@@ -7,6 +7,7 @@
 // colored dot; value handles colored by resolved type), a pointer-category
 // config row with two independent click targets (UX-505/UX-508), and a
 // corner validation badge with a hover/focus tooltip (UX-506).
+import { animationRefIndex } from "./animation-ref.js";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { MappedNode, MappedPort } from "./map-graph.js";
 import { categoryColor, typeColor } from "./palette.js";
@@ -204,7 +205,7 @@ export function OpNode({ data, selected }: NodeProps<OpNodeType>) {
   // `target` above is: a pure literal index (`node.literals.animation`,
   // already computed by mapGraph) resolved against `docNames.animationNames`.
   const animationLiteral = ANIMATION_OPS.has(node.op) ? node.literals.animation : undefined;
-  const animationIndex = typeof animationLiteral?.value[0] === "number" ? animationLiteral.value[0] : undefined;
+  const animationIndex = animationRefIndex(animationLiteral?.value[0]);
   const animationNames = docNames?.animationNames ?? [];
   const animationLabel =
     animationIndex === undefined

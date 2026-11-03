@@ -1,7 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
-import { clickNodeHeader, waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+import { clickNodeHeader, expectNoStructuralErrors, waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
 
 test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
@@ -125,7 +124,7 @@ test.describe("pointer-picker dialog (UX-900..908)", () => {
     expect(node.configuration!.pointer.value).toEqual(["/nodes/3/translation"]);
     const typeIndex = node.configuration!.type.value[0] as number;
     expect(graph.types[typeIndex]).toEqual({ signature: "float3" });
-    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+    expectNoStructuralErrors(graph);
     await expect(page.getByTestId(`gcanvas.pointer-text.${nodeIndex}`)).toHaveText("/nodes/3/translation");
 
     // Undoable (UX-906 writes through the normal command mechanism) — reverts ONLY the confirm, not the node's own existence.
@@ -249,10 +248,10 @@ test.describe("drag-drop node creation (UX-508/209)", () => {
     const animNodeIndex = graph.nodes.length - 1;
     node = graph.nodes[animNodeIndex]!;
     expect(graph.declarations[node.declaration]!.op).toBe("animation/start");
-    expect(node.values!.animation!.value).toEqual([0]);
+    expect(node.values!.animation!.value).toEqual(["/animations/0"]);
     const refTypeIndex = node.values!.animation!.type as number;
     expect(graph.types[refTypeIndex]).toEqual({ signature: "ref" });
-    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+    expectNoStructuralErrors(graph);
   });
 });
 
@@ -296,7 +295,7 @@ test.describe("config-field editor: variable selector (node-details.tsx)", () =>
     expect(graph.variables).toHaveLength(2);
     expect(graph.variables![1]!.id).toBe("speedVar");
     expect(graph.nodes[firstNodeIndex]!.configuration!.variables.value).toEqual([1]);
-    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+    expectNoStructuralErrors(graph);
 
     // ONE combined undo step removes BOTH the declaration and the assignment
     // — reverting to the SAME bare, unconfigured `variable/set` node the

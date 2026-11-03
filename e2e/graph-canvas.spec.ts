@@ -1,8 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
-import { validateGraph, type VGraph } from "@gltfi/verify";
 import { FIXTURE_GLB_PATH, FIXTURE_PLAY_GLB_PATH } from "./global-setup.js";
 import { assertRegionRendersContent, assertHandleLabelPixelGap } from "./visual-assert.js";
-import { waitForNodesSettled, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
+import { waitForNodesSettled, expectNoStructuralErrors, GRAPH_CANVAS_VIEWPORT } from "./graph-canvas-test-helpers.js";
 
 test.use({ viewport: GRAPH_CANVAS_VIEWPORT });
 
@@ -393,7 +392,7 @@ test.describe("behavior-graph canvas", () => {
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
     graph = await getGraphJson(page);
     expect(graph.nodes).toHaveLength(3);
-    expect(validateGraph(graph as unknown as VGraph).ok).toBe(true);
+    expectNoStructuralErrors(graph);
   });
 
   test("the details panel's passive surface never intercepts pointer events, only its real controls do (task #35 fix)", async ({

@@ -45,7 +45,7 @@ test.describe("NaN literal UX (UX-524)", () => {
     // Color literal (node 1, baseColorFactor, wholly omitted): the picker stays usable but is explicitly badged NaN.
     await expect(page.getByTestId("gcanvas.literal.1.value.nan-badge")).toContainText("NaN");
     // Non-editable float3 chip (node 4, /nodes/0/scale): "= [NaN, NaN, NaN]", not "= []".
-    await expect(page.getByTestId("gcanvas.node.4")).toContainText("= [NaN, NaN, NaN]");
+    await expect(page.getByTestId("gcanvas.node.2")).toContainText("= [NaN, NaN, NaN]");
     expect(errors).toEqual([]);
   });
 

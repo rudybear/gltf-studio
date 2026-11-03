@@ -26,7 +26,7 @@ import {
   type Command,
   type EditorDocument
 } from "@gltf-studio/editor-core";
-import { setPointerConfig } from "@gltf-studio/graph-canvas";
+import { animationRefPointer, setPointerConfig } from "@gltf-studio/graph-canvas";
 import {
   findEnclosingHandlerRoot,
   findGraphNodeIndexForPointer,
@@ -2034,7 +2034,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const docAfterRefType: EditorDocument = { ...history.document, json: jsonAfterRefType };
 
     const animCmd = GraphEdit.addNode(docAfterRefType, graphIndex, "animation/start", {
-      values: { animation: { type: refTypeIndex, value: [animationIndex] } }
+      values: { animation: { type: refTypeIndex, value: [animationRefPointer(animationIndex)] } }
     });
     const jsonAfterAnim = applyPatches(jsonAfterRefType, animCmd.patches);
     const docAfterAnim: EditorDocument = { ...history.document, json: jsonAfterAnim };

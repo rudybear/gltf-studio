@@ -140,6 +140,12 @@ function literalValueNumber(node: UsageGraphNode, socket: string): number | unde
   const v = node.values?.[socket];
   if (!v || isValueRef(v)) return undefined;
   const raw = (v as UsageGraphValueLiteral).value?.[0];
+  // A `ref` literal (animation/start|stop|stopAt's `animation`) is a JSON Pointer string, "/animations/N", per the spec /
+  // runtime; older studio documents wrote the bare index N, still read here.
+  if (typeof raw === "string") {
+    const m = /^\/animations\/(\d+)$/.exec(raw);
+    return m ? Number(m[1]) : undefined;
+  }
   return typeof raw === "number" ? raw : undefined;
 }
 

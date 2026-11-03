@@ -162,8 +162,6 @@ export function buildLightsPlayFixtureBytes(): Buffer {
         graphs: [
           {
             types: [{ signature: "float3" }],
-            variables: [],
-            events: [],
             declarations: [{ op: "event/onStart" }, { op: "pointer/set" }],
             nodes: [
               { declaration: 0, flows: { out: { node: 1, socket: "in" } } },

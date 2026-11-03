@@ -44,3 +44,4 @@ export { NodeDetails, type NodeDetailsProps } from "./node-details.js";
 export { VariablesPanel, type VariablesPanelProps } from "./variables-panel.js";
 export { TypedLiteralEditor, EDITABLE_LITERAL_TYPES, VECTOR_COMPONENT_COUNTS, type TypedLiteralEditorProps, type LiteralValue } from "./literal-editors.js";
 export { ColorField, colorKindForPointerPath, hexToRgb01, rgb01ToHex, useNumericFallbackToggle, type ColorFieldProps, type ColorKind } from "./color-field.js";
+export { animationRefPointer, animationRefIndex } from "./animation-ref.js";

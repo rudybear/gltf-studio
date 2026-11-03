@@ -13,6 +13,7 @@
 // editor is the natural place a user looks for it), and a generic
 // key/value fallback (inferred from the current value's JS type) for every
 // other op's config fields this doesn't special-case.
+import { animationRefIndex } from "./animation-ref.js";
 import { useState } from "react";
 import type { ValueType } from "@gltfi/kernel";
 import type { InteractivityEvent, InteractivityVariable, MappedGraph, MappedNode } from "./map-graph.js";
@@ -483,7 +484,7 @@ function ConfigEditor({
 function AnimationValueEditor({ node, animationNames, onSetAnimationValue }: { node: MappedNode; animationNames: string[]; onSetAnimationValue?: NodeDetailsProps["onSetAnimationValue"] }) {
   if (!ANIMATION_OPS.has(node.op) || !onSetAnimationValue) return null;
   const literal = node.literals.animation;
-  const currentIndex = literal?.value[0] as number | undefined;
+  const currentIndex = animationRefIndex(literal?.value[0]);
   return (
     <section className="gcanvas-details-section">
       <h3>Animation</h3>

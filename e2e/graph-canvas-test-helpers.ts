@@ -1,5 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { validateGraph, type VGraph } from "@gltfi/verify";
 
 /**
  * Shared readiness/interaction helpers for every spec that drives a
@@ -109,3 +110,15 @@ export async function clickNodeHeader(scope: Page | Locator, nodeIndex: number):
  * `test.use({ viewport: GRAPH_CANVAS_VIEWPORT })`.
  */
 export const GRAPH_CANVAS_VIEWPORT = { width: 1920, height: 1080 } as const;
+
+/**
+ * Asserts an edited graph has no STRUCTURAL validation errors (dangling indices, bad references,
+ * wrong types, ...). A node freshly added from the palette / a drop-menu has not had its required input
+ * value sockets wired yet, and the spec's Validation (GV164, "missing required input value socket(s)")
+ * rejects exactly that -- it is the editor's legitimate "in progress" state, reported on Play (UX-132) --
+ * so those, and only those, are tolerated here.
+ */
+export function expectNoStructuralErrors(graph: unknown): void {
+  const errors = validateGraph(graph as VGraph).diagnostics.filter((d) => d.severity === "error" && d.code !== "GV164");
+  expect(errors).toEqual([]);
+}
