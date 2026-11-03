@@ -32,10 +32,9 @@ export function fixtureGltfJson(): Record<string, unknown> {
             types: [{ signature: "float" }, { signature: "bool" }],
             declarations: [{ op: "event/onStart" }, { op: "event/onTick" }, { op: "math/add" }],
             variables: [{ id: "v0", type: 0, value: [0] }],
-            events: [],
             nodes: [
-              { declaration: 0, flows: {} },
-              { declaration: 1, flows: {}, values: {} }
+              { declaration: 0 },
+              { declaration: 1 }
             ]
           }
         ]

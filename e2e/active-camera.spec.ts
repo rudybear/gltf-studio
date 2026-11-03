@@ -54,18 +54,7 @@ for (const engine of ["interpreter", "compiled"] as const) {
     // yfov is radians (three's 45deg vertical fov = 0.7854).
     await expect.poll(async () => Number(await overlayVal(page, "camYfov"))).toBeCloseTo(Math.PI / 4, 3);
 
-    if (engine === "compiled") {
-      // Documented limitation (PC-011): the compiled engine only gets a construction-time snapshot.
-      const before = parseVec(await overlayVal(page, "camPos"));
-      await page.evaluate(() =>
-        window.__gltfStudioTest!.setCameraPose({ position: [4, 1, 2], rotation: [0, 0, 0, 1], target: [0, 0, 0] })
-      );
-      await page.waitForTimeout(300);
-      expect(parseVec(await overlayVal(page, "camPos"))).toEqual(before);
-      return;
-    }
-
-    // Interpreter: moving the camera (programmatically, then by a REAL mouse orbit drag) changes the value on screen.
+    // Both engines (compiled via runtime-lib 0.2.0 setActiveCamera): moving the camera (programmatically, then by a REAL mouse orbit drag) changes the value on screen.
     await page.evaluate(() =>
       window.__gltfStudioTest!.setCameraPose({ position: [4, 1, 2], rotation: [0, 0, 0, 1], target: [0, 0, 0] })
     );

@@ -45,9 +45,7 @@ export function fixtureSceneJson(opts: FixtureOptions = {}): Record<string, unkn
         {
           types: [{ signature: "float" }],
           declarations: [{ op: "event/onStart" }],
-          variables: [],
-          events: [],
-          nodes: [{ declaration: 0, flows: {} }]
+          nodes: [{ declaration: 0 }]
         }
       ]
     };

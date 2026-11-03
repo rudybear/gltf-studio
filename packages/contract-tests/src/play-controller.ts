@@ -44,6 +44,27 @@ export const playControllerContractObligations: string[] = [
 export const CONTRACT_UNHANDLED_POINTER = "/nodes/0/translation";
 
 /**
+ * Load-time validation (spec "Validation"; @gltfi/runtime >= 0.2.0) rejects empty `variables`/`events`
+ * arrays and empty node `configuration`/`values`/`flows` objects; the fixture is written in the readable
+ * full shape and normalised to the wire form here.
+ */
+function wire<T>(json: T): T {
+  const graphs = ((json as { extensions?: { KHR_interactivity?: { graphs?: Array<Record<string, unknown>> } } }).extensions?.KHR_interactivity?.graphs) ?? [];
+  for (const g of graphs) {
+    for (const key of ["types", "declarations", "variables", "events"]) {
+      if (Array.isArray(g[key]) && (g[key] as unknown[]).length === 0) delete g[key];
+    }
+    for (const n of (g.nodes as Array<Record<string, unknown>> | undefined) ?? []) {
+      for (const key of ["configuration", "values", "flows"]) {
+        const v = n[key];
+        if (v && typeof v === "object" && Object.keys(v).length === 0) delete n[key];
+      }
+    }
+  }
+  return json;
+}
+
+/**
  * onTick -> variable/get(counter) -> math/add(+1) -> variable/set(counter)
  * -> pointer/set(CONTRACT_UNHANDLED_POINTER, float3 [1,2,3]) (a real, resolvable, writable pointer: @gltfi/runtime >= 0.1.1 errs, instead of writing, on unresolvable pointers). One linear flow chain
  * (the same proven op/config/value/flow shapes as
@@ -55,7 +76,7 @@ export const CONTRACT_UNHANDLED_POINTER = "/nodes/0/translation";
  * obligation below (`makeHarness()` takes no per-test arguments).
  */
 export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, pointerValue: number[] = [1, 2, 3]): Record<string, unknown> {
-  return {
+  return wire({
     asset: { version: "2.0" },
     nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
@@ -66,7 +87,6 @@ export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, 
           {
             types: [{ signature: "int" }, { signature: "float3" }],
             variables: [{ id: "counter", type: 0, value: [0] }],
-            events: [],
             declarations: [
               { op: "event/onTick" },
               { op: "variable/get" },
@@ -100,7 +120,7 @@ export function contractGraphJson(pointer: string = CONTRACT_UNHANDLED_POINTER, 
         ]
       }
     }
-  };
+  });
 }
 
 /**

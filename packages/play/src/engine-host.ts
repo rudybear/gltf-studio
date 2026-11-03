@@ -25,7 +25,7 @@ import type { EngineInteractive } from "@gltfi/runtime";
 import { importGraph, checkModule, type Graph as IrGraph, type IRModule } from "@gltfi/ir";
 import { emitModule, EmitError } from "@gltfi/emit-ts";
 import { buildEmitView } from "@gltf-studio/script-panel/emit-view";
-import type { EngineFactory } from "@gltfi/runtime-lib";
+import type { EngineFactory, EngineInteractive as CompiledEngine } from "@gltfi/runtime-lib";
 import type { ActiveCameraState, EngineKind } from "@gltf-studio/engine-api";
 import { debugVirtualSourceUrl } from "./debug-source.js";
 import { buildDebugModuleSource } from "./debug-compose.js";
@@ -38,12 +38,11 @@ export interface EngineHost {
   readonly graph: InterpGraph;
   readonly engine: EngineInteractive;
   /**
-   * PC-011: pushes the viewport camera into the engine. Present for the
-   * interpreter (InteractivityRuntime.setActiveCamera, callable every
-   * tick); ABSENT for the compiled engine — @gltfi/runtime-lib only accepts
-   * `EngineOptions.activeCamera` at construction (a one-shot snapshot).
+   * PC-011: pushes the viewport camera into the engine; callable every tick
+   * on BOTH engine kinds (InteractivityRuntime.setActiveCamera /
+   * @gltfi/runtime-lib's EngineInteractive.setActiveCamera, 0.2.0+).
    */
-  readonly setActiveCamera?: (state: ActiveCameraState) => void;
+  readonly setActiveCamera: (state: ActiveCameraState) => void;
 }
 
 /**
@@ -79,6 +78,8 @@ export async function createEngineHost(
   breakpointLines?: readonly number[],
   initialCamera?: ActiveCameraState
 ): Promise<EngineHost> {
+  // PC-012: resolveGraph validates the whole extension and throws InteractivityValidationError
+  // (diagnostics[]) for a spec-invalid graph; it propagates unchanged, before any engine exists.
   const graph = resolveGraphOrThrow(documentJson);
   if (kind === "interpreter") {
     const runtime = new InteractivityRuntime(graph, documentJson, binary ?? null);
@@ -91,7 +92,7 @@ export async function createEngineHost(
     };
   }
   const engine = await buildCompiledEngine(graph, documentJson, binary, fanOut, debug, breakpointLines, initialCamera);
-  return { graph, engine };
+  return { graph, engine, setActiveCamera: (state) => engine.setActiveCamera(state.position, state.rotation, state.projection) };
 }
 
 /**
@@ -151,13 +152,16 @@ async function buildCompiledEngine(
   debug: boolean,
   breakpointLines?: readonly number[],
   initialCamera?: ActiveCameraState
-): Promise<EngineInteractive> {
+): Promise<CompiledEngine> {
   // @gltfi/runtime's Graph and @gltfi/ir's Graph are two independently
   // declared but structurally identical types — no KHR_interactivity-graph
   // shape conversion actually happens here, just a type-system formality
   // (see gltf-interactivity's packages/conformance/src/run-compiled.ts for
   // the same cast).
   const irGraph = graph as unknown as IrGraph;
+  // `graph` came from resolveGraph, which already validated the whole extension
+  // (PC-012) and marked the normalized copy validated, so importGraph's own
+  // load-time validation is a cheap no-op here.
   const { module, diagnostics } = importGraph(irGraph);
   const importErrors = diagnostics.filter((d) => d.severity === "error");
   if (importErrors.length > 0) {
@@ -182,10 +186,7 @@ async function buildCompiledEngine(
     if (typeof mod.default !== "function") {
       throw new Error("PlayController.start: compiled module has no default-exported EngineFactory.");
     }
-    // @gltfi/runtime@0.1.1 still types SentEvent.payload as the legacy 4-tuple
-    // while runtime-lib (spec corpus f99d9b6) widened it to a generic EventPayload
-    // (custom event payloads). Structurally the same engine surface; widen here.
-    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut, activeCamera: initialCamera ?? null }) as unknown as EngineInteractive;
+    return mod.default({ gltf: documentJson, glbBin: binary, onPointerSet: fanOut, activeCamera: initialCamera ?? null });
   } finally {
     URL.revokeObjectURL(blobUrl);
   }

@@ -12,9 +12,9 @@ allowBuilds:
   # running it, only unreviewed postinstall code to avoid.
   msw: false
 
-# @gltfi/runtime@0.1.1 was published within the registry release-age window; our own package, so exempt.
+# @gltfi/runtime@0.2.0 was published within the registry release-age window; our own package, so exempt.
 minimumReleaseAgeExclude:
-  - '@gltfi/runtime@0.1.1'
+  - '@gltfi/runtime@0.2.0'
 
 # Vendored @gltfi/* packages (all except @gltfi/runtime, which now comes from npm) and the
 # three.js render-host adapter are not published to
@@ -35,7 +35,7 @@ overrides:
   # @gltfi/runtime is published to npm (>=0.1.0, self-contained bundle). The vendored
   # three-adapter / parse-ts tarballs still declare the old exact "0.0.1", so this range
   # override pins every transitive occurrence onto the registry release too.
-  "@gltfi/runtime": "^0.1.1"
+  "@gltfi/runtime": "file:vendor/gltfi-runtime-npm-0.2.0.tgz"
   "@gltfi/runtime-lib": "file:vendor/gltfi-runtime-lib-0.0.1.tgz"
   "@gltfi/three-adapter": "file:vendor/gltfi-three-adapter-0.0.1.tgz"
   # AudioGraphJS (github.com's sibling glTF-audio/AudioGraphJS checkout) is a

@@ -83,7 +83,7 @@ function fixtureJson(): Record<string, unknown> {
     extensions: {
       KHR_interactivity: {
         graph: 0,
-        graphs: [{ types: [{ signature: "float" }], declarations: [{ op: "event/onStart" }], variables: [], events: [], nodes: [{ declaration: 0, flows: {} }] }]
+        graphs: [{ types: [{ signature: "float" }], declarations: [{ op: "event/onStart" }], nodes: [{ declaration: 0 }] }]
       }
     }
   };

@@ -390,6 +390,10 @@ any run is "still settling" from a caller's own perspective; no second readiness
 juggle. Verified: 90/90 clean (interleaved with the delete-node regression above) across repeated
 uncontended runs.
 
+## Implementation notes (2026-11-03, gltf-interactivity 0.4.0)
+
+- `validateInteractivityGraph` (`validation.ts`) keeps surfacing the structural `@gltfi/verify` `validateGraph` diagnostics per node (those now follow the spec's full Validation algorithm, including empty-array / backward-flow rules) and calls `importGraph(graph, { validate: false })` for the IR-import and `checkModule` sources, so an invalid graph yields diagnostics rather than a thrown `InteractivityValidationError` (which `safeRun` would have flattened into a `GCANVAS-VALIDATOR-THREW` entry). The Khronos corpus fixtures under `src/fixtures/` (used for mapping/layout only) contain backward flows the new rules reject; the validation test now asserts that GV156 is reported against the right node instead of expecting `ok: true`. No requirement change.
+
 ## Open questions
 
 - OPEN(UX-palette-fold-tbd): the approved mockup shows all nine categories flat and unfolded —

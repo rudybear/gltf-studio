@@ -238,7 +238,6 @@ function sceneEditOnlyFixtureJson(): Record<string, unknown> {
         graph: 0,
         graphs: [
           {
-            types: [],
             declarations: [{ op: "event/onSelect" }],
             nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [0] } } }]
           }
@@ -363,7 +362,6 @@ function reparentDuplicateFixtureJson(): Record<string, unknown> {
         graph: 0,
         graphs: [
           {
-            types: [],
             declarations: [{ op: "event/onSelect" }],
             nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [1] } } }]
           }
@@ -544,7 +542,6 @@ function reparentDuplicateAddRemoveFixtureJson(): Record<string, unknown> {
         graph: 0,
         graphs: [
           {
-            types: [],
             declarations: [{ op: "event/onSelect" }],
             nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [1] } } }]
           }

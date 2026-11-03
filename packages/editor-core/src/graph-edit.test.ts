@@ -183,8 +183,6 @@ describe("GraphEdit.ensureGraph (DOC-041)", () => {
     expect(after.extensions.KHR_interactivity.graphs[0]).toEqual({
       types: [],
       declarations: [],
-      variables: [],
-      events: [],
       nodes: []
     });
   });

@@ -40,7 +40,10 @@ export function provenanceComment(graphIndex: number): string {
 }
 
 export function buildEmitView(graph: Graph, graphIndex: number): EmitView {
-  const { module, diagnostics } = importGraph(graph);
+  // PC-012: the Script tab renders in-progress, possibly spec-invalid
+  // graphs, so load-time validation is opted out here -- the graph canvas / play surface the
+  // validator's diagnostics; a throw would blank the tab.
+  const { module, diagnostics } = importGraph(graph, { validate: false });
   const { code, names } = emitModule(module, { flavor: "ts" });
   return { code: provenanceComment(graphIndex) + code, names, module, diagnostics };
 }

@@ -15,7 +15,7 @@
 
 /** onTick -> variable/get(counter) -> math/add(+1) -> variable/set(counter). Increments `counter` by 1 every tick. */
 export function tickCounterGltfJson(): Record<string, unknown> {
-  return {
+  return wire({
     asset: { version: "2.0" },
     extensionsUsed: ["KHR_interactivity"],
     extensions: {
@@ -25,7 +25,6 @@ export function tickCounterGltfJson(): Record<string, unknown> {
           {
             types: [{ signature: "int" }],
             variables: [{ id: "counter", type: 0, value: [0] }],
-            events: [],
             declarations: [
               { op: "event/onTick" },
               { op: "variable/get" },
@@ -52,21 +51,12 @@ export function tickCounterGltfJson(): Record<string, unknown> {
         ]
       }
     }
-  };
-}
-
-/** Same shape as tickCounterGltfJson, but onTick's flow targets a node index that doesn't exist -> InteractivityRuntime.tick throws. */
-export function throwingTickGltfJson(): Record<string, unknown> {
-  const json = tickCounterGltfJson() as {
-    extensions: { KHR_interactivity: { graphs: [{ nodes: [{ flows: { out: { node: number } } }] }] } };
-  };
-  json.extensions.KHR_interactivity.graphs[0].nodes[0].flows.out.node = 999;
-  return json;
+  });
 }
 
 /** onStart -> pointer/set("/nodes/0/translation", float3 [1,2,3]) against a one-node document. Fires exactly once, synchronously, from InteractivityRuntime.start(). */
 export function onStartPointerSetGltfJson(pointer = "/nodes/0/translation", value: number[] = [1, 2, 3]): Record<string, unknown> {
-  return {
+  return wire({
     asset: { version: "2.0" },
     nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
@@ -77,7 +67,6 @@ export function onStartPointerSetGltfJson(pointer = "/nodes/0/translation", valu
           {
             types: [{ signature: "float3" }],
             variables: [],
-            events: [],
             declarations: [{ op: "event/onStart" }, { op: "pointer/set" }],
             nodes: [
               { declaration: 0, configuration: {}, values: {}, flows: { out: { node: 1, socket: "in" } } },
@@ -92,12 +81,12 @@ export function onStartPointerSetGltfJson(pointer = "/nodes/0/translation", valu
         ]
       }
     }
-  };
+  });
 }
 
 /** onTick -> pointer/set("/nodes/0/translation", float3 [1,2,3]) against a one-node document. Fires on every tick (unlike onStartPointerSetGltfJson's once-only fire). */
 export function onTickPointerSetGltfJson(pointer = "/nodes/0/translation", value: number[] = [1, 2, 3]): Record<string, unknown> {
-  return {
+  return wire({
     asset: { version: "2.0" },
     nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
@@ -108,7 +97,6 @@ export function onTickPointerSetGltfJson(pointer = "/nodes/0/translation", value
           {
             types: [{ signature: "float3" }],
             variables: [],
-            events: [],
             declarations: [{ op: "event/onTick" }, { op: "pointer/set" }],
             nodes: [
               { declaration: 0, configuration: {}, values: {}, flows: { out: { node: 1, socket: "in" } } },
@@ -123,7 +111,7 @@ export function onTickPointerSetGltfJson(pointer = "/nodes/0/translation", value
         ]
       }
     }
-  };
+  });
 }
 
 /** A document with no KHR_interactivity extension at all — start() should reject clearly. */
@@ -138,7 +126,7 @@ export function noGraphGltfJson(): Record<string, unknown> {
  */
 export function activeCameraProbeGltfJson(): Record<string, unknown> {
   const AC = "/extensions/KHR_interactivity/activeCamera";
-  return {
+  return wire({
     asset: { version: "2.0" },
     nodes: [{ name: "target" }],
     extensionsUsed: ["KHR_interactivity"],
@@ -152,7 +140,6 @@ export function activeCameraProbeGltfJson(): Record<string, unknown> {
               { id: "camPos", type: 1 },
               { id: "camYfov", type: 0 }
             ],
-            events: [],
             declarations: [{ op: "event/onTick" }, { op: "pointer/get" }, { op: "variable/set" }],
             nodes: [
               { declaration: 0, configuration: {}, values: {}, flows: { out: { node: 3, socket: "in" } } },
@@ -175,5 +162,26 @@ export function activeCameraProbeGltfJson(): Record<string, unknown> {
         ]
       }
     }
-  };
+  });
+}
+
+/**
+ * Load-time validation (spec "Validation"; @gltfi/runtime >= 0.2.0) rejects empty `variables`/`events`
+ * arrays and empty node `configuration`/`values`/`flows` objects. Fixtures are written in the readable
+ * "full shape" and normalised to the wire form here, so each reads like the graph it models.
+ */
+export function wire<T>(json: T): T {
+  const graphs = ((json as { extensions?: { KHR_interactivity?: { graphs?: Array<Record<string, unknown>> } } }).extensions?.KHR_interactivity?.graphs) ?? [];
+  for (const g of graphs) {
+    for (const key of ["types", "declarations", "variables", "events"]) {
+      if (Array.isArray(g[key]) && (g[key] as unknown[]).length === 0) delete g[key];
+    }
+    for (const n of (g.nodes as Array<Record<string, unknown>> | undefined) ?? []) {
+      for (const key of ["configuration", "values", "flows"]) {
+        const v = n[key];
+        if (v && typeof v === "object" && Object.keys(v).length === 0) delete n[key];
+      }
+    }
+  }
+  return json;
 }

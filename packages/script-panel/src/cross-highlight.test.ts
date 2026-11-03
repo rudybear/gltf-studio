@@ -43,14 +43,12 @@ describe("findHighlightForNode pointer-path fallback (specs/ux-usage-mapping.md 
   const POINTER_FIXTURE_GRAPH: Graph = {
     types: [{ signature: "float3" }],
     declarations: [{ op: "event/onSelect" }, { op: "pointer/set" }],
-    variables: [],
     nodes: [
       { declaration: 0, configuration: { nodeIndex: { value: [1] } }, flows: { out: { node: 1, socket: "in" } } },
       {
         declaration: 1,
         configuration: { pointer: { value: ["/nodes/3/translation"] }, type: { value: [0] } },
         values: { value: { type: 0, value: [0, 0, 0] } },
-        flows: {}
       }
     ]
   };
@@ -81,7 +79,6 @@ describe("findHighlightForNode pointer-path fallback (specs/ux-usage-mapping.md 
     const graph: Graph = {
       types: [{ signature: "float3" }],
       declarations: [{ op: "event/onSelect" }, { op: "event/onHoverIn" }, { op: "pointer/set" }],
-      variables: [],
       nodes: [
         { declaration: 0, configuration: { nodeIndex: { value: [5] } }, flows: { out: { node: 2, socket: "in" } } }, // 0: onSelect -> pointer/set A
         { declaration: 1, configuration: { nodeIndex: { value: [5] } }, flows: { out: { node: 3, socket: "in" } } }, // 1: onHoverIn -> pointer/set B
@@ -89,13 +86,11 @@ describe("findHighlightForNode pointer-path fallback (specs/ux-usage-mapping.md 
           declaration: 2,
           configuration: { pointer: { value: ["/nodes/5/translation"] }, type: { value: [0] } },
           values: { value: { type: 0, value: [0, 0, 0] } },
-          flows: {}
         }, // 2: pointer/set A
         {
           declaration: 2,
           configuration: { pointer: { value: ["/nodes/5/translation"] }, type: { value: [0] } },
           values: { value: { type: 0, value: [1, 1, 1] } },
-          flows: {}
         } // 3: pointer/set B — same path, set from a DIFFERENT handler
       ]
     };
@@ -114,7 +109,6 @@ describe("findHighlightForNode pointer-path fallback (specs/ux-usage-mapping.md 
     const graph: Graph = {
       types: [{ signature: "float3" }],
       declarations: [{ op: "event/onSelect" }, { op: "event/onHoverIn" }, { op: "pointer/set" }],
-      variables: [],
       nodes: [
         { declaration: 0, configuration: { nodeIndex: { value: [5] } }, flows: { out: { node: 2, socket: "in" } } }, // 0: onSelect -> pointer/set A
         { declaration: 1, configuration: { nodeIndex: { value: [5] } }, flows: { out: { node: 3, socket: "in" } } }, // 1: onHoverIn -> pointer/set B
@@ -122,13 +116,11 @@ describe("findHighlightForNode pointer-path fallback (specs/ux-usage-mapping.md 
           declaration: 2,
           configuration: { pointer: { value: ["/nodes/5/translation"] }, type: { value: [0] } },
           values: { value: { type: 0, value: [0, 0, 0] } },
-          flows: {}
         }, // 2: pointer/set A (under onSelect, node 0)
         {
           declaration: 2,
           configuration: { pointer: { value: ["/nodes/5/translation"] }, type: { value: [0] } },
           values: { value: { type: 0, value: [1, 1, 1] } },
-          flows: {}
         } // 3: pointer/set B (under onHoverIn, node 1)
       ]
     };

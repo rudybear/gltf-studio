@@ -171,10 +171,8 @@ export class PlayControllerImpl implements PlayController {
   #tickEngine(dtSeconds: number): void {
     if (!this.#host) return;
     // PC-011: feed the camera BEFORE the engine tick so this tick's pointer/get sees it.
-    if (this.#host.setActiveCamera) {
-      const camera = this.#readCamera();
-      if (camera) this.#host.setActiveCamera(camera);
-    }
+    const camera = this.#readCamera();
+    if (camera) this.#host.setActiveCamera(camera);
     try {
       this.#host.engine.advance(dtSeconds);
     } catch (err) {

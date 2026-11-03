@@ -45,14 +45,13 @@ export function buildActiveCameraFixtureBytes(): Buffer {
               { id: "camPos", type: 1 },
               { id: "camYfov", type: 0 }
             ],
-            events: [],
             declarations: [{ op: "event/onTick" }, { op: "pointer/get" }, { op: "variable/set" }],
             nodes: [
-              { declaration: 0, configuration: {}, values: {}, flows: { out: { node: 3, socket: "in" } } },
-              { declaration: 1, configuration: { pointer: { value: [`${AC}/position`] }, type: { value: [1] } }, values: {}, flows: {} },
-              { declaration: 1, configuration: { pointer: { value: [`${AC}/perspective/yfov`] }, type: { value: [0] } }, values: {}, flows: {} },
+              { declaration: 0, flows: { out: { node: 3, socket: "in" } } },
+              { declaration: 1, configuration: { pointer: { value: [`${AC}/position`] }, type: { value: [1] } } },
+              { declaration: 1, configuration: { pointer: { value: [`${AC}/perspective/yfov`] }, type: { value: [0] } } },
               { declaration: 2, configuration: { variables: { value: [0] } }, values: { "0": { node: 1, socket: "value" } }, flows: { out: { node: 4, socket: "in" } } },
-              { declaration: 2, configuration: { variables: { value: [1] } }, values: { "1": { node: 2, socket: "value" } }, flows: {} }
+              { declaration: 2, configuration: { variables: { value: [1] } }, values: { "1": { node: 2, socket: "value" } } }
             ]
           }
         ]

@@ -245,6 +245,10 @@ logic.
   installed error marker's `startLineNumber`, ascending) so an e2e test can assert a known-bad
   script's marker lands on the exact line the error is on, not merely that some marker exists.
 
+## Implementation notes (2026-11-03, gltf-interactivity 0.4.0)
+
+- `buildEmitView` (`emit-view.ts`) calls `importGraph(graph, { validate: false })`. The Script tab renders the CURRENT graph, which is routinely mid-edit and spec-invalid (empty scaffold, dangling references, backward flows); `importGraph` now throws `InteractivityValidationError` by default, which would blank the tab. Play (`PC-012`/`UX-132`) is the surface that refuses invalid graphs; the debug-play pipeline reuses `buildEmitView` only after `resolveGraph` has validated the graph. No requirement change.
+
 ## Open questions
 
 - OPEN(UX-script-sugar-tbd): **the approved mockup renders script lines using an aspirational

@@ -1,3 +1,6 @@
+/** PC-012: `start()` rejects with an `InteractivityValidationError` (carrying `diagnostics[]`) for a spec-invalid graph; the duck-typed guard + diagnostic type are re-exported so callers (packages/app) never need a direct @gltfi/runtime dependency, and survive duplicated/bundled copies of the error class. */
+export { isInteractivityValidationError } from "@gltfi/runtime";
+export type { ValidationDiagnostic } from "@gltfi/runtime";
 export type { FrameScheduler } from "./scheduler.js";
 export { createDefaultScheduler } from "./scheduler.js";
 export type { PlayControllerDeps, PlayState } from "./play-controller.js";

@@ -57,7 +57,7 @@ export function validateProposalGraph(json: unknown, graphIndex: number): Valida
 
   let irModule: ReturnType<typeof importGraph>["module"] | undefined;
   safe("import", () => {
-    const result = importGraph(graph as IRGraph);
+    const result = importGraph(graph as IRGraph, { validate: false });
     irModule = result.module;
     return result.diagnostics;
   });

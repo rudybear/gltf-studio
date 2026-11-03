@@ -124,7 +124,7 @@ export function validateInteractivityGraph(rawGraph: unknown, sceneNodeCount?: n
   let irModule: ReturnType<typeof importGraph>["module"] | undefined;
   diagnostics.push(
     ...safeRun("import", () => {
-      const result = importGraph(rawGraph as IRGraph);
+      const result = importGraph(rawGraph as IRGraph, { validate: false });
       irModule = result.module;
       return result.diagnostics;
     })

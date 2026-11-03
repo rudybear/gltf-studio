@@ -37,7 +37,8 @@ import {
   type UsageRef
 } from "@gltf-studio/usage-index";
 import { IndexedDBStorage } from "@gltf-studio/storage";
-import { createPlayController, PLAY_GRAPH_INDEX } from "@gltf-studio/play";
+import { createPlayController, isInteractivityValidationError, PLAY_GRAPH_INDEX } from "@gltf-studio/play";
+import { toPlayBlockedInfo, type PlayBlockedInfo } from "../lib/play-blocked";
 import type { Graph as IrGraph } from "@gltfi/ir";
 import { MockAgentProvider } from "@gltf-studio/agent-mock";
 import { OpenAICompatibleAgentProvider, type LlmProviderConfig } from "@gltf-studio/agent-llm";
@@ -268,6 +269,13 @@ export interface AppState {
    * guarded.
    */
   playStarting: boolean;
+  /**
+   * UX-132/PC-012: set when the last Play attempt was REFUSED because the document's
+   * KHR_interactivity graph is spec-invalid (load-time validation); `null` otherwise. A snapshot of
+   * the diagnostics as of that attempt -- cleared by dismissing the panel, by the next Play attempt,
+   * and when another document is opened. Ephemeral (never written to the document, DOC-030).
+   */
+  playBlocked: PlayBlockedInfo | null;
   /** Pending engine-picker selection; only meaningful/settable while `playState === "stopped"`. */
   playEngine: EngineKind;
   /**
@@ -499,8 +507,12 @@ export interface AppState {
   breakHereOnNode(nodeIndex: number): void;
   /** D3 (specs/ux-debugger.md UX-1509): the Audio Script tab's own gutter-toggle callback — see `toggleScriptBreakpoint`'s doc comment; same semantics, separate address space. */
   toggleAudioScriptBreakpoint(graphIndex: number, line: number): void;
-  /** UX-310: starts play mode using the current `playEngine`, freezing the document (DOC-031). */
+  /** UX-310: starts play mode using the current `playEngine`, freezing the document (DOC-031). A spec-invalid graph refuses to start and sets `playBlocked` (UX-132/PC-012). */
   startPlay(): Promise<void>;
+  /** UX-132: closes the "Play blocked" diagnostics panel. */
+  dismissPlayBlocked(): void;
+  /** UX-132: a "Play blocked" diagnostic row's jump -- opens the Graph tab on `graphIndex`, selects `nodeIndex` and requests the canvas pan/reveal (same path as the usage-chip jump, UX-518). */
+  jumpPlayBlockedToGraphNode(graphIndex: number, nodeIndex: number): void;
   /** UX-310: suspends the running simulation without discarding variable values. */
   pausePlay(): void;
   /** Resumes a paused simulation from the same point (UX-311). */
@@ -1058,6 +1070,7 @@ export const useAppStore = create<AppState>((set, get) => {
       selectedAudioGraphNodeIndex: null,
       hoveredNodeIndex: null,
       selectedAsset: null,
+      playBlocked: null,
       dataPointer: "",
       collapsedNodes: new Set(),
       // A new/reopened project is an unrelated document -- any in-flight
@@ -1096,6 +1109,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   playState: "stopped",
   playStarting: false,
+  playBlocked: null,
   playEngine: "interpreter",
   playDebug: false,
   scriptBreakpoints: {},
@@ -1486,7 +1500,7 @@ export const useAppStore = create<AppState>((set, get) => {
     // synchronously, before any `await`, so two calls arriving in the same
     // microtask can't both slip through).
     if (!renderHost || !history || !document || get().playState !== "stopped" || get().playStarting) return;
-    set({ playStarting: true });
+    set({ playStarting: true, playBlocked: null });
 
     // UX-131/AH-001: the Play button's own click IS the user gesture — arm
     // (create-or-resume) the audio host's AudioContext right here, still
@@ -1549,6 +1563,19 @@ export const useAppStore = create<AppState>((set, get) => {
       } catch (err) {
         activePlayDiagnosticsUnsub?.();
         activePlayDiagnosticsUnsub = null;
+        if (isInteractivityValidationError(err)) {
+          // UX-132/PC-012: a spec-invalid graph is refused (spec "Validation"), not crashed on and not
+          // silently ignored -- the diagnostics go to the Console AND an on-screen panel with node jumps.
+          const blocked = toPlayBlockedInfo(err);
+          log("error", `[play/validation] Play refused: the ${err.scope === "extension" ? "KHR_interactivity extension" : "graph"} is invalid (${blocked.diagnostics.length} error${blocked.diagnostics.length === 1 ? "" : "s"}).`);
+          for (const d of blocked.diagnostics) {
+            log("error", `[play/validation] ${d.code}${d.nodeIndex !== undefined ? ` (node ${d.nodeIndex})` : ""}${d.path ? ` ${d.path}` : ""}: ${d.message}`);
+          }
+          set({ playBlocked: blocked });
+          pushToast(`Play blocked: the behavior graph is not valid KHR_interactivity (${blocked.diagnostics.length} error${blocked.diagnostics.length === 1 ? "" : "s"}) — see the diagnostics panel.`);
+          return;
+        }
+        log("error", `[play/start] ${err instanceof Error ? err.message : String(err)}`);
         pushToast(`Play failed to start: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
@@ -1566,6 +1593,18 @@ export const useAppStore = create<AppState>((set, get) => {
     } finally {
       set({ playStarting: false });
     }
+  },
+
+  dismissPlayBlocked() {
+    set({ playBlocked: null });
+  },
+
+  jumpPlayBlockedToGraphNode(graphIndex, nodeIndex) {
+    const { selectedGraphIndex, setActiveDockTab, setSelectedGraphIndex, selectGraphNode, requestGraphNodeFocus } = get();
+    setActiveDockTab("graph");
+    if (graphIndex !== selectedGraphIndex) setSelectedGraphIndex(graphIndex);
+    selectGraphNode(nodeIndex);
+    requestGraphNodeFocus(nodeIndex);
   },
 
   pausePlay() {

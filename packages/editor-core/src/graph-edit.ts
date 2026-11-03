@@ -20,6 +20,25 @@ function graphPath(graphIndex: number): (string | number)[] {
   return ["extensions", "KHR_interactivity", "graphs", graphIndex];
 }
 
+/**
+ * Replaces the array at `path` with `next`, or DROPS the member entirely when `next` is empty: the
+ * spec (Validation) rejects empty `variables`/`events` arrays, so removing the last entry must leave the
+ * key absent rather than `[]`. The inverse restores `prev` (an `add` when the key was dropped).
+ */
+function replaceOrDropArrayFragment(path: (string | number)[], next: unknown[], prev: unknown[]): PatchPair {
+  const pointer = formatPointer(path);
+  if (next.length === 0) {
+    return {
+      patches: [{ op: "remove", path: pointer }],
+      inverse: [{ op: "add", path: pointer, value: prev }]
+    };
+  }
+  return {
+    patches: [{ op: "replace", path: pointer, value: next }],
+    inverse: [{ op: "replace", path: pointer, value: prev }]
+  };
+}
+
 function getGraph(json: unknown, graphIndex: number): Graph {
   const graph = getIn(json, graphPath(graphIndex).map(String)) as Graph | undefined;
   if (!graph) {
@@ -463,10 +482,7 @@ export const GraphEdit = {
 
     const variablesPath = [...graphPath(graphIndex), "variables"];
     const nextVariables = [...variables.slice(0, variableIndex), ...variables.slice(variableIndex + 1)];
-    const removeFragment: PatchPair = {
-      patches: [{ op: "replace", path: formatPointer(variablesPath), value: nextVariables }],
-      inverse: [{ op: "replace", path: formatPointer(variablesPath), value: variables }]
-    };
+    const removeFragment = replaceOrDropArrayFragment(variablesPath, nextVariables, variables);
 
     const combined = combineCommandParts([nodesFragment, removeFragment]);
     return {
@@ -509,10 +525,7 @@ export const GraphEdit = {
 
     const eventsPath = [...graphPath(graphIndex), "events"];
     const nextEvents = [...events.slice(0, eventIndex), ...events.slice(eventIndex + 1)];
-    const removeFragment: PatchPair = {
-      patches: [{ op: "replace", path: formatPointer(eventsPath), value: nextEvents }],
-      inverse: [{ op: "replace", path: formatPointer(eventsPath), value: events }]
-    };
+    const removeFragment = replaceOrDropArrayFragment(eventsPath, nextEvents, events);
 
     const combined = combineCommandParts([nodesFragment, removeFragment]);
     return {
@@ -569,7 +582,9 @@ export const GraphEdit = {
 
     const graphs = existingGraphs.slice();
     while (graphs.length <= graphIndex) {
-      graphs.push({ types: [], declarations: [], variables: [], events: [], nodes: [] });
+      // `variables`/`events` are omitted rather than `[]`: the spec (Validation) rejects empty arrays,
+      // and every add*/remove* factory below handles an absent array (PC-012 / DOC-056).
+      graphs.push({ types: [], declarations: [], nodes: [] });
     }
     const newExtension = { graph: existingExtension?.graph ?? graphIndex, graphs };
     const extFragment = setPathFragment(document.json, ["extensions", "KHR_interactivity"], newExtension);

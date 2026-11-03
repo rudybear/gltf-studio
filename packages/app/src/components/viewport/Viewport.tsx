@@ -7,6 +7,7 @@ import { audioEmitterNodeIndices, audioZoneNodeIndices, lightNodeIndices, type G
 import { extractBinaryChunk } from "../../lib/audio-container.js";
 import { buildEmptySceneGlb } from "../../lib/empty-scene.js";
 import { PlayOverlay } from "./PlayOverlay";
+import { PlayBlockedPanel } from "./PlayBlockedPanel";
 import { ContextMenu } from "../ContextMenu";
 import { EmptyScenePreview, RacerPreview, ChampagnePreview } from "./SampleGalleryPreviews";
 
@@ -787,6 +788,7 @@ export function Viewport(): JSX.Element {
         </>
       )}
       <PlayOverlay />
+      <PlayBlockedPanel />
       {tryInPlayEntryId && (
         // Part B ("apply-scratch-play-discard", app-store.ts's own doc
         // comment on `startTryInPlay`): the one honest visual cue that a

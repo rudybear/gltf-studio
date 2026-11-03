@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { InteractivityRuntime, isInteractivityValidationError } from "@gltfi/runtime";
 import type { AudioHost, PlayDiagnostic, RenderHost } from "@gltf-studio/engine-api";
 import type { FrameScheduler } from "./scheduler.js";
 import { buildVariablesRecord, createPlayController, FIXED_TICK_DT, PlayControllerImpl } from "./play-controller.js";
@@ -7,7 +8,6 @@ import {
   noGraphGltfJson,
   onStartPointerSetGltfJson,
   onTickPointerSetGltfJson,
-  throwingTickGltfJson,
   tickCounterGltfJson
 } from "./test-fixtures.js";
 
@@ -202,18 +202,75 @@ describe("PlayController diagnostics (PC-005)", () => {
     const diagnostics: PlayDiagnostic[] = [];
     const controller = createPlayController({
       renderHost: makeFakeRenderHost(),
-      getDocumentJson: () => throwingTickGltfJson(),
+      getDocumentJson: () => tickCounterGltfJson(),
       scheduler: makeManualScheduler()
     });
     controller.onDiagnostic((d) => diagnostics.push(d));
 
-    await controller.start({ engine: "interpreter" });
-    controller.pause();
-    controller.tickOnce();
+    // A spec-valid graph can no longer be made to throw by hand-corrupting it (load-time validation
+    // rejects that at start(), PC-012), so make the runtime's tick throw directly.
+    const tick = vi.spyOn(InteractivityRuntime.prototype, "tick").mockImplementation(() => {
+      throw new Error("node 0 references an unknown declaration");
+    });
+    try {
+      await controller.start({ engine: "interpreter" });
+      controller.pause();
+      controller.tickOnce();
+    } finally {
+      tick.mockRestore();
+    }
 
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].kind).toBe("engine-error");
     expect(diagnostics[0].message).toMatch(/declaration/);
+  });
+});
+
+describe("PlayController start() rejection of spec-invalid graphs (PC-012)", () => {
+  /** Valid tickCounter graph + a variable/set whose variable index is out of range (node 3) + an empty `events` array. */
+  function invalidGraphJson(): Record<string, unknown> {
+    const json = tickCounterGltfJson() as { extensions: { KHR_interactivity: { graphs: Array<Record<string, unknown>> } } };
+    const g = json.extensions.KHR_interactivity.graphs[0]!;
+    g.events = [];
+    return json;
+  }
+
+  for (const engine of ["interpreter", "compiled"] as const) {
+    it(`${engine}: rejects with an InteractivityValidationError carrying diagnostics, builds no engine, and leaves state "stopped"`, async () => {
+      const controller = createPlayController({
+        renderHost: makeFakeRenderHost(),
+        getDocumentJson: () => invalidGraphJson(),
+        scheduler: makeManualScheduler()
+      }) as PlayControllerImpl;
+
+      const err = await controller.start({ engine }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(isInteractivityValidationError(err)).toBe(true);
+      const diagnostics = (err as { diagnostics: Array<{ code: string; severity: string; path?: string }> }).diagnostics;
+      expect(diagnostics.some((d) => d.severity === "error" && d.code === "GV113")).toBe(true);
+      expect(controller.getPlayState()).toBe("stopped");
+      expect(controller.inspect()).toEqual({ time: 0, variables: {}, sentEvents: [] });
+    });
+  }
+
+  it("a node-attributed error reports its nodeIndex, and the same document starts once fixed", async () => {
+    const json = tickCounterGltfJson() as { extensions: { KHR_interactivity: { graphs: Array<{ nodes: Array<{ configuration?: { variables?: { value: number[] } } }> }> } } };
+    json.extensions.KHR_interactivity.graphs[0]!.nodes[3]!.configuration!.variables!.value = [7];
+    const controller = createPlayController({ renderHost: makeFakeRenderHost(), getDocumentJson: () => json, scheduler: makeManualScheduler() });
+    const err = await controller.start({ engine: "interpreter" }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(isInteractivityValidationError(err)).toBe(true);
+    const nodeIndices = (err as { diagnostics: Array<{ nodeIndex?: number }> }).diagnostics.map((d) => d.nodeIndex);
+    expect(nodeIndices).toContain(3);
+
+    json.extensions.KHR_interactivity.graphs[0]!.nodes[3]!.configuration!.variables!.value = [0];
+    await controller.start({ engine: "interpreter" });
+    expect(controller.inspect().time).toBeGreaterThanOrEqual(0);
+    await controller.stop();
   });
 });
 

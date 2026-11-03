@@ -12,10 +12,24 @@ function loadFixture(name: string): unknown {
 }
 
 describe("validateInteractivityGraph", () => {
-  it("reports ok:true with no diagnostics for a well-formed corpus graph", () => {
-    const result = validateInteractivityGraph(loadFixture("flow-doN"));
-    expect(result.ok).toBe(true);
+  it("reports ok:true with no error diagnostics for a well-formed (spec-valid) graph", () => {
+    const result = validateInteractivityGraph({
+      types: [{ signature: "float3" }],
+      declarations: [{ op: "event/onStart" }, { op: "pointer/set" }],
+      nodes: [
+        { declaration: 0, flows: { out: { node: 1, socket: "in" } } },
+        { declaration: 1, configuration: { pointer: { value: ["/nodes/0/translation"] }, type: { value: [0] } }, values: { value: { type: 0, value: [0, 1, 0] } } }
+      ]
+    });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("flags the older Khronos corpus graphs' backward flows as spec-invalid, attributed to the offending node (GV156)", () => {
+    const result = validateInteractivityGraph(loadFixture("flow-doN"));
+    expect(result.ok).toBe(false);
+    const d = result.diagnostics.find((x) => x.code === "GV156");
+    expect(d?.nodeIndex).toBe(2);
   });
 
   it("attributes a missing-required-config error to its node index (GV027, e.g. variable/set with no variable)", () => {
@@ -45,7 +59,6 @@ describe("validateInteractivityGraph", () => {
 describe("validateInteractivityGraph: handler target dangling check (GCANVAS-HANDLER-TARGET-MISSING, UX-512)", () => {
   function handlerGraph(op: string, nodeIndexConfig?: number) {
     return {
-      types: [],
       declarations: [{ op }],
       nodes: [{ declaration: 0, ...(nodeIndexConfig === undefined ? {} : { configuration: { nodeIndex: { value: [nodeIndexConfig] } } }) }]
     };

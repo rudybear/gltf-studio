@@ -710,6 +710,71 @@ input.field {
   border-bottom: 1px solid var(--border);
 }
 
+/* UX-132: "Play blocked" validation-diagnostics panel (viewport, bottom-left). */
+.play-blocked {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 11;
+  max-width: min(480px, calc(100% - 20px));
+  max-height: 55%;
+  overflow: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--danger, #e5484d);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-0);
+}
+.play-blocked-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.play-blocked-head strong {
+  color: var(--danger, #e5484d);
+}
+.play-blocked-dismiss {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.play-blocked-note {
+  margin: 4px 0;
+  color: var(--text-1);
+}
+.play-blocked-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.play-blocked-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.play-blocked-list .code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  color: var(--danger, #e5484d);
+}
+.play-blocked-node {
+  background: var(--bg-2, var(--bg-1));
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 5px;
+}
+
 /* ---------- bottom dock ---------- */
 #bottom-dock {
   min-height: 140px;
