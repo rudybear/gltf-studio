@@ -6,7 +6,7 @@
 // Command and handed to `dispatchCommand`; this is the ONLY module in the
 // package that calls those command factories.
 import { animationRefPointer } from "./animation-ref.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   GraphEdit,
   applyPatches,
@@ -112,8 +112,8 @@ export type GraphCanvasProps = {
   onBreakHere?: (nodeIndex: number) => void;
 };
 
-/** Window widths below this start with the palette and details panels collapsed. */
-const NARROW_WINDOW_PX = 1800;
+/** GraphCanvas root widths below this use narrow mode (collapsed-by-default overlay side panels, compact minimap). */
+const NARROW_ROOT_WIDTH_PX = 1100;
 
 export function GraphCanvas({
   document,
@@ -133,18 +133,45 @@ export function GraphCanvas({
   canBreakHere,
   onBreakHere
 }: GraphCanvasProps): JSX.Element {
-  // Narrow windows (below NARROW_WINDOW_PX): the app's outer columns leave the dock only ~710px
-  // at 1280 wide, and the 234px palette + 260px details panel would squeeze the React Flow pane
-  // to ~216px (less than one node card). Start both side panels as their collapsed rails there
-  // (each keeps a visible expand button); wide windows keep the full three-pane layout.
-  const [startNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < NARROW_WINDOW_PX);
-  const [detailsCollapsed, setDetailsCollapsed] = useState(startNarrow);
-  // Selecting a node is an explicit request to see its details: if the panel is collapsed only
-  // because of the narrow-window default, open it (a user's own collapse still sticks until the
-  // next selection change).
+  // Narrow mode (decided from this component's OWN width, since the app's outer columns are
+  // resizable): the dock can leave as little as ~700px, and a 234px palette + 260px details
+  // column would squeeze the React Flow pane to ~216px (less than one node card). In narrow mode
+  // both side panels START as their collapsed rails (each keeps a visible expand button) and,
+  // when expanded, float over the pane as overlays so opening/closing them never resizes it.
+  // Only the initial collapsed default and the overlay-vs-column choice follow the width; a
+  // user's explicit toggle is never overridden by a later resize.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const measuredRef = useRef(false);
+  const [narrow, setNarrow] = useState(false);
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = (): void => {
+      const w = el.clientWidth;
+      if (w === 0) return; // hidden dock tab (display:none) -- wait until it is shown.
+      const isNarrow = w < NARROW_ROOT_WIDTH_PX;
+      if (!measuredRef.current) {
+        measuredRef.current = true;
+        if (isNarrow) {
+          setPaletteCollapsed(true);
+          setDetailsCollapsed(true);
+        }
+      }
+      setNarrow(isNarrow);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Selecting a node is an explicit request to see its details: in narrow mode open the
+  // overlay (it floats, so the pane does not move).
   useEffect(() => {
-    if (startNarrow && selectedNodeIndex !== null) setDetailsCollapsed(false);
-  }, [startNarrow, selectedNodeIndex]);
+    if (narrow && selectedNodeIndex !== null) setDetailsCollapsed(false);
+  }, [narrow, selectedNodeIndex]);
   // Task ("in the node graph there is no way to edit variables"): defaults
   // COLLAPSED (unlike `detailsCollapsed` above) — this is a brand new panel
   // with no prior on-screen footprint, and every existing e2e/graph-canvas.spec.ts
@@ -521,8 +548,8 @@ export function GraphCanvas({
       : null;
 
   return (
-    <div className="gcanvas-root" data-testid="gcanvas.root">
-      <PalettePanel defaultCollapsed={startNarrow} onAddNode={(op) => handleAddNode(op)} onAskCopilot={onAskCopilot} />
+    <div ref={rootRef} className={narrow ? "gcanvas-root gcanvas-narrow" : "gcanvas-root"} data-testid="gcanvas.root">
+      <PalettePanel collapsed={paletteCollapsed} onCollapsedChange={setPaletteCollapsed} overlay={narrow} onAddNode={(op) => handleAddNode(op)} onAskCopilot={onAskCopilot} />
       <VariablesPanel
         collapsed={variablesCollapsed}
         onToggleCollapsed={() => setVariablesCollapsed((v) => !v)}
@@ -574,6 +601,7 @@ export function GraphCanvas({
           graph={mapped}
           selectedNode={selectedNode}
           collapsed={detailsCollapsed}
+          overlay={narrow}
           onToggleCollapsed={() => setDetailsCollapsed((v) => !v)}
           diagnosticsByNode={validation.byNodeIndex}
           unindexedDiagnostics={validation.unindexed}

@@ -15,8 +15,11 @@ export const OP_DRAG_MIME = "application/x-gltfi-op";
 export type PalettePanelProps = {
   onAddNode: (op: string) => void;
   onAskCopilot?: () => void;
-  /** Start as the collapsed rail (narrow windows). */
-  defaultCollapsed?: boolean;
+  /** Controlled rail-collapsed state (owned by GraphCanvas so narrow mode can pick the default). */
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
+  /** Narrow mode: when expanded, float over the pane (a rail-width spacer keeps the layout fixed). */
+  overlay?: boolean;
 };
 
 function matches(spec: OpSpec, categoryName: string, query: string): boolean {
@@ -25,10 +28,9 @@ function matches(spec: OpSpec, categoryName: string, query: string): boolean {
   return spec.op.toLowerCase().includes(q) || categoryName.toLowerCase().includes(q);
 }
 
-export function PalettePanel({ onAddNode, onAskCopilot, defaultCollapsed = false }: PalettePanelProps): JSX.Element {
+export function PalettePanel({ onAddNode, onAskCopilot, collapsed: railCollapsed, onCollapsedChange: setRailCollapsed, overlay = false }: PalettePanelProps): JSX.Element {
   const [search, setSearch] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<OpCategory>>(new Set());
-  const [railCollapsed, setRailCollapsed] = useState(defaultCollapsed);
 
   const byCategory = useMemo(() => {
     const query = search.trim();
@@ -78,8 +80,8 @@ export function PalettePanel({ onAddNode, onAskCopilot, defaultCollapsed = false
     );
   }
 
-  return (
-    <div className="gcanvas-palette" data-testid="gcanvas.palette">
+  const panel = (
+    <div className={overlay ? "gcanvas-palette gcanvas-overlay-left" : "gcanvas-palette"} data-testid="gcanvas.palette">
       <div className="gcanvas-palette-header">
         <input
           type="search"
@@ -156,5 +158,13 @@ export function PalettePanel({ onAddNode, onAskCopilot, defaultCollapsed = false
         })}
       </div>
     </div>
+  );
+  return overlay ? (
+    <>
+      <div className="gcanvas-palette-rail-spacer" aria-hidden="true" />
+      {panel}
+    </>
+  ) : (
+    panel
   );
 }

@@ -28,6 +28,8 @@ export type NodeDetailsProps = {
   graph: MappedGraph;
   selectedNode: MappedNode | null;
   collapsed: boolean;
+  /** Narrow mode: when expanded, float over the pane (a rail-width spacer keeps the layout fixed). */
+  overlay?: boolean;
   onToggleCollapsed: () => void;
   diagnosticsByNode: Map<number, GraphDiagnostic[]>;
   unindexedDiagnostics: GraphDiagnostic[];
@@ -639,6 +641,7 @@ export function NodeDetails({
   graph,
   selectedNode,
   collapsed,
+  overlay = false,
   onToggleCollapsed,
   diagnosticsByNode,
   unindexedDiagnostics,
@@ -668,8 +671,8 @@ export function NodeDetails({
 
   const diagnostics = selectedNode ? (diagnosticsByNode.get(selectedNode.index) ?? []) : [];
 
-  return (
-    <aside className="gcanvas-details-panel" data-testid="gcanvas.details">
+  const panel = (
+    <aside className={overlay ? "gcanvas-details-panel gcanvas-overlay-right" : "gcanvas-details-panel"} data-testid="gcanvas.details">
       <div className="gcanvas-details-header">
         <span>Details</span>
         <button onClick={onToggleCollapsed} title="Collapse details panel" aria-label="Collapse details panel" aria-expanded={true} data-testid="gcanvas.details.toggle">
@@ -733,5 +736,13 @@ export function NodeDetails({
         )}
       </div>
     </aside>
+  );
+  return overlay ? (
+    <>
+      <div className="gcanvas-details-rail-spacer" aria-hidden="true" />
+      {panel}
+    </>
+  ) : (
+    panel
   );
 }

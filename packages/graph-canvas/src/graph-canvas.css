@@ -5,6 +5,7 @@
    accent palette (palette.ts) via inline style props, not this stylesheet. */
 
 .gcanvas-root {
+  position: relative;
   display: flex;
   height: 100%;
   min-height: 0;
@@ -852,4 +853,34 @@
   font-size: 10px;
   opacity: 0.7;
   font-style: italic;
+}
+
+/* ---------- narrow mode (GraphCanvas root < 1100px wide) ----------
+   Expanded side panels float over the pane so opening/closing them never resizes it; an
+   in-flow spacer the width of the collapsed rail keeps the pane's geometry fixed. */
+.gcanvas-palette-rail-spacer {
+  flex: 0 0 30px;
+}
+.gcanvas-details-rail-spacer {
+  flex: 0 0 20px;
+}
+.gcanvas-overlay-left,
+.gcanvas-overlay-right {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 260px;
+  z-index: 30; /* above the pane and minimap, below app modals (z-index 50+) */
+  box-shadow: var(--shadow, 0 4px 18px rgba(0, 0, 0, 0.4));
+}
+.gcanvas-overlay-left {
+  left: 0;
+  width: 234px;
+}
+.gcanvas-overlay-right {
+  right: 0;
+}
+.gcanvas-narrow .react-flow__minimap {
+  width: 110px !important;
+  height: 74px !important;
 }
