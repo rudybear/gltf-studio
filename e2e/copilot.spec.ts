@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
+import { expandPalette } from "./graph-canvas-test-helpers.js";
 
 /**
  * M8 Copilot e2e coverage (specs/ux-copilot.md UX-1000/UX-1001/UX-1002/
@@ -300,6 +301,7 @@ test.describe("Copilot (specs/ux-copilot.md UX-1000..1011, specs/agent-service.m
 
   test("graph-canvas palette ✦ switches tabs and attaches a chip naming the current graph (UX-511/AG-015)", async ({ page }) => {
     await page.getByTestId("dock.tab.graph").click();
+    await expandPalette(page);
     await expect(page.getByTestId("gcanvas.palette.copilot")).toBeVisible();
 
     await page.getByTestId("gcanvas.palette.copilot").click();

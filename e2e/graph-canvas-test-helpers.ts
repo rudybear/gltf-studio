@@ -98,16 +98,12 @@ export async function clickNodeHeader(scope: Page | Locator, nodeIndex: number):
 /**
  * Viewport for every spec that clicks graph nodes by real pointer position.
  *
- * At Playwright's default 1280x720 the behavior-graph pane is only ~216px wide
- * (palette + details panels take the rest), narrower than a node card (221px).
- * A palette-added node lands partly OUTSIDE the pane, so `elementFromPoint` at
- * the click target hits `.gcanvas-root`. Playwright's "scroll into view" can
- * hide that by scrolling the overflow-clipped ancestor, but any later
- * re-render/reflow resets it, so clicks intermittently time out with
- * "<div class=gcanvas-root> intercepts pointer events" (reproduced 5/24 under
- * CPU contention). At 1920x1080 the pane is ~856px and the node is fully
- * on-screen, so the click never depends on scroll state. Use via
- * `test.use({ viewport: GRAPH_CANVAS_VIEWPORT })`.
+ * Kept (not removable) even after the narrow-window fix: below 1800px window width the
+ * palette and details panels now START COLLAPSED (pane ~660px at 1280x720; see
+ * e2e/graph-pane-width.spec.ts). These specs drive the palette and details panels directly,
+ * so they need the full three-pane layout that a >= 1800px window gives (pane ~856px at
+ * 1920x1080). Historically at 1280x720 the pane was ~216px, narrower than a node card (221px),
+ * so palette-added nodes landed partly outside it and clicks hit `.gcanvas-root`.
  */
 export const GRAPH_CANVAS_VIEWPORT = { width: 1920, height: 1080 } as const;
 
@@ -121,4 +117,15 @@ export const GRAPH_CANVAS_VIEWPORT = { width: 1920, height: 1080 } as const;
 export function expectNoStructuralErrors(graph: unknown): void {
   const errors = validateGraph(graph as VGraph).diagnostics.filter((d) => d.severity === "error" && d.code !== "GV164");
   expect(errors).toEqual([]);
+}
+
+/**
+ * Opens the node palette if it is collapsed. Windows narrower than 1800px start with the
+ * palette as a collapsed rail (so the graph pane keeps most of the dock); specs that use the
+ * palette at the default 1280x720 call this first. No-op when already expanded.
+ */
+export async function expandPalette(page: Page): Promise<void> {
+  const toggle = page.getByTestId("gcanvas.palette.toggle");
+  await toggle.waitFor();
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
 }

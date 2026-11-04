@@ -15,6 +15,8 @@ export const OP_DRAG_MIME = "application/x-gltfi-op";
 export type PalettePanelProps = {
   onAddNode: (op: string) => void;
   onAskCopilot?: () => void;
+  /** Start as the collapsed rail (narrow windows). */
+  defaultCollapsed?: boolean;
 };
 
 function matches(spec: OpSpec, categoryName: string, query: string): boolean {
@@ -23,10 +25,10 @@ function matches(spec: OpSpec, categoryName: string, query: string): boolean {
   return spec.op.toLowerCase().includes(q) || categoryName.toLowerCase().includes(q);
 }
 
-export function PalettePanel({ onAddNode, onAskCopilot }: PalettePanelProps): JSX.Element {
+export function PalettePanel({ onAddNode, onAskCopilot, defaultCollapsed = false }: PalettePanelProps): JSX.Element {
   const [search, setSearch] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<OpCategory>>(new Set());
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(defaultCollapsed);
 
   const byCategory = useMemo(() => {
     const query = search.trim();
@@ -59,6 +61,7 @@ export function PalettePanel({ onAddNode, onAskCopilot }: PalettePanelProps): JS
           onClick={() => setRailCollapsed(false)}
           title="Expand palette"
           aria-label="Expand palette"
+          aria-expanded={false}
           data-testid="gcanvas.palette.toggle"
         >
           {"»"}
@@ -104,6 +107,7 @@ export function PalettePanel({ onAddNode, onAskCopilot }: PalettePanelProps): JS
           onClick={() => setRailCollapsed(true)}
           title="Collapse palette"
           aria-label="Collapse palette"
+          aria-expanded={true}
           data-testid="gcanvas.palette.toggle"
         >
           {"«"}

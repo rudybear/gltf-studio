@@ -660,7 +660,7 @@ export function NodeDetails({
 }: NodeDetailsProps) {
   if (collapsed) {
     return (
-      <button className="gcanvas-details-collapsed" onClick={onToggleCollapsed} title="Show details panel" aria-label="Show details panel">
+      <button className="gcanvas-details-collapsed" onClick={onToggleCollapsed} title="Show details panel" aria-label="Show details panel" aria-expanded={false} data-testid="gcanvas.details.toggle">
         {"‹"}
       </button>
     );
@@ -672,7 +672,7 @@ export function NodeDetails({
     <aside className="gcanvas-details-panel" data-testid="gcanvas.details">
       <div className="gcanvas-details-header">
         <span>Details</span>
-        <button onClick={onToggleCollapsed} title="Collapse details panel" aria-label="Collapse details panel">
+        <button onClick={onToggleCollapsed} title="Collapse details panel" aria-label="Collapse details panel" aria-expanded={true} data-testid="gcanvas.details.toggle">
           {"›"}
         </button>
       </div>

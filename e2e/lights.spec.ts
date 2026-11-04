@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PNG } from "pngjs";
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { buildInspectorFixtureBytes, INSPECTOR_FIXTURE_NAME } from "./inspector-fixture.js";
-import { waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { expandPalette, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 import {
   buildLightsFixtureBytes,
   buildLightsPlayFixtureBytes,
@@ -248,6 +248,7 @@ test.describe("Light helpers: selected-always + shared all-helpers toggle, never
 test.describe("Pointer picker reaches a light property (specs/ux-pointer-picker.md UX-901 r2/UX-909)", () => {
   test("the Lights tree section lists the fixture's Spot/Sun lights; selecting Spot shows its full type-gated property list (color/intensity/range/both cone angles, since Spot IS a spot); confirming a light property writes the graph node's pointer config", async ({ page }) => {
     await importLightsFixture(page);
+    await expandPalette(page);
     await page.getByTestId("gcanvas.palette.search").fill("pointer/set");
     await page.getByTestId("gcanvas.palette.op.pointer/set").click();
     const graph = (await page.evaluate(() => window.__gltfStudioGraphTest!.getDocumentJson())) as {

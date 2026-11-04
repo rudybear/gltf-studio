@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { parseContainer } from "@gltfi/gltf";
 import { validateGraph, type VGraph } from "@gltfi/verify";
+import { expandPalette } from "./graph-canvas-test-helpers.js";
 
 /**
  * The checkpoint golden path: ONE serial test driving the full user
@@ -175,6 +176,7 @@ test("golden path: sample scene through every shipped feature", async ({ page })
     await expect(page.locator('[data-testid^="gcanvas.node."]')).toHaveCount(19);
     await snap(page, "graph-tab-loaded");
 
+    await expandPalette(page);
     await page.getByTestId("gcanvas.palette.search").fill("debug/log");
     await page.getByTestId("gcanvas.palette.op.debug/log").click();
     await expect(page.getByTestId("gcanvas.node.19")).toBeVisible();

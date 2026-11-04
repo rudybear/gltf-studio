@@ -112,6 +112,9 @@ export type GraphCanvasProps = {
   onBreakHere?: (nodeIndex: number) => void;
 };
 
+/** Window widths below this start with the palette and details panels collapsed. */
+const NARROW_WINDOW_PX = 1800;
+
 export function GraphCanvas({
   document,
   graphIndex = 0,
@@ -130,7 +133,18 @@ export function GraphCanvas({
   canBreakHere,
   onBreakHere
 }: GraphCanvasProps): JSX.Element {
-  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  // Narrow windows (below NARROW_WINDOW_PX): the app's outer columns leave the dock only ~710px
+  // at 1280 wide, and the 234px palette + 260px details panel would squeeze the React Flow pane
+  // to ~216px (less than one node card). Start both side panels as their collapsed rails there
+  // (each keeps a visible expand button); wide windows keep the full three-pane layout.
+  const [startNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < NARROW_WINDOW_PX);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(startNarrow);
+  // Selecting a node is an explicit request to see its details: if the panel is collapsed only
+  // because of the narrow-window default, open it (a user's own collapse still sticks until the
+  // next selection change).
+  useEffect(() => {
+    if (startNarrow && selectedNodeIndex !== null) setDetailsCollapsed(false);
+  }, [startNarrow, selectedNodeIndex]);
   // Task ("in the node graph there is no way to edit variables"): defaults
   // COLLAPSED (unlike `detailsCollapsed` above) — this is a brand new panel
   // with no prior on-screen footprint, and every existing e2e/graph-canvas.spec.ts
@@ -508,7 +522,7 @@ export function GraphCanvas({
 
   return (
     <div className="gcanvas-root" data-testid="gcanvas.root">
-      <PalettePanel onAddNode={(op) => handleAddNode(op)} onAskCopilot={onAskCopilot} />
+      <PalettePanel defaultCollapsed={startNarrow} onAddNode={(op) => handleAddNode(op)} onAskCopilot={onAskCopilot} />
       <VariablesPanel
         collapsed={variablesCollapsed}
         onToggleCollapsed={() => setVariablesCollapsed((v) => !v)}

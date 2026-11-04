@@ -2,7 +2,7 @@ import { PNG } from "pngjs";
 import { test, expect, type Page } from "@playwright/test";
 import { buildUsageMappingFixtureBytes, USAGE_MAPPING_FIXTURE_NAME, USAGE_FIXTURE_NODE, USAGE_FIXTURE_GRAPH_NODE } from "./usage-mapping-fixture.js";
 import { assertRegionsVisuallyDiffer } from "./visual-assert.js";
-import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { clickNodeHeader, expandPalette, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * specs/ux-usage-mapping.md UX-11xx: the Inspector's "Used in behavior"
@@ -337,6 +337,7 @@ test.describe("→ Script jump: visible, persistent decoration (specs/ux-script.
     // jump" finding, not a direct edit of the Script buffer itself (that
     // is the SEPARATE "clears on user edit" case, covered below).
     await page.getByTestId("dock.tab.graph").click();
+    await expandPalette(page);
     await page.getByTestId("gcanvas.palette.search").fill("event/onHoverIn");
     await page.getByTestId("gcanvas.palette.op.event/onHoverIn").click();
     // The fixture graph already has 3 nodes (ON_SELECT, POINTER_SET,

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { FIXTURE_GLB_PATH } from "./global-setup.js";
-import { clickNodeHeader, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
+import { clickNodeHeader, expandPalette, waitForNodesSettled } from "./graph-canvas-test-helpers.js";
 
 /**
  * Variables panel (task: "in the node graph there is no way to edit
@@ -141,6 +141,7 @@ test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)",
 
   test("blocks deleting an IN-USE variable, with an exact usage count (UX-516, DOC-055)", async ({ page }) => {
     // Make "counter" (index 0) in-use: add a variable/get node and assign it via the config editor's existing "variable" selector.
+    await expandPalette(page);
     await page.getByTestId("gcanvas.palette.op.variable/get").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
     await waitForNodesSettled(page); // node 2 was just added — see importFixtureAndOpenVariables's own doc comment
@@ -175,6 +176,7 @@ test.describe("Variables panel (specs/ux-graph-canvas.md UX-515..518, DOC-055)",
     await expect(page.getByTestId("gcanvas.events.row.1")).toBeVisible();
 
     // Reference event #1 from an event/send node, then confirm #1's delete is blocked while #0 stays deletable.
+    await expandPalette(page);
     await page.getByTestId("gcanvas.palette.op.event/send").click();
     await expect(page.getByTestId("gcanvas.node.2")).toBeVisible();
     await waitForNodesSettled(page); // node 2 was just added — see importFixtureAndOpenVariables's own doc comment
