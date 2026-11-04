@@ -38,6 +38,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@gltfi/runtime": "^0.2.1",
     "@gltfi/runtime-lib": "0.0.1",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",

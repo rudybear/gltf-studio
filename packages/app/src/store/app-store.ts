@@ -819,6 +819,22 @@ export function getActivePlayController(): PlayController | null {
  * `startPlay()`'s own three-way messaging so the two toasts read as one
  * consistent feature rather than two different features.
  */
+/** Index of `signature` in `graph.types` (the caller has already ensured it exists). */
+function typeIndexOf(json: unknown, graphIndex: number, signature: string): number {
+  const types = (getIn(json, ["extensions", "KHR_interactivity", "graphs", graphIndex, "types"]) as Array<{ signature: string }> | undefined) ?? [];
+  const index = types.findIndex((t) => t.signature === signature);
+  if (index === -1) throw new Error(`graph ${graphIndex} has no "${signature}" type`);
+  return index;
+}
+
+/** Clip length in seconds: the largest keyframe time (sampler input accessor `max`) of animation `animationIndex`; 1 when unknown. */
+function animationDuration(json: unknown, animationIndex: number): number {
+  const doc = json as { animations?: Array<{ samplers?: Array<{ input?: number }> }>; accessors?: Array<{ max?: number[] }> };
+  const times = (doc.animations?.[animationIndex]?.samplers ?? []).map((sampler) => doc.accessors?.[sampler.input ?? -1]?.max?.[0]);
+  const finite = times.filter((t): t is number => typeof t === "number" && Number.isFinite(t));
+  return finite.length > 0 ? Math.max(...finite) : 1;
+}
+
 function midPlayBreakpointToastText(playEngine: EngineKind, playDebug: boolean): string {
   if (playEngine === "interpreter") {
     return "Breakpoint set — it won't hit this session. Switch to the compiled engine with Debug enabled, then restart Play.";
@@ -1994,14 +2010,17 @@ export const useAppStore = create<AppState>((set, get) => {
     const docAfterPointer: EditorDocument = { ...history.document, json: jsonAfterPointer };
 
     const connectCmd = GraphEdit.connectFlow(docAfterPointer, graphIndex, onSelectIndex, "out", pointerNodeIndex, "in");
+    // PC-012: pointer/set's required `value` input must be wired or Play refuses the graph; `true` is the "start playing" value.
+    const boolType = typeIndexOf(jsonAfterPointer, graphIndex, signature);
+    const valueCmd = GraphEdit.setLiteral(docAfterPointer, graphIndex, pointerNodeIndex, "value", { type: boolType, value: [true] });
 
-    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd]);
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd, valueCmd]);
     dispatchCommand({ id: makeCommandId("attach-onselect-play-sound"), label: "On select → Play sound", patches: combined.patches, inverse: combined.inverse });
 
     setActiveDockTab("graph");
     selectGraphNode(pointerNodeIndex);
     requestGraphNodeFocus(pointerNodeIndex);
-    pushToast("Added On select → Play sound — wire a \"true\" value to trigger playback.");
+    pushToast("Added On select → Play sound (sets playing = true).");
   },
 
   attachOnSelectPlayAnimation(nodeIndex, animationIndex) {
@@ -2041,7 +2060,18 @@ export const useAppStore = create<AppState>((set, get) => {
 
     const connectCmd = GraphEdit.connectFlow(docAfterAnim, graphIndex, onSelectIndex, "out", animNodeIndex, "in");
 
-    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, ensureRefTypeCmd, animCmd, connectCmd]);
+    // PC-012: animation/start requires startTime/endTime/speed or Play refuses the graph. Defaults play
+    // the whole clip once at normal speed; endTime is the clip's own duration (JSON cannot carry +Infinity).
+    const { command: ensureFloatCmd, index: floatTypeIndex } = GraphEdit.ensureType(docAfterAnim, graphIndex, "float");
+    let docAfterFloat: EditorDocument = { ...history.document, json: ensureFloatCmd.patches.length > 0 ? applyPatches(jsonAfterAnim, ensureFloatCmd.patches) : jsonAfterAnim };
+    const timingCmds: Command[] = [ensureFloatCmd];
+    for (const [socket, value] of [["startTime", 0], ["endTime", animationDuration(history.document.json, animationIndex)], ["speed", 1]] as const) {
+      const cmd = GraphEdit.setLiteral(docAfterFloat, graphIndex, animNodeIndex, socket, { type: floatTypeIndex, value: [value] });
+      timingCmds.push(cmd);
+      docAfterFloat = { ...docAfterFloat, json: applyPatches(docAfterFloat.json, cmd.patches) };
+    }
+
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, ensureRefTypeCmd, animCmd, connectCmd, ...timingCmds]);
     const label = `On select → Play animation "${anim.name ?? `#${animationIndex}`}"`;
     dispatchCommand({ id: makeCommandId("attach-onselect-play-animation"), label, patches: combined.patches, inverse: combined.inverse });
 
