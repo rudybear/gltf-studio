@@ -549,10 +549,7 @@ export class ThreeRenderHost implements RenderHost {
     const token = ++this.loadToken;
     const loader = new GLTFLoader();
     let loadedTables: IndexTables | undefined;
-    // validate:false: this loader only builds index tables for the editor viewport; studio edits
-    // possibly-invalid graphs by design (ADR 0003, 2026-11-04 addendum), validation happens at Play.
     registerInteractivity(loader, {
-      validate: false,
       onTables: (t) => {
         loadedTables = t;
       }
