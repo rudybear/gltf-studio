@@ -3,8 +3,8 @@
 // runtime-lib}-0.0.1.tgz from the sibling gltf-interactivity monorepo
 // (@gltfi/runtime is NOT vendored any more: it is consumed from npm, ^0.1.1 —
 // see the 2026-11-02 addendum in docs/adr/0003-vendored-gltfi-tarballs.md),
-// vendor/gltfi-three-adapter-0.0.1.tgz from the sibling
-// gltf-interactivity-three repo's packages/adapter, (M7)
+// (@gltfi/three-adapter is NOT vendored any more: it is consumed from npm, ^0.1.0 —
+// see the 2026-11-04 addendum in docs/adr/0003-vendored-gltfi-tarballs.md), (M7)
 // vendor/audio-graph-js-0.1.0.tgz from the sibling glTF-audio/AudioGraphJS
 // repo, and (Audio Script tab) vendor/gltf-audiograph-{kernel,ir,emit-ts,
 // parse-ts,verify,runtime-lib}-0.0.1.tgz from the sibling gltf-audiograph
@@ -30,7 +30,6 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
 const monorepoRoot = resolve(repoRoot, "..", "gltf-interactivity");
-const threeRepoRoot = resolve(repoRoot, "..", "gltf-interactivity-three");
 const audioGraphJsRoot = resolve(repoRoot, "..", "glTF-audio", "AudioGraphJS");
 const audiographRoot = resolve(repoRoot, "..", "gltf-audiograph");
 const vendorDir = join(repoRoot, "vendor");
@@ -100,10 +99,6 @@ if (!existsSync(monorepoRoot)) {
   console.error(`refresh-vendor: expected sibling monorepo at ${monorepoRoot} — not found.`);
   process.exit(1);
 }
-if (!existsSync(threeRepoRoot)) {
-  console.error(`refresh-vendor: expected sibling repo at ${threeRepoRoot} — not found.`);
-  process.exit(1);
-}
 if (!existsSync(audiographRoot)) {
   console.error(`refresh-vendor: expected sibling repo at ${audiographRoot} — not found.`);
   process.exit(1);
@@ -122,16 +117,7 @@ for (const pkg of GLTFI_PACKAGES) {
   packOne(join(monorepoRoot, "packages", pkg), `gltfi-${pkg}-`, vendorDir);
 }
 
-const adapterDir = join(threeRepoRoot, "packages", "adapter");
-if (!existsSync(join(adapterDir, "dist"))) {
-  console.log(`refresh-vendor: building ${threeRepoRoot} (adapter dist missing) ...`);
-  run("pnpm", ["build"], threeRepoRoot);
-} else {
-  console.log(`refresh-vendor: ${adapterDir} dist/ already present, skipping build.`);
-}
-packOne(adapterDir, "gltfi-three-adapter-", vendorDir);
-
-// audio-graph-js: unlike the @gltfi/* packages and the three-adapter, its
+// audio-graph-js: unlike the @gltfi/* packages, its
 // own package.json declares no "files"/"main"/"exports" — `dist/` is even
 // .gitignore'd there — so a plain `npm pack` in that checkout would ship an
 // empty-of-runtime-code tarball (everything under .gitignore excluded, no

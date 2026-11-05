@@ -2,7 +2,7 @@
   "name": "@gltf-studio/engine-three",
   "version": "0.0.1",
   "private": true,
-  "description": "RenderHost over three.js + the vendored @gltfi/three-adapter (specs/render-host.md). The editor's first — and, per RH-002, only-one-anyone-should-need-to-write-again — viewport implementation.",
+  "description": "RenderHost over three.js + @gltfi/three-adapter (specs/render-host.md). The editor's first — and, per RH-002, only-one-anyone-should-need-to-write-again — viewport implementation.",
   "license": "MIT",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -24,7 +24,7 @@
     "@gltf-studio/editor-core": "workspace:*",
     "@gltf-studio/engine-api": "workspace:*",
     "@gltfi/gltf": "0.0.1",
-    "@gltfi/three-adapter": "0.0.1",
+    "@gltfi/three-adapter": "^0.1.0",
     "three": "^0.180.0"
   },
   "devDependencies": {

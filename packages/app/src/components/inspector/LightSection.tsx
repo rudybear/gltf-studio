@@ -14,7 +14,7 @@ import { PointerButton } from "./PointerButton";
  * angle. Every editable field here writes via `SceneEdit.setLightProperty`
  * against the ROOT `extensions.KHR_lights_punctual.lights[lightIndex]`
  * registry (addressed by LIGHT index, not the node's own index) and renders
- * live through the vendored @gltfi/three-adapter's own KHR_lights_punctual
+ * live through the @gltfi/three-adapter's own KHR_lights_punctual
  * pointer-router rows — no direct-apply workaround needed here, unlike
  * `MaterialSection`'s doubleSided/texture-clear cases (those have no
  * vendored route; every property this section exposes does). The type
