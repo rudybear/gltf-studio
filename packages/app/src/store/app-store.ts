@@ -26,6 +26,7 @@ import {
   type Command,
   type EditorDocument
 } from "@gltf-studio/editor-core";
+import { isInterpolatableType, NOT_INTERPOLATABLE_REASON } from "../lib/pointer-vocab.js";
 import { animationRefPointer, pointerScaffoldCommands, setPointerConfig } from "@gltf-studio/graph-canvas";
 import {
   findEnclosingHandlerRoot,
@@ -1886,6 +1887,15 @@ export const useAppStore = create<AppState>((set, get) => {
   confirmPointerPicker(path, signature) {
     const { history, dispatchCommand, pointerPickerRequest, pushToast } = get();
     if (!history || !pointerPickerRequest) return;
+    // pointer/interpolate only accepts float-family types (GV159); the dialog disables other properties, this is the backstop.
+    const target = getIn(history.document.json, ["extensions", "KHR_interactivity", "graphs", pointerPickerRequest.graphIndex]) as
+      | { declarations?: Array<{ op: string }>; nodes?: Array<{ declaration: number }> }
+      | undefined;
+    const targetNode = target?.nodes?.[pointerPickerRequest.nodeIndex];
+    if (targetNode && target?.declarations?.[targetNode.declaration]?.op === "pointer/interpolate" && !isInterpolatableType(signature)) {
+      pushToast(NOT_INTERPOLATABLE_REASON);
+      return;
+    }
     const command = setPointerConfig(history.document, pointerPickerRequest.graphIndex, pointerPickerRequest.nodeIndex, path, signature as Parameters<typeof setPointerConfig>[4]);
     dispatchCommand(command);
     set({ pointerPickerRequest: null });

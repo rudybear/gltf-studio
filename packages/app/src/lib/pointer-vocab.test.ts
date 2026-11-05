@@ -218,3 +218,11 @@ describe("colorKindForPointerPath", () => {
     expect(colorKindForPointerPath("/materials/17/pbrMetallicRoughness/baseColorFactor")).toBe("rgba");
   });
 });
+
+describe("isInterpolatableType (pointer/interpolate picker filter)", () => {
+  it("accepts float family only", async () => {
+    const { isInterpolatableType } = await import("./pointer-vocab.js");
+    for (const t of ["float", "float2", "float3", "float4", "float2x2", "float3x3", "float4x4"]) expect(isInterpolatableType(t)).toBe(true);
+    for (const t of ["bool", "int", "ref", "float[3]"]) expect(isInterpolatableType(t)).toBe(false);
+  });
+});

@@ -11,6 +11,8 @@ import {
   nodePropsFor,
   parsePointerPath,
   MATERIAL_PROPS,
+  NOT_INTERPOLATABLE_REASON,
+  isInterpolatableType,
   type AnimatablePropertyDef,
   type PointerTreeRow
 } from "../../lib/pointer-vocab";
@@ -33,6 +35,15 @@ export function PointerPickerDialog(): JSX.Element | null {
   const confirmPointerPicker = useAppStore((s) => s.confirmPointerPicker);
 
   const json = editorDocument?.json as GltfJsonShape | undefined;
+
+  // A pointer/interpolate node can only target float-family properties (GV159): bool/int/etc. are shown disabled.
+  const interpolateOnly = (() => {
+    if (!request) return false;
+    const graph = (editorDocument?.json as { extensions?: { KHR_interactivity?: { graphs?: Array<{ declarations?: Array<{ op: string }>; nodes?: Array<{ declaration: number }> }> } } } | undefined)
+      ?.extensions?.KHR_interactivity?.graphs?.[request.graphIndex];
+    const node = graph?.nodes?.[request.nodeIndex];
+    return node !== undefined && graph?.declarations?.[node.declaration]?.op === "pointer/interpolate";
+  })();
 
   const [query, setQuery] = useState("");
   const [section, setSection] = useState<PointerTreeRow["section"] | null>(null);
@@ -96,6 +107,7 @@ export function PointerPickerDialog(): JSX.Element | null {
 
   function selectWhole(prop: AnimatablePropertyDef, base: string) {
     if (!prop.wholeSelectable) return;
+    if (interpolateOnly && !isInterpolatableType(prop.type)) return;
     setPath(base);
     setType(prop.type);
   }
@@ -142,10 +154,14 @@ export function PointerPickerDialog(): JSX.Element | null {
     if (!matches(prop.label)) return null;
     const isExpanded = !!expanded[prop.key];
     const isSelected = path === base;
+    const blocked = interpolateOnly && !isInterpolatableType(prop.type);
     return (
       <div className="pp-prop" key={prop.key}>
         <div
-          className={`pp-prop-head${isSelected ? " selected" : ""}${!prop.wholeSelectable ? " pp-prop-head-unselectable" : ""}`}
+          className={`pp-prop-head${isSelected ? " selected" : ""}${!prop.wholeSelectable || blocked ? " pp-prop-head-unselectable" : ""}`}
+          title={blocked ? NOT_INTERPOLATABLE_REASON : undefined}
+          aria-disabled={blocked || undefined}
+          data-disabled={blocked ? "true" : undefined}
           data-testid={`pointer-picker.prop.${prop.key}`}
           onClick={() => selectWhole(prop, base)}
         >

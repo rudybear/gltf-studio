@@ -238,6 +238,24 @@ describe("Inspector 'Attach behavior' store actions produce spec-valid graphs (P
       expect(literal(r.json, 0, "value")).toEqual({ signature: "float3", value: [0, 0, 0] });
     });
 
+    it(`confirmPointerPicker ${kind === "interpolate" ? "refuses" : "accepts"} a bool property on a pointer/${kind} node`, () => {
+      install(withJson(emptyScene(), (j) => {
+        j.nodes = [{ name: "N" }];
+        j.scenes = [{ name: "Scene", nodes: [0] }];
+      }));
+      useAppStore.getState().attachOnSelectPointerNode(0, kind);
+      useAppStore.getState().confirmPointerPicker("/nodes/0/extensions/KHR_node_visibility/visible", "bool");
+      const r = exported();
+      const ext = (r.json.extensions as { KHR_interactivity: unknown }).KHR_interactivity;
+      const errors = validateExtension(ext).diagnostics.filter((d) => d.severity === "error");
+      if (kind === "interpolate") {
+        expect(errors).toEqual([]); // retarget was refused, graph unchanged
+        expect(literal(r.json, 1, "value").signature).toBe("float3");
+      } else {
+        expect(literal(r.json, 1, "value").signature).toBe("bool");
+      }
+    });
+
     it(`retargeting an On select -> ${kind} node to a different-typed property keeps the graph valid`, () => {
       install(withJson(emptyScene(), (j) => {
         j.nodes = [{ name: "N", rotation: [0, 0.7071, 0, 0.7071] }];

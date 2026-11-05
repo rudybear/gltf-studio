@@ -42,3 +42,5 @@ Prefix: `UX`. This file owns the `UX-9xx` block.
 ## Open questions
 
 _None at freeze time._
+
+- Implementation note (2026-11-04, no requirement change): for a `pointer/interpolate` target node the picker disables non-float-family properties with a reason tooltip and `confirmPointerPicker` refuses them (GV159). See `specs/ux-shell.md`.

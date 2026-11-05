@@ -20,6 +20,13 @@ import type { GltfJsonShape } from "./gltf-scene.js";
 
 export type PointerValueType = "bool" | "int" | "float" | "float2" | "float3" | "float4";
 
+/** Value types `pointer/interpolate` accepts (mirrors @gltfi/kernel's FLOAT_TYPES; GV159 rejects the rest). */
+const INTERPOLATABLE_TYPES: ReadonlySet<string> = new Set(["float", "float2", "float3", "float4", "float2x2", "float3x3", "float4x4"]);
+export function isInterpolatableType(type: string): boolean {
+  return INTERPOLATABLE_TYPES.has(type);
+}
+export const NOT_INTERPOLATABLE_REASON = "pointer/interpolate only supports float types — this property can't be interpolated";
+
 export interface AnimatablePropertyDef {
   key: string;
   label: string;
