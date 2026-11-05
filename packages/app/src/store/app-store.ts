@@ -26,7 +26,7 @@ import {
   type Command,
   type EditorDocument
 } from "@gltf-studio/editor-core";
-import { animationRefPointer, setPointerConfig } from "@gltf-studio/graph-canvas";
+import { animationRefPointer, pointerScaffoldCommands, setPointerConfig } from "@gltf-studio/graph-canvas";
 import {
   findEnclosingHandlerRoot,
   findGraphNodeIndexForPointer,
@@ -684,11 +684,8 @@ export interface AppState {
    * `sources[]` entry's nonstandard-but-established one-shot trigger pointer,
    * `/extensions/KHR_audio_emitter/sources/{S}/playing`
    * (`specs/engine-api.md`'s `AH-pointer-value-tbd` resolution) — as one
-   * undoable command, same shape as `attachOnSelectPointerNode` above. Does
-   * NOT preset the pointer/set's own boolean literal (consistent with
-   * `addPointerGraphNode`'s existing precedent of leaving a freshly-added
-   * pointer node's value unset) — the graph canvas's own bool-literal editor
-   * is where the user wires `true`, same as any other fresh pointer/set node.
+   * undoable command, same shape as `attachOnSelectPointerNode` above. Presets
+   * the pointer/set's boolean `value` literal to `true` (PC-012).
    */
   attachOnSelectPlaySound(nodeIndex: number): void;
   /**
@@ -1921,10 +1918,15 @@ export const useAppStore = create<AppState>((set, get) => {
   addPointerGraphNode(kind, pointerPath, signature) {
     const { history, dispatchCommand, setActiveDockTab, pushToast } = get();
     if (!history) return;
-    const command = GraphEdit.addPointerNode(history.document, 0, kind, pointerPath, signature);
-    dispatchCommand(command);
+    const addCmd = GraphEdit.addPointerNode(history.document, 0, kind, pointerPath, signature);
+    // Neutral defaults (value = current property value, interpolate: duration/p1/p2) so Play accepts the node as-is.
+    const docAfterAdd: EditorDocument = { ...history.document, json: applyPatches(history.document.json, addCmd.patches) };
+    const addedIndex = ((getIn(docAfterAdd.json, ["extensions", "KHR_interactivity", "graphs", 0, "nodes"]) as unknown[] | undefined) ?? []).length - 1;
+    const scaffold = pointerScaffoldCommands(docAfterAdd, 0, addedIndex, pointerPath, signature);
+    const combined = combineCommandParts([addCmd, ...scaffold]);
+    dispatchCommand({ id: addCmd.id, label: addCmd.label, patches: combined.patches, inverse: combined.inverse });
     setActiveDockTab("graph");
-    pushToast(`Added ${kind === "set" ? "pointer/set" : "pointer/interpolate"} node for ${pointerPath}.`);
+    pushToast(`Added ${kind === "set" ? "pointer/set" : "pointer/interpolate"} node for ${pointerPath} (neutral defaults; edit the value to change it).`);
   },
 
   attachOnSelectPointerNode(nodeIndex, kind) {
@@ -1953,15 +1955,18 @@ export const useAppStore = create<AppState>((set, get) => {
     const docAfterPointer: EditorDocument = { ...history.document, json: jsonAfterPointer };
 
     const connectCmd = GraphEdit.connectFlow(docAfterPointer, graphIndex, onSelectIndex, "out", pointerNodeIndex, "in");
+    // Neutral defaults so the graph validates and Play runs it straight away with no visible effect:
+    // value = the node's current translation (a no-op write); interpolate adds duration 1, p1 [0,0], p2 [1,1].
+    const scaffold = pointerScaffoldCommands(docAfterPointer, graphIndex, pointerNodeIndex, pointerPath, signature);
 
-    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd]);
+    const combined = combineCommandParts([ensureGraphCmd, onSelectCmd, pointerCmd, connectCmd, ...scaffold]);
     const label = `On select → ${kind === "set" ? "Set" : "Interpolate"} property`;
     dispatchCommand({ id: makeCommandId("attach-onselect-pointer"), label, patches: combined.patches, inverse: combined.inverse });
 
     setActiveDockTab("graph");
     selectGraphNode(pointerNodeIndex);
     requestGraphNodeFocus(pointerNodeIndex);
-    pushToast(`${label} — pick the exact property in the pointer picker.`);
+    pushToast(`${label} — added with neutral defaults; pick the exact property in the pointer picker.`);
     // UX-1118: the picker can only ever retarget an EXISTING node — this is
     // why the node above was created with a placeholder `/translation`
     // path FIRST, then immediately handed to the picker for retargeting.

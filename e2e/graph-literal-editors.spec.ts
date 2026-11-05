@@ -143,7 +143,7 @@ test.describe("typed literal editors (specs/ux-graph-canvas.md UX-517)", () => {
     await expect.poll(async () => {
       const graph = await getGraphJson(page);
       return graph.nodes[nodeIndex]?.values?.value?.value;
-    }).toEqual([2.5, 0, 0]);
+    }).toEqual([2.5, 1, 1]); // retarget seeds the neutral scale (identity = ones); only x was edited
   });
 
   test("a pointer/set node targeting a material's baseColorFactor (a known color path) renders a real color picker on BOTH the canvas card and the side panel, and editing it writes the float4 literal (UX-519)", async ({

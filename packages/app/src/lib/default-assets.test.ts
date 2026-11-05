@@ -3,7 +3,7 @@
 // Covers the sources not already covered by packages/play/src/sample-assets.test.ts (samples/*.glb):
 //   - the "Empty scene" starter (empty-scene.ts),
 //   - every Copilot mock-agent template (spin, move, play-sound, add-cube, neutral-claim),
-//   - the Inspector "Attach behavior" store actions (On select -> set/interpolate/play sound/animation).
+//   - the Inspector "Attach behavior" store actions (On select -> set/interpolate/play sound/animation, pointer retarget).
 // Every result is exported exactly as "Export .glb" does (editor-core `save`), re-parsed, then
 // validated and run through the interpreter (construct, start, tick once).
 import { readFileSync } from "node:fs";
@@ -201,19 +201,63 @@ describe("Inspector 'Attach behavior' store actions produce spec-valid graphs (P
     expectValidAndRuns(r.json, r.bin);
   });
 
-  // Scaffolds awaiting the pointer picker: the value/duration/p1/p2 inputs depend on the property the
-  // user picks, so they are deliberately left unwired and Play refuses them with UX-132 diagnostics.
-  // Pin that the ONLY errors are the missing-input ones (GV164) plus the extension rejection (GE005).
+  // UX-132: Play refuses spec-invalid graphs, so these scaffolds must validate. Neutral scaffolds (value = current property value; interpolate: duration 1, p1 [0,0], p2 [1,1]):
+  // Play accepts them straight away and they have no visible effect.
+  const nodeGraph = (json: Record<string, unknown>) =>
+    (json.extensions as { KHR_interactivity: { graphs: Array<{ types: Array<{ signature: string }>; nodes: Array<{ values?: Record<string, { type: number; value: unknown[] }> }> }> } }).KHR_interactivity.graphs[0];
+  function literal(json: Record<string, unknown>, nodeIndex: number, socket: string): { signature: string; value: unknown[] } {
+    const g = nodeGraph(json);
+    const lit = g.nodes[nodeIndex].values![socket];
+    return { signature: g.types[lit.type].signature, value: lit.value };
+  }
   for (const kind of ["set", "interpolate"] as const) {
-    it(`On select -> ${kind} property: unwired scaffold, only GV164 missing-input errors`, () => {
+    it(`On select -> ${kind} property: neutral defaults, zero errors, interpreter runs`, () => {
+      install(withJson(emptyScene(), (j) => {
+        j.nodes = [{ name: "N", translation: [1, 2, 3] }];
+        j.scenes = [{ name: "Scene", nodes: [0] }];
+      }));
+      useAppStore.getState().attachOnSelectPointerNode(0, kind);
+      const r = exported();
+      expectValidAndRuns(r.json, r.bin);
+      expect(literal(r.json, 1, "value")).toEqual({ signature: "float3", value: [1, 2, 3] });
+      if (kind === "interpolate") {
+        expect(literal(r.json, 1, "duration")).toEqual({ signature: "float", value: [1] });
+        expect(literal(r.json, 1, "p1")).toEqual({ signature: "float2", value: [0, 0] });
+        expect(literal(r.json, 1, "p2")).toEqual({ signature: "float2", value: [1, 1] });
+      }
+    });
+
+    it(`addPointerGraphNode ${kind}: neutral defaults, zero errors, interpreter runs`, () => {
       install(withJson(emptyScene(), (j) => {
         j.nodes = [{ name: "N" }];
         j.scenes = [{ name: "Scene", nodes: [0] }];
       }));
-      useAppStore.getState().attachOnSelectPointerNode(0, kind);
-      const ext = (exported().json.extensions as { KHR_interactivity: unknown }).KHR_interactivity;
-      const codes = new Set(validateExtension(ext).diagnostics.filter((d) => d.severity === "error").map((d) => d.code));
-      expect([...codes].sort()).toEqual(["GE005", "GV164"]);
+      useAppStore.getState().addPointerGraphNode(kind, "/nodes/0/translation", "float3");
+      const r = exported();
+      expectValidAndRuns(r.json, r.bin);
+      expect(literal(r.json, 0, "value")).toEqual({ signature: "float3", value: [0, 0, 0] });
+    });
+
+    it(`retargeting an On select -> ${kind} node to a different-typed property keeps the graph valid`, () => {
+      install(withJson(emptyScene(), (j) => {
+        j.nodes = [{ name: "N", rotation: [0, 0.7071, 0, 0.7071] }];
+        j.scenes = [{ name: "Scene", nodes: [0] }];
+        j.materials = [{ pbrMetallicRoughness: { roughnessFactor: 0.25 } }];
+      }));
+      const store = useAppStore.getState();
+      store.attachOnSelectPointerNode(0, kind);
+      const retarget = (path: string, sig: string) => {
+        useAppStore.getState().openPointerPicker({ nodeIndex: 1, currentPath: "/nodes/0/translation", currentType: "float3" });
+        useAppStore.getState().confirmPointerPicker(path, sig);
+        const r = exported();
+        expectValidAndRuns(r.json, r.bin);
+        return r.json;
+      };
+      expect(literal(retarget("/nodes/0/rotation", "float4"), 1, "value")).toEqual({ signature: "float4", value: [0, 0.7071, 0, 0.7071] });
+      expect(literal(retarget("/materials/0/pbrMetallicRoughness/roughnessFactor", "float"), 1, "value")).toEqual({ signature: "float", value: [0.25] });
+      expect(literal(retarget("/nodes/0/scale", "float3"), 1, "value")).toEqual({ signature: "float3", value: [1, 1, 1] });
+      // bool cannot be interpolated (GV159, independent of the value literal), so only pointer/set retargets to it.
+      if (kind === "set") expect(literal(retarget("/nodes/0/extensions/KHR_node_visibility/visible", "bool"), 1, "value")).toEqual({ signature: "bool", value: [false] });
     });
   }
 });

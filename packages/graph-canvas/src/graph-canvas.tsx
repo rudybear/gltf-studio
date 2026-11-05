@@ -29,7 +29,7 @@ import { NodeDetails } from "./node-details.js";
 import { VariablesPanel } from "./variables-panel.js";
 import type { LiteralValue } from "./literal-editors.js";
 import { validateInteractivityGraph, type ValidationResult } from "./validation.js";
-import { setLiteralValue } from "./graph-edit-ext.js";
+import { pointerScaffoldCommands, setLiteralValue } from "./graph-edit-ext.js";
 import { ensureGraphScaffold } from "./ensure-graph.js";
 
 const VALIDATION_DEBOUNCE_MS = 300;
@@ -497,6 +497,16 @@ export function GraphCanvas({
    * `animation/start|stop` set a `ref`-typed `values.animation` literal
    * pointing at the dragged clip's index.
    */
+  /** pointer/set | pointer/interpolate dropped from the scene tree: neutral defaults (see `pointerScaffoldCommands`) so the graph validates. */
+  function addPointerNodeWithDefaults(doc: EditorDocument, graphIndex: number, kind: "set" | "interpolate", path: string, signature: string, position: { x: number; y: number }): Command {
+    const addCmd = GraphEdit.addPointerNode(doc, graphIndex, kind, path, signature, position);
+    const after: EditorDocument = { ...doc, json: applyPatches(doc.json, addCmd.patches) };
+    const nodeCount = (getIn(after.json, ["extensions", "KHR_interactivity", "graphs", graphIndex, "nodes"]) as unknown[] | undefined)?.length ?? 0;
+    const scaffold = pointerScaffoldCommands(after, graphIndex, nodeCount - 1, path, signature);
+    const combined = combineCommandParts([addCmd, ...scaffold]);
+    return { id: addCmd.id, label: addCmd.label, patches: combined.patches, inverse: combined.inverse };
+  }
+
   function handleCreateFromDrop(kind: "node" | "anim", refId: number, optionKey: string, position: { x: number; y: number }) {
     const { workingDocument, index } = resolveTargetDocumentAndGraphIndex();
     const existingCount = (getIn(workingDocument.json, ["extensions", "KHR_interactivity", "graphs", index, "nodes"]) as unknown[] | undefined)?.length ?? 0;
@@ -505,9 +515,9 @@ export function GraphCanvas({
     if (kind === "node" && optionKey === "pointer-get") {
       command = GraphEdit.addPointerNode(workingDocument, index, "get", `/nodes/${refId}/translation`, "float3", position);
     } else if (kind === "node" && optionKey === "pointer-set") {
-      command = GraphEdit.addPointerNode(workingDocument, index, "set", `/nodes/${refId}/translation`, "float3", position);
+      command = addPointerNodeWithDefaults(workingDocument, index, "set", `/nodes/${refId}/translation`, "float3", position);
     } else if (kind === "node" && optionKey === "pointer-interpolate") {
-      command = GraphEdit.addPointerNode(workingDocument, index, "interpolate", `/nodes/${refId}/translation`, "float3", position);
+      command = addPointerNodeWithDefaults(workingDocument, index, "interpolate", `/nodes/${refId}/translation`, "float3", position);
     } else if (kind === "node" && optionKey === "event-onselect") {
       command = GraphEdit.addNode(workingDocument, index, "event/onSelect", {
         extension: "KHR_node_selectability",
